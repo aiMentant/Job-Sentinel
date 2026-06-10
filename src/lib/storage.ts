@@ -4,6 +4,20 @@ import { supabase } from './supabaseClient';
 
 const BASE_DATA_PATH = path.join(process.cwd(), 'data/profiles');
 
+// Keep in-memory singletons across Next.js Hot Module Replacement (HMR)
+const globalForStorage = global as unknown as {
+  memoryProfiles?: Map<string, any>;
+  memoryJobs?: Map<string, any[]>;
+};
+
+const memoryProfiles = globalForStorage.memoryProfiles || new Map<string, any>();
+const memoryJobs = globalForStorage.memoryJobs || new Map<string, any[]>();
+
+if (process.env.NODE_ENV !== "production") {
+  globalForStorage.memoryProfiles = memoryProfiles;
+  globalForStorage.memoryJobs = memoryJobs;
+}
+
 // Helper to determine if we should use Supabase or local files
 function isSupabaseEnabled(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -35,10 +49,12 @@ export async function listProfiles() {
     await ensureDir(BASE_DATA_PATH);
     const dirs = await fs.readdir(BASE_DATA_PATH);
     const filtered = dirs.filter(d => !d.startsWith('.'));
-    return filtered.length > 0 ? filtered : ['default'];
+    const combined = Array.from(new Set([...filtered, ...memoryProfiles.keys()]));
+    return combined.length > 0 ? combined : ['default'];
   } catch (fsError) {
-    console.warn("Local filesystem read failed, returning default profile ID:", fsError);
-    return ['default'];
+    console.warn("Local filesystem read failed, returning combined memory list:", fsError);
+    const combined = Array.from(new Set(['default', ...memoryProfiles.keys()]));
+    return combined;
   }
 }
 
@@ -66,6 +82,9 @@ export async function getProfile(profileId: string = 'default') {
     const data = await fs.readFile(profilePath, 'utf-8');
     return JSON.parse(data);
   } catch (error) {
+    if (memoryProfiles.has(profileId)) {
+      return memoryProfiles.get(profileId);
+    }
     return { fullName: "Lea Wenban", targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
   }
 }
@@ -88,8 +107,9 @@ export async function saveProfile(profile: any, profileId: string = 'default') {
     const dir = path.join(BASE_DATA_PATH, profileId);
     await ensureDir(dir);
     await fs.writeFile(path.join(dir, 'profile.json'), JSON.stringify(profile, null, 2));
-  } catch (fsError) {
-    throw new Error("Unable to save profile. The production filesystem is read-only. Please ensure your Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY) are configured in your hosting dashboard settings (e.g. Netlify/Vercel) so database persistence is active.");
+  } catch (fsError: any) {
+    console.warn(`Local filesystem saveProfile failed (${fsError.message}), using in-memory storage fallback.`);
+    memoryProfiles.set(profileId, profile);
   }
 }
 
@@ -114,6 +134,9 @@ export async function getJobs(profileId: string = 'default') {
     const data = await fs.readFile(dbPath, 'utf-8');
     return JSON.parse(data);
   } catch (error) {
+    if (memoryJobs.has(profileId)) {
+      return memoryJobs.get(profileId) || [];
+    }
     return [];
   }
 }
@@ -132,9 +155,14 @@ export async function saveJobs(jobs: any[], profileId: string = 'default') {
   }
 
   // Fallback to local files
-  const dir = path.join(BASE_DATA_PATH, profileId);
-  await ensureDir(dir);
-  await fs.writeFile(path.join(dir, 'jobs.json'), JSON.stringify(jobs, null, 2));
+  try {
+    const dir = path.join(BASE_DATA_PATH, profileId);
+    await ensureDir(dir);
+    await fs.writeFile(path.join(dir, 'jobs.json'), JSON.stringify(jobs, null, 2));
+  } catch (fsError: any) {
+    console.warn(`Local filesystem saveJobs failed (${fsError.message}), using in-memory storage fallback.`);
+    memoryJobs.set(profileId, jobs);
+  }
 }
 
 export async function updateJobStatus(id: string, status: string, profileId: string = 'default') {
