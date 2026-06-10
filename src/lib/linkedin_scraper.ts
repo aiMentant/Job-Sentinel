@@ -121,3 +121,61 @@ export async function scrapeJobDescription(url: string): Promise<string> {
     return "Error fetching description.";
   }
 }
+
+export async function scrapePublicLinkedInProfile(url: string): Promise<string> {
+  const browserlessKey = process.env.BROWSERLESS_API_KEY;
+  const browser = browserlessKey 
+    ? await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`)
+    : await chromium.launch({ headless: true });
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  });
+  const page = await context.newPage();
+  
+  try {
+    console.log(`[Scraper] Fetching public LinkedIn profile: ${url}`);
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 20000 });
+    
+    // Wait for main top card or profile content
+    await page.waitForSelector('.top-card-layout, main, body', { timeout: 10000 });
+    
+    // Extract main texts
+    const profileText = await page.evaluate(() => {
+      const selectors = [
+        '.top-card-layout',
+        'section.experience',
+        'section.education',
+        'section.skills',
+        'section.summary',
+        '.core-section-container'
+      ];
+      let results: string[] = [];
+      
+      const title = document.title;
+      results.push(`Title: ${title}`);
+      
+      for (const selector of selectors) {
+        const els = document.querySelectorAll(selector);
+        els.forEach(el => {
+          if (el.textContent?.trim()) {
+            results.push(el.textContent.trim().replace(/\s+/g, ' '));
+          }
+        });
+      }
+      
+      if (results.length <= 1) {
+        const bodyText = document.body.innerText || "";
+        return bodyText.slice(0, 8000);
+      }
+      
+      return results.join("\n\n");
+    });
+    
+    await browser.close();
+    return profileText;
+  } catch (error: any) {
+    console.error('[Scraper] Profile scrape failed:', error.message);
+    await browser.close();
+    return `Failed to scrape profile. Error: ${error.message}`;
+  }
+}

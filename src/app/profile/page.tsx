@@ -12,9 +12,10 @@ import {
   ChevronDown,
   ChevronUp,
   Building2,
-  GraduationCap
+  GraduationCap,
+  Upload
 } from "lucide-react";
-import { parseResumeText, saveUserProfile, fetchUserProfile, listAllProfilesWithData, deleteProfile } from "@/app/actions/jobActions";
+import { parseResumeText, saveUserProfile, fetchUserProfile, listAllProfilesWithData, deleteProfile, runLinkedInProfileScrape, parseUploadedFile } from "@/app/actions/jobActions";
 
 import { getActiveProfileId, setActiveProfileId } from "@/app/actions/profileSwitch";
 import { findRoleFit, upgradeBullets } from "@/app/actions/careerTools";
@@ -36,6 +37,62 @@ export default function ProfilePage() {
   const [upgradingBulletIdx, setUpgradingBulletIdx] = useState<number | null>(null);
   const [aiResultModal, setAiResultModal] = useState<{ title: string; content: string } | null>(null);
   const [profileToDelete, setProfileToDelete] = useState<string | null>(null);
+
+  const [linkedInUrl, setLinkedInUrl] = useState("");
+  const [isScraping, setIsScraping] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleLinkedInScrape = async () => {
+    if (!linkedInUrl) return;
+    setIsScraping(true);
+    setStatus("Scraping LinkedIn profile...");
+    try {
+      const text = await runLinkedInProfileScrape(linkedInUrl);
+      setResumeText(text);
+      setStatus("LinkedIn profile scraped. Parsing into profile structure...");
+      const data = await parseResumeText(text);
+      if (Object.keys(data).length === 0 || (!data.fullName && !data.experience?.length)) {
+        setStatus("LinkedIn scrape succeeded, but AI found no structured data. Review raw text on left.");
+      } else {
+        setProfile(data);
+        setStatus("LinkedIn profile imported successfully.");
+      }
+    } catch (error: any) {
+      console.error(error);
+      alert(error.message || "Failed to scrape LinkedIn profile.");
+      setStatus("LinkedIn scrape failed.");
+    } finally {
+      setIsScraping(false);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploading(true);
+    setStatus(`Reading ${file.name}...`);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const text = await parseUploadedFile(formData);
+      setResumeText(text);
+      setStatus("File content loaded. Parsing into profile structure...");
+      const data = await parseResumeText(text);
+      if (Object.keys(data).length === 0 || (!data.fullName && !data.experience?.length)) {
+        setStatus("Resume upload succeeded, but AI found no structured data. Review raw text on left.");
+      } else {
+        setProfile(data);
+        setStatus("Resume file imported successfully.");
+      }
+    } catch (error: any) {
+      console.error(error);
+      alert(error.message || "Failed to upload/parse resume.");
+      setStatus("Resume upload failed.");
+    } finally {
+      setIsUploading(false);
+      e.target.value = "";
+    }
+  };
 
 
 
@@ -98,11 +155,6 @@ export default function ProfilePage() {
   };
 
   const handleParse = async () => {
-    if (!(profile as any).geminiApiKey) {
-      alert("Gemini API Key missing! Please navigate to Agent Settings to add your key.");
-      setStatus("Parse failed: API Key missing.");
-      return;
-    }
     if (!resumeText) return;
     setIsParsing(true);
     try {
@@ -151,10 +203,6 @@ export default function ProfilePage() {
 
   // Tool 3: Find overlooked roles based on skills
   const handleFindRoleFit = async () => {
-    if (!(profile as any).geminiApiKey) {
-      alert("Gemini API Key missing! Please navigate to Agent Settings to add your key.");
-      return;
-    }
     setIsFindingRoles(true);
     try {
       const roles = await findRoleFit();
@@ -175,10 +223,6 @@ export default function ProfilePage() {
 
   // Tool 4: Upgrade bullet points for a specific role
   const handleUpgradeBullets = async (expIndex: number) => {
-    if (!(profile as any).geminiApiKey) {
-      alert("Gemini API Key missing! Please navigate to Agent Settings to add your key.");
-      return;
-    }
     setUpgradingBulletIdx(expIndex);
     try {
       const bullets = profile.experience?.[expIndex]?.achievements || [];
@@ -198,63 +242,76 @@ export default function ProfilePage() {
     <>
     <div className="p-8 max-w-6xl mx-auto space-y-8">
 
-      <div className="flex justify-between items-end">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-             <h2 className="text-3xl font-bold font-outfit">Identity Hub</h2>
-             <select 
-               value={activeId}
-               onChange={(e) => handleSwitchProfile(e.target.value)}
-               className="bg-white/5 border border-white/10 rounded-lg px-3 py-1 text-xs font-bold text-indigo-400 focus:ring-0 cursor-pointer"
-             >
-               {profiles.map(p => (
-                 <option key={p.id} value={p.id}>
-                   {p.fullName.toUpperCase()} {p.targetTitle ? `— ${p.targetTitle.toUpperCase()}` : ""}
-                 </option>
-               ))}
-
-             </select>
-             <button 
-               onClick={handleCreateProfile}
-               className="p-1 rounded bg-white/5 text-slate-500 hover:text-white transition-all"
-               title="New Profile"
-             >
-               <Plus className="w-4 h-4" />
-              </button>
-              {activeId !== "default" && (
-                <button 
-                  onClick={() => setProfileToDelete(activeId)}
-                  className="p-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all border border-red-500/10 ml-1"
-                  title="Delete Identity"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-3xl font-bold font-outfit text-white">Identity Hub</h2>
+            <p className="text-slate-400 text-sm mt-1">Switch between resumes or create a new profile for a different user.</p>
           </div>
-          <p className="text-slate-400">Switch between resumes or create a new profile for a different user.</p>
+          <div className="flex gap-3">
+            <button 
+              onClick={async () => {
+                const savedProfile = await fetchUserProfile();
+                if (savedProfile) {
+                  setProfile(savedProfile);
+                  setResumeText(savedProfile.resumeText || "");
+                }
+                setStatus("Changes discarded.");
+                setTimeout(() => setStatus(null), 3000);
+              }} 
+              className="btn-secondary"
+            >
+              Discard
+            </button>
+            <button 
+              onClick={handleSave}
+              disabled={isSaving}
+              className="btn-primary"
+            >
+              <Save className="w-4 h-4" />
+              {isSaving ? "Saving..." : "Save Profile"}
+            </button>
+          </div>
         </div>
-        <div className="flex gap-3">
-          <button 
-            onClick={async () => {
-              const savedProfile = await fetchUserProfile();
-              if (savedProfile) {
-                setProfile(savedProfile);
-                setResumeText(savedProfile.resumeText || "");
-              }
-              setStatus("Changes discarded.");
-              setTimeout(() => setStatus(null), 3000);
-            }} 
-            className="btn-secondary"
+
+        {/* Horizontal Tabs List */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-white/10 pb-3">
+          {profiles.map(p => {
+            const isActive = p.id === activeId;
+            return (
+              <div 
+                key={p.id}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                  isActive 
+                    ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-400 shadow-md shadow-indigo-500/5" 
+                    : "bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-slate-200"
+                }`}
+                onClick={() => handleSwitchProfile(p.id)}
+              >
+                <span>{p.fullName.toUpperCase()} {p.targetTitle ? `— ${p.targetTitle.toUpperCase()}` : ""}</span>
+                
+                {p.id !== "default" && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setProfileToDelete(p.id);
+                    }}
+                    className="p-0.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors ml-1 cursor-pointer"
+                    title="Delete Identity"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          
+          <button
+            onClick={handleCreateProfile}
+            className="flex items-center justify-center w-8 h-8 rounded-xl bg-white/5 border border-white/10 text-slate-400 hover:bg-white/10 hover:text-white transition-all cursor-pointer"
+            title="Create New Identity"
           >
-            Discard
-          </button>
-          <button 
-            onClick={handleSave}
-            disabled={isSaving}
-            className="btn-primary"
-          >
-            <Save className="w-4 h-4" />
-            {isSaving ? "Saving..." : "Save Profile"}
+            <Plus className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -279,6 +336,53 @@ export default function ProfilePage() {
                 </button>
               </div>
             </div>
+            {/* LinkedIn Scraper & File Upload Quick Controls */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-white/[0.02] rounded-xl border border-white/5">
+              <div className="space-y-2">
+                <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
+                    <rect x="2" y="9" width="4" height="12" />
+                    <circle cx="4" cy="4" r="2" />
+                  </svg>
+                  LinkedIn Import
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    placeholder="https://linkedin.com/in/username"
+                    value={linkedInUrl}
+                    onChange={(e) => setLinkedInUrl(e.target.value)}
+                    className="input-field text-xs py-1.5 flex-1 min-w-0"
+                  />
+                  <button
+                    onClick={handleLinkedInScrape}
+                    disabled={isScraping || !linkedInUrl}
+                    className="px-3 py-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg text-xs font-bold border border-indigo-500/20 hover:bg-indigo-500/20 transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    {isScraping ? "Scraping..." : "Scrape"}
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider flex items-center gap-1">
+                  <Upload className="w-3.5 h-3.5 text-emerald-400" /> ATS Resume Upload
+                </label>
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept=".txt,.pdf,.docx"
+                    onChange={handleFileUpload}
+                    disabled={isUploading}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                  />
+                  <div className="flex items-center justify-center gap-2 border border-dashed border-white/10 hover:border-emerald-500/30 bg-white/[0.01] hover:bg-emerald-500/[0.02] transition-all py-1.5 px-3 rounded-lg text-xs font-medium text-slate-300">
+                    <Upload className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{isUploading ? "Uploading..." : "Upload PDF / DOCX / TXT"}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
             <textarea 
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
@@ -286,7 +390,7 @@ export default function ProfilePage() {
               placeholder="# Paste your ATS-friendly resume here..."
             />
             {status && (
-              <p className={`text-[10px] font-bold uppercase tracking-wider ${status.includes("successful") ? "text-emerald-400" : "text-red-400"}`}>
+              <p className={`text-[10px] font-bold uppercase tracking-wider ${status.toLowerCase().includes("failed") || status.toLowerCase().includes("error") ? "text-red-400" : "text-emerald-400"}`}>
                 {status}
               </p>
             )}

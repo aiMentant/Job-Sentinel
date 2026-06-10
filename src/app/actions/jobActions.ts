@@ -4,6 +4,7 @@ import { searchLinkedInJobs, scrapeJobDescription } from "@/lib/linkedin_scraper
 import { generateWithAI, analyzeJobMatch } from "@/lib/gemini";
 import { Job, UserProfile, mockJobs } from "@/lib/db";
 import { getJobs, saveJobs, updateJobStatus as dbUpdateStatus, deleteJob as dbDeleteJob, saveProfile, getProfile, toggleFavourite as dbToggleFavourite, updateJobField as dbUpdateJobField } from "@/lib/storage";
+import JSZip from "jszip";
 
 import { getAgentStatus, setAgentStatus } from "./agentStatus";
 import { getActiveProfileId } from "./profileSwitch";
@@ -319,7 +320,7 @@ export async function parseResumeText(text: string): Promise<Partial<UserProfile
   } catch (error: any) {
     await require('fs/promises').writeFile('data/debug_error.txt', error.stack || error.message);
     console.error("Failed to parse resume:", error);
-    return {};
+    throw error;
   }
 }
 export async function analyzeSingleJob(jobId: string) {
@@ -372,5 +373,34 @@ export async function testApiKey(key: string, model: string): Promise<{ success:
   } catch (e: any) {
     return { success: false, message: e.message || "Failed to connect to Gemini API." };
   }
+}
+
+export async function runLinkedInProfileScrape(url: string): Promise<string> {
+  const { scrapePublicLinkedInProfile } = await import("@/lib/linkedin_scraper");
+  const rawText = await scrapePublicLinkedInProfile(url);
+  if (rawText.startsWith("Failed")) {
+    throw new Error(rawText);
+  }
+  return rawText;
+}
+
+export async function parseUploadedFile(formData: FormData): Promise<string> {
+  const file = formData.get("file") as File;
+  if (!file) throw new Error("No file uploaded.");
+  const filename = file.name.toLowerCase();
+  if (filename.endsWith(".txt")) {
+    return await file.text();
+  } else if (filename.endsWith(".pdf")) {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const pdf = require("pdf-parse");
+    const parsed = await pdf(buffer);
+    return parsed.text;
+  } else if (filename.endsWith(".docx")) {
+    const buffer = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buffer);
+    const docXml = await zip.file("word/document.xml")?.async("string");
+    return docXml ? docXml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "";
+  }
+  throw new Error("Unsupported file format.");
 }
 

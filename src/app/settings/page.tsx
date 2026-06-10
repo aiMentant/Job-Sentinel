@@ -38,13 +38,19 @@ export default function SettingsPage() {
   useEffect(() => {
     async function loadSettings() {
       setIsLoading(true);
-      const profile = await fetchUserProfile();
-      if (profile) {
-        if (profile.geminiApiKey) setApiKey(profile.geminiApiKey);
-        if (profile.preferredModel) setPreferredModel(profile.preferredModel);
-        if (profile.linkedinStealth !== undefined) setStealthMode(profile.linkedinStealth);
+      try {
+        const profile = await fetchUserProfile();
+        if (profile) {
+          if (profile.geminiApiKey) setApiKey(profile.geminiApiKey);
+          if (profile.preferredModel) setPreferredModel(profile.preferredModel);
+          if (profile.linkedinStealth !== undefined) setStealthMode(profile.linkedinStealth);
+        }
+      } catch (error: any) {
+        console.error("Failed to load settings profile:", error);
+        setSaveStatus({ type: 'error', message: "Failed to connect to profile database." });
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     }
     loadSettings();
   }, []);
