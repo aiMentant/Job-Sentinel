@@ -22,6 +22,7 @@ import { parseResumeText, saveUserProfile, fetchUserProfile, listAllProfilesWith
 import { getActiveProfileId, setActiveProfileId } from "@/app/actions/profileSwitch";
 import { findRoleFit, upgradeBullets } from "@/app/actions/careerTools";
 import { UserProfile, WorkExperience, Education, QuickAnswer, SalaryExpectations } from "@/lib/db";
+import { useProfile } from "@/components/ProfileContext";
 
 export default function ProfilePage() {
   const [resumeText, setResumeText] = useState("");
@@ -30,9 +31,9 @@ export default function ProfilePage() {
   const [expandedSection, setExpandedSection] = useState<string | null>("experience");
   const [status, setStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [profiles, setProfiles] = useState<{id: string, fullName: string, targetTitle?: string}[]>([]);
 
-  const [activeId, setActiveId] = useState("default");
+  const { activeProfileId, profiles, switchProfile, createProfile, refreshProfiles } = useProfile();
+
   // Career Tools state
   const [isRewriting, setIsRewriting] = useState(false);
   const [isFindingRoles, setIsFindingRoles] = useState(false);
@@ -96,17 +97,9 @@ export default function ProfilePage() {
     }
   };
 
-
-
   useEffect(() => {
     async function loadData() {
       try {
-        const pId = await getActiveProfileId();
-        setActiveId(pId);
-        
-        const all = await listAllProfilesWithData();
-        setProfiles(all);
-  
         const savedProfile = await fetchUserProfile();
         if (savedProfile) {
           setProfile(savedProfile);
@@ -121,31 +114,25 @@ export default function ProfilePage() {
       }
     }
     loadData();
-  }, [activeId]);
+  }, [activeProfileId]);
 
   const handleSwitchProfile = async (id: string) => {
-    await setActiveProfileId(id);
-    setActiveId(id);
+    await switchProfile(id);
   };
 
   const handleCreateProfile = async () => {
     const name = prompt("Enter a name for the new profile:");
-    if (name) {
-      const id = name.toLowerCase().replace(/\s+/g, '-');
-      await handleSwitchProfile(id);
-      const all = await listAllProfilesWithData();
-      setProfiles(all);
+    if (name && name.trim()) {
+      await createProfile(name.trim());
     }
   };
+
   const handleDeleteProfile = async () => {
     if (!profileToDelete) return;
     try {
       await deleteProfile(profileToDelete);
       setProfileToDelete(null);
-      const pId = await getActiveProfileId();
-      setActiveId(pId);
-      const all = await listAllProfilesWithData();
-      setProfiles(all);
+      await refreshProfiles();
       setStatus("Identity successfully removed.");
     } catch (error: any) {
       alert(error.message);
@@ -252,8 +239,8 @@ export default function ProfilePage() {
       <div className="space-y-4">
         <div className="flex justify-between items-center">
           <div>
-            <h2 className="text-3xl font-bold font-outfit text-white">Identity Hub</h2>
-            <p className="text-slate-400 text-sm mt-1">Switch between resumes or create a new profile for a different user.</p>
+            <h2 className="text-3xl font-bold font-outfit text-foreground">Identity Hub</h2>
+            <p className="text-text-muted text-sm mt-1">Switch between resumes or create a new profile for a different user.</p>
           </div>
           <div className="flex gap-3">
             <button 
@@ -282,16 +269,16 @@ export default function ProfilePage() {
         </div>
 
         {/* Horizontal Tabs List */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-white/10 pb-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-card-border pb-3">
           {profiles.map(p => {
-            const isActive = p.id === activeId;
+            const isActive = p.id === activeProfileId;
             return (
               <div 
                 key={p.id}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
                   isActive 
                     ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-400 shadow-md shadow-indigo-500/5" 
-                    : "bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-slate-200"
+                    : "bg-card border-card-border text-text-muted hover:bg-foreground/5 hover:text-foreground"
                 }`}
                 onClick={() => handleSwitchProfile(p.id)}
               >
@@ -303,7 +290,7 @@ export default function ProfilePage() {
                       e.stopPropagation();
                       setProfileToDelete(p.id);
                     }}
-                    className="p-0.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors ml-1 cursor-pointer"
+                    className="p-0.5 rounded-md text-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors ml-1 cursor-pointer"
                     title="Delete Identity"
                   >
                     <Trash2 className="w-3 h-3" />
@@ -315,7 +302,7 @@ export default function ProfilePage() {
           
           <button
             onClick={handleCreateProfile}
-            className="flex items-center justify-center w-8 h-8 rounded-xl bg-white/5 border border-white/10 text-slate-400 hover:bg-white/10 hover:text-white transition-all cursor-pointer"
+            className="flex items-center justify-center w-8 h-8 rounded-xl bg-card border border-card-border text-text-muted hover:bg-foreground/5 hover:text-foreground transition-all cursor-pointer"
             title="Create New Identity"
           >
             <Plus className="w-4 h-4" />
@@ -333,7 +320,7 @@ export default function ProfilePage() {
                 <h3 className="font-bold">Source of Truth Resume</h3>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-[9px] uppercase font-bold tracking-widest text-slate-600 bg-white/5 px-2 py-0.5 rounded">Protected</span>
+                <span className="text-[9px] uppercase font-bold tracking-widest text-text-muted bg-foreground/5 px-2 py-0.5 rounded">Protected</span>
                 <button 
                   onClick={handleParse}
                   disabled={isParsing || !resumeText}
@@ -344,9 +331,9 @@ export default function ProfilePage() {
               </div>
             </div>
             {/* LinkedIn Scraper & File Upload Quick Controls */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-white/[0.02] rounded-xl border border-white/5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-foreground/[0.02] rounded-xl border border-card-border">
               <div className="space-y-2">
-                <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider flex items-center gap-1">
+                <label className="text-[10px] text-text-muted uppercase font-bold tracking-wider flex items-center gap-1">
                   <svg className="w-3.5 h-3.5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
                     <rect x="2" y="9" width="4" height="12" />
@@ -372,7 +359,7 @@ export default function ProfilePage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] text-slate-500 uppercase font-bold tracking-wider flex items-center gap-1">
+                <label className="text-[10px] text-text-muted uppercase font-bold tracking-wider flex items-center gap-1">
                   <Upload className="w-3.5 h-3.5 text-emerald-400" /> ATS Resume Upload
                 </label>
                 <div className="relative">
@@ -383,8 +370,8 @@ export default function ProfilePage() {
                     disabled={isUploading}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
                   />
-                  <div className="flex items-center justify-center gap-2 border border-dashed border-white/10 hover:border-emerald-500/30 bg-white/[0.01] hover:bg-emerald-500/[0.02] transition-all py-1.5 px-3 rounded-lg text-xs font-medium text-slate-300">
-                    <Upload className="w-3.5 h-3.5 text-slate-400" />
+                  <div className="flex items-center justify-center gap-2 border border-dashed border-card-border hover:border-emerald-500/30 bg-card hover:bg-emerald-500/[0.02] transition-all py-1.5 px-3 rounded-lg text-xs font-medium text-text-muted">
+                    <Upload className="w-3.5 h-3.5 text-text-muted" />
                     <span>{isUploading ? "Uploading..." : "Upload PDF / DOCX / TXT"}</span>
                   </div>
                 </div>
@@ -393,7 +380,7 @@ export default function ProfilePage() {
             <textarea 
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
-              className="input-field w-full h-[600px] font-mono text-[11px] resize-none leading-relaxed bg-[#0d0d0f]"
+              className="input-field w-full h-[600px] font-mono text-[11px] resize-none leading-relaxed bg-card"
               placeholder="# Paste your ATS-friendly resume here..."
             />
             {status && (

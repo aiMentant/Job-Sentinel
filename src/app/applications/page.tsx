@@ -15,6 +15,7 @@ import {
   Edit2
 } from "lucide-react";
 import { fetchJobs, updateJobStatus, deleteJob, generateCoverLetter, bulkDeleteJobs } from "@/app/actions/jobActions";
+import { useProfile } from "@/components/ProfileContext";
 
 const statusConfig = {
   Discovery: { icon: Clock, color: "text-blue-400", bg: "bg-blue-400/10", label: "Discovery" },
@@ -33,6 +34,7 @@ const statusConfig = {
 };
 
 export default function ApplicationsPage() {
+  const { activeProfileId } = useProfile();
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
@@ -42,7 +44,7 @@ export default function ApplicationsPage() {
 
   useEffect(() => {
     loadJobs();
-  }, []);
+  }, [activeProfileId]);
 
   const loadJobs = async () => {
     const data = await fetchJobs();

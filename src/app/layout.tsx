@@ -5,6 +5,8 @@ import Sidebar from "@/components/Sidebar";
 import { ProfileProvider } from "@/components/ProfileContext";
 import ProfileTabs from "@/components/ProfileTabs";
 
+import { ThemeProvider } from "@/components/ThemeContext";
+
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
 
@@ -21,15 +23,17 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} ${outfit.variable} font-sans antialiased flex`}>
-        <ProfileProvider>
-          <Sidebar />
-          <main className="flex-1 flex flex-col overflow-hidden h-screen bg-[#0a0a0c]">
-            <ProfileTabs />
-            <div className="flex-1 overflow-y-auto">
-              {children}
-            </div>
-          </main>
-        </ProfileProvider>
+        <ThemeProvider>
+          <ProfileProvider>
+            <Sidebar />
+            <main className="flex-1 flex flex-col overflow-hidden h-screen bg-background border-l border-card-border">
+              <ProfileTabs />
+              <div className="flex-1 overflow-y-auto">
+                {children}
+              </div>
+            </main>
+          </ProfileProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

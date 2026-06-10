@@ -266,7 +266,30 @@ export async function generateCoverLetter(id: string) {
   const job = jobs.find((j: any) => j.id === id);
   if (!job) return "Job not found.";
 
-  const prompt = `Generate a highly tailored, professional cover letter for a Staff Product Designer role at ${job.company} for the position of ${job.title}. Use my real achievements from my profile. Keep it under 300 words. No hallucinations.`;
+  const profile = await getProfile(profileId);
+  const context = profile ? `
+Name: ${profile.fullName}
+Summary: ${profile.summary}
+Skills: ${(profile.skills || []).join(", ")}
+Experience:
+${(profile.experience || []).map((e: any) => `${e.role} at ${e.company}: ${(e.achievements || []).join(". ")}`).join("\n")}
+Education: ${(profile.education || []).map((e: any) => `${e.degree} from ${e.institution}`).join(", ")}
+  `.trim() : "";
+
+  const prompt = `
+Generate a highly tailored, professional cover letter for the role of ${job.title} at ${job.company}.
+
+My Profile Details:
+${context}
+
+CRITICAL ANTI-HALLUCINATION GUARDRAILS:
+- Rely ONLY on the provided Profile Details as the absolute source of truth.
+- Do NOT invent, fabricate, or exaggerate any achievements, credentials, job roles, projects, technologies, KPIs, metrics, or experiences.
+- Do NOT extrapolate experiences beyond what is explicitly mentioned.
+- If a skill/requirement is missing, focus on adjacent transferable skills found in the profile rather than inventing it.
+- Keep the cover letter under 300 words.
+- Sound professional, human, and direct.
+`;
   
   try {
     return await generateWithAI(prompt);
@@ -284,6 +307,11 @@ export async function parseResumeText(text: string): Promise<Partial<UserProfile
     IMPORTANT: You must return ONLY a JSON object. No preamble, no markdown blocks.
     
     CRITICAL: For the "targetTitles" field, you must actively deduce and generate a comprehensive array of 5 to 8 applicable job titles (e.g., "Senior Product Designer", "UX Architect", "Lead UI/UX Designer") that perfectly match the candidate's skills and seniority level.
+
+    CRITICAL ANTI-HALLUCINATION GUARDRAILS:
+    - Rely ONLY on the provided TEXT. Do not invent, fabricate, or embellish candidate history.
+    - Do NOT invent or add any KPIs, metrics, projects, companies, technologies, or credentials not explicitly mentioned in the TEXT.
+    - Keep all extracted info 100% faithful to the source facts.
 
     TEXT:
     ${text}
@@ -310,9 +338,6 @@ export async function parseResumeText(text: string): Promise<Partial<UserProfile
   try {
     const data = await generateWithAI(prompt, { jsonMode: true });
     
-    // Fallback mapping in case AI uses different keys
-    
-    // Fallback mapping in case AI uses different keys
     return {
       fullName: data.fullName || data.name || "",
       email: data.email || "",

@@ -34,7 +34,7 @@ export async function rewriteResume(resumeText?: string): Promise<string> {
 
   if (!context) return "No resume text found. Please paste your resume or save it to your profile first.";
 
-  const prompt = `Here is my resume:\n\n${context}\n\nRewrite it to maximize interview callbacks. Use strong action verbs, quantified results, and ATS-friendly formatting. CRITICAL GUARDRAIL: Do not invent any new job roles, projects, technologies, credentials, or achievements. Only optimize the phrasing, clarity, and layout of the existing content. Keep it 100% faithful to the source facts. Return the rewritten resume as plain text, preserving section headers.`;
+  const prompt = `Here is my resume:\n\n${context}\n\nRewrite it to maximize interview callbacks. Use strong action verbs, quantified results, and ATS-friendly formatting. CRITICAL ANTI-HALLUCINATION GUARDRAILS: Rely ONLY on the provided resume content. Do NOT invent, fabricate, or exaggerate achievements, credentials, job roles, projects, technologies, KPIs, metrics, or experiences. Only optimize the phrasing, clarity, and layout of the existing content. Keep it 100% faithful to the source facts. Return the rewritten resume as plain text, preserving section headers.`;
   
   const result: any = await generateWithAI(prompt);
   return result;
@@ -64,7 +64,10 @@ Focus on:
 2. Score: A realistic score (0-100) based on how well my skills/years match the core requirements. 
 3. Brief Match Summary: 1 sentence on why/why not this is a fit.
 
-CRITICAL GUARDRAIL: Rely ONLY on the provided Resume/Profile. Do not assume or extrapolate skills not explicitly mentioned.
+CRITICAL ANTI-HALLUCINATION GUARDRAILS:
+- Rely ONLY on the provided Resume/Profile. 
+- Do NOT assume, extrapolate, or invent any skills, metrics, KPIs, tools, or experiences not explicitly mentioned.
+- Keep all analysis and summaries 100% faithful to the source facts.
 
 Respond with ONLY a JSON object (no markdown):
 {
@@ -95,7 +98,14 @@ Based on this professional's experience and skills:
 ${context}
 
 List 10 roles they are qualified for that they might be overlooking. These should be real, in-demand job titles.
-Rank them by hiring demand and response likelihood. Return ONLY a JSON array (no markdown):
+Rank them by hiring demand and response likelihood. 
+
+CRITICAL ANTI-HALLUCINATION GUARDRAILS:
+- Rely ONLY on the provided experience and skills as the absolute source of truth.
+- Do NOT invent, fabricate, or embellish candidate history, accomplishments, credentials, or technologies in the reasoning.
+- Do NOT assume skills or seniorities not explicitly present.
+
+Return ONLY a JSON array (no markdown):
 [
   { "title": "Role Title", "demandScore": 85, "reasoning": "One sentence why this is a strong match." }
 ]
@@ -114,7 +124,12 @@ Rank them by hiring demand and response likelihood. Return ONLY a JSON array (no
 // ────────────────────────────────────────────────────────
 export async function upgradeBullets(bullets: string[]): Promise<string[]> {
   const prompt = `
-Rewrite these resume bullet points. Make them clearer, more results-focused, and more impressive to recruiters. Each bullet must be under 2 lines. Preserve the factual truth — no exaggeration.
+Rewrite these resume bullet points. Make them clearer, more results-focused, and more impressive to recruiters. Each bullet must be under 2 lines. 
+
+CRITICAL ANTI-HALLUCINATION GUARDRAILS:
+- Rely ONLY on the original bullet points provided.
+- Do NOT invent, fabricate, or extrapolate any numbers, metrics, KPIs, tools, or responsibilities. If the original bullet has no metric, do NOT invent one.
+- Keep the content 100% faithful to the factual truth.
 
 Original bullets:
 ${bullets.map((b, i) => `${i + 1}. ${b}`).join("\n")}
@@ -146,7 +161,14 @@ ${jobDescription}
 
 Write a short, tailored cover letter for the role of "${jobTitle}" at "${company}". 
 Rules: Sound human and confident, not generic or AI-written. Be specific to the actual job requirements. 
-CRITICAL GUARDRAIL: Rely ONLY on the provided Background as the absolute source of truth. Do not invent or exaggerate achievements, tools, dates, or projects. If no direct match exists for a key requirement, focus on adjacent transferable skills mentioned in the background. Keep it under 280 words. Do not use phrases like "I am writing to express my interest." Start with a strong hook.
+
+CRITICAL ANTI-HALLUCINATION GUARDRAILS:
+- Rely ONLY on the provided Background as the absolute source of truth.
+- Do NOT invent or exaggerate achievements, tools, dates, projects, KPIs, metrics, or years of experience.
+- Do NOT lie or extrapolate experiences beyond what is explicitly provided.
+- If no direct match exists for a key requirement, focus on adjacent transferable skills mentioned in the background rather than inventing it.
+- Keep it under 280 words.
+- Do not use phrases like "I am writing to express my interest." Start with a strong hook.
   `;
 
   const result: any = await generateWithAI(prompt);
@@ -169,9 +191,13 @@ ${jobDescription ? `\nJob Description:\n${jobDescription}` : ""}
 
 Write two outreach messages to a recruiter for this role — one for LinkedIn and one for email.
 Goal: Spark genuine interest and get a reply. Be concise, confident, and specific. 
-CRITICAL GUARDRAIL: Do not fabricate background details. Only use skills and experiences explicitly listed in 'My Background'.
-Avoid begging, generic phrases, or "I hope this message finds you well." 
-LinkedIn message must be under 100 words. Email must be under 150 words with a subject line.
+
+CRITICAL ANTI-HALLUCINATION GUARDRAILS:
+- Rely ONLY on the provided Background as the absolute source of truth.
+- Do NOT fabricate, embellish, or exaggerate achievements, tools, dates, projects, KPIs, metrics, or experiences.
+- Do not make up any career details.
+- Avoid begging, generic phrases, or "I hope this message finds you well." 
+- LinkedIn message must be under 100 words. Email must be under 150 words with a subject line.
 
 Return ONLY a JSON object (no markdown):
 {
@@ -240,11 +266,12 @@ ${context}
 
 TASK: Generate a unified application optimization package. This must be a "Staff-Level" makeover.
 
-CRITICAL GUARDRAILS:
-- USE THE PROVIDED BACKGROUND AS THE ABSOLUTE SOURCE OF TRUTH.
-- DO NOT HALLUCINATE OR ADD SKILLS, SOFTWARE, OR YEARS OF EXPERIENCE NOT FOUND IN THE BACKGROUND.
-- DO NOT LIE OR EXAGGERATE.
+CRITICAL ANTI-HALLUCINATION GUARDRAILS:
+- Rely ONLY on the provided Background as the absolute source of truth.
+- Do NOT invent, fabricate, or exaggerate achievements, credentials, job roles, projects, technologies, KPIs, metrics, or years of experience.
+- Do NOT lie or extrapolate experiences beyond what is explicitly provided.
 - If a skill is missing, focus on adjacent transferable skills found in the background rather than inventing it.
+- Do NOT invent any numbers or metrics if they do not exist in the background.
 
 1. Match Score (0-100).
 2. Missing Keywords: Identify critical terms from the JD missing from my profile.
