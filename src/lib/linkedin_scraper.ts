@@ -1,5 +1,3 @@
-import { chromium } from 'playwright';
-
 // import stealth from 'puppeteer-extra-plugin-stealth';
 
 
@@ -7,6 +5,7 @@ import { chromium } from 'playwright';
 
 
 export async function searchLinkedInJobs(query: string, location: string, radius: number = 25) {
+  const { chromium } = await import('playwright');
   const browserlessKey = process.env.BROWSERLESS_API_KEY;
   const browser = browserlessKey 
     ? await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`)
@@ -85,6 +84,7 @@ export async function searchLinkedInJobs(query: string, location: string, radius
 }
 
 export async function scrapeJobDescription(url: string): Promise<string> {
+  const { chromium } = await import('playwright');
   const browserlessKey = process.env.BROWSERLESS_API_KEY;
   const browser = browserlessKey 
     ? await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`)
@@ -123,6 +123,7 @@ export async function scrapeJobDescription(url: string): Promise<string> {
 }
 
 export async function scrapePublicLinkedInProfile(url: string): Promise<string> {
+  const { chromium } = await import('playwright');
   const browserlessKey = process.env.BROWSERLESS_API_KEY;
   const browser = browserlessKey 
     ? await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`)
