@@ -61,7 +61,7 @@ export default function ProfileTabs() {
 
         <button
           onClick={handleAdd}
-          className="p-1.5 rounded-full bg-white/5 border border-white/5 text-slate-400 hover:text-white hover:bg-white/10 transition-all flex items-center gap-1.5 text-xs font-bold px-3 shrink-0 cursor-pointer"
+          className="px-4 py-1.5 rounded-full text-xs font-bold bg-[#0d0d0f]/20 border border-dashed border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-all flex items-center gap-1.5 shrink-0 cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5" />
           Add Identity

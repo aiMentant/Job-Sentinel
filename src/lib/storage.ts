@@ -42,6 +42,9 @@ export async function getProfile(profileId: string = 'default') {
         .single();
       if (error && error.code !== 'PGRST116') throw error; // PGRST116 is empty result code
       if (data) return data.data;
+      if (profileId === 'default') {
+        return { fullName: "Lea Wenban", targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
+      }
     } catch (e) {
       console.warn("Supabase getProfile failed, falling back to local files:", e);
     }
@@ -53,6 +56,9 @@ export async function getProfile(profileId: string = 'default') {
     const data = await fs.readFile(profilePath, 'utf-8');
     return JSON.parse(data);
   } catch (error) {
+    if (profileId === 'default') {
+      return { fullName: "Lea Wenban", targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
+    }
     return null;
   }
 }

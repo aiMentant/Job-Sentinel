@@ -15,7 +15,7 @@ export async function getActiveProfileId(): Promise<string> {
 export async function setActiveProfileId(id: string) {
   try {
     const cookieStore = await cookies();
-    cookieStore.set("active_profile_id", id, { maxAge: 604800, path: "/" });
+    cookieStore.set("active_profile_id", id, { maxAge: 2592000, path: "/" });
   } catch (error) {
     console.error("Failed to set active profile cookie:", error);
   }

@@ -75,39 +75,20 @@ export default function Sidebar() {
         )}
       </div>
 
-      {/* Global Profile Switcher */}
+      {/* Global Profile Switcher - Simplified Active Status Badge */}
       <div className={`mb-8 px-2 ${isCollapsed ? "flex justify-center" : ""}`}>
         {!isCollapsed ? (
-          <div className="animate-in fade-in duration-300">
-            <label className="text-[10px] text-slate-500 uppercase font-bold tracking-widest mb-2 block">Active Identity</label>
-            <div className="flex gap-2">
-              <div className="relative flex-1 min-w-0">
-                <select 
-                  value={activeProfileId}
-                  onChange={(e) => handleSwitchProfile(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[11px] font-bold text-indigo-400 focus:ring-0 cursor-pointer appearance-none truncate"
-                >
-                  {profiles.map(p => (
-                    <option key={p.id} value={p.id} className="bg-[#0d0d0f]">
-                      {p.fullName.toUpperCase()} {p.targetTitle ? `— ${p.targetTitle.toUpperCase()}` : ""}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500 pointer-events-none" />
-              </div>
-              <button 
-                onClick={handleCreateProfile}
-                className="p-2 rounded-lg bg-white/5 text-slate-500 hover:text-white transition-all border border-white/5 flex-shrink-0 cursor-pointer"
-                title="New Profile"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
+          <div className="animate-in fade-in duration-300 p-3 bg-white/5 border border-white/5 rounded-xl flex items-center gap-3">
+            <User className="w-5 h-5 text-indigo-400" />
+            <div className="min-w-0">
+              <label className="text-[9px] text-slate-500 uppercase font-black tracking-widest block leading-none mb-1">Operator</label>
+              <p className="text-xs font-bold text-white truncate">{activeProfile?.fullName || activeProfileId.toUpperCase()}</p>
             </div>
           </div>
         ) : (
-          <Link href="/profile" className="p-3 rounded-xl bg-white/5 text-indigo-400 hover:bg-indigo-600/20 transition-all border border-indigo-500/10" title="Switch Identity">
+          <div className="p-3 rounded-xl bg-white/5 text-indigo-400 border border-white/5" title="Active Operator">
             <User className="w-5 h-5" />
-          </Link>
+          </div>
         )}
       </div>
 
