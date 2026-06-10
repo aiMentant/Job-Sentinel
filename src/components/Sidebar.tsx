@@ -75,22 +75,7 @@ export default function Sidebar() {
         )}
       </div>
 
-      {/* Global Profile Switcher - Simplified Active Status Badge */}
-      <div className={`mb-8 px-2 ${isCollapsed ? "flex justify-center" : ""}`}>
-        {!isCollapsed ? (
-          <div className="animate-in fade-in duration-300 p-3 bg-white/5 border border-white/5 rounded-xl flex items-center gap-3">
-            <User className="w-5 h-5 text-indigo-400" />
-            <div className="min-w-0">
-              <label className="text-[9px] text-slate-500 uppercase font-black tracking-widest block leading-none mb-1">Operator</label>
-              <p className="text-xs font-bold text-white truncate">{activeProfile?.fullName || activeProfileId.toUpperCase()}</p>
-            </div>
-          </div>
-        ) : (
-          <div className="p-3 rounded-xl bg-white/5 text-indigo-400 border border-white/5" title="Active Operator">
-            <User className="w-5 h-5" />
-          </div>
-        )}
-      </div>
+
 
       <nav className="flex-1 space-y-1">
         {navItems.map((item) => {
