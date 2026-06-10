@@ -8,11 +8,15 @@ const BASE_DATA_PATH = path.join(process.cwd(), 'data/profiles');
 function isSupabaseEnabled(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  return !!(url && key && url !== "" && key !== "");
+  return !!(url && key && url !== "" && key !== "" && supabase);
 }
 
 async function ensureDir(dir: string) {
-  await fs.mkdir(dir, { recursive: true });
+  try {
+    await fs.mkdir(dir, { recursive: true });
+  } catch (e) {
+    // Ignore folder creation errors (e.g. read-only filesystem)
+  }
 }
 
 export async function listProfiles() {
@@ -27,9 +31,15 @@ export async function listProfiles() {
   }
 
   // Fallback to local files
-  await ensureDir(BASE_DATA_PATH);
-  const dirs = await fs.readdir(BASE_DATA_PATH);
-  return dirs.filter(d => !d.startsWith('.'));
+  try {
+    await ensureDir(BASE_DATA_PATH);
+    const dirs = await fs.readdir(BASE_DATA_PATH);
+    const filtered = dirs.filter(d => !d.startsWith('.'));
+    return filtered.length > 0 ? filtered : ['default'];
+  } catch (fsError) {
+    console.warn("Local filesystem read failed, returning default profile ID:", fsError);
+    return ['default'];
+  }
 }
 
 export async function getProfile(profileId: string = 'default') {
@@ -56,10 +66,7 @@ export async function getProfile(profileId: string = 'default') {
     const data = await fs.readFile(profilePath, 'utf-8');
     return JSON.parse(data);
   } catch (error) {
-    if (profileId === 'default') {
-      return { fullName: "Lea Wenban", targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
-    }
-    return null;
+    return { fullName: "Lea Wenban", targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
   }
 }
 

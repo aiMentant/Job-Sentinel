@@ -61,7 +61,7 @@ export async function listAllProfiles() {
 export async function listAllProfilesWithData() {
   const { listProfiles, getProfile } = await import("@/lib/storage");
   const ids = await listProfiles();
-  const profiles = await Promise.all(ids.map(async (id) => {
+  const profiles = await Promise.all(ids.map(async (id: string) => {
     const data = await getProfile(id);
     return { 
       id, 
