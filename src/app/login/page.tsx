@@ -18,7 +18,7 @@ export default function LoginPage() {
 
     // Simple delay for modern interface response feel
     setTimeout(() => {
-      if (username === "Wenban" && password === "Pixel") {
+      if (username.toLowerCase() === "wenban" && password === "pixel") {
         // Set cookie valid for 7 days
         document.cookie = "auth_session=verified; max-age=604800; path=/";
         router.push("/");
