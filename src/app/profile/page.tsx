@@ -98,19 +98,24 @@ export default function ProfilePage() {
 
   useEffect(() => {
     async function loadData() {
-      const pId = await getActiveProfileId();
-      setActiveId(pId);
-      
-      const all = await listAllProfilesWithData();
-      setProfiles(all);
-
-      const savedProfile = await fetchUserProfile();
-      if (savedProfile) {
-        setProfile(savedProfile);
-        if (savedProfile.resumeText) setResumeText(savedProfile.resumeText);
-      } else {
-        setProfile({});
-        setResumeText("");
+      try {
+        const pId = await getActiveProfileId();
+        setActiveId(pId);
+        
+        const all = await listAllProfilesWithData();
+        setProfiles(all);
+  
+        const savedProfile = await fetchUserProfile();
+        if (savedProfile) {
+          setProfile(savedProfile);
+          if (savedProfile.resumeText) setResumeText(savedProfile.resumeText);
+        } else {
+          setProfile({});
+          setResumeText("");
+        }
+      } catch (error: any) {
+        console.error("Failed to load profile data:", error);
+        setStatus(`Database error: ${error.message || error}`);
       }
     }
     loadData();

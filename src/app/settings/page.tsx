@@ -47,7 +47,7 @@ export default function SettingsPage() {
         }
       } catch (error: any) {
         console.error("Failed to load settings profile:", error);
-        setSaveStatus({ type: 'error', message: "Failed to connect to profile database." });
+        setSaveStatus({ type: 'error', message: `Database error: ${error.message || error}` });
       } finally {
         setIsLoading(false);
       }
