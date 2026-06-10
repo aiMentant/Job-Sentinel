@@ -16,24 +16,48 @@ export type AgentStatus = {
   needsApproval?: boolean;
 };
 
+// Keep in-memory status cached globally across HMR
+const globalForStatus = global as unknown as {
+  memoryStatus?: AgentStatus;
+};
+
+let memoryStatus = globalForStatus.memoryStatus || { 
+  isSearching: false, 
+  isSubmitting: false, 
+  status: "Idle", 
+  lastUpdated: new Date().toISOString(), 
+  resultsFound: 0 
+};
+
+if (process.env.NODE_ENV !== "production") {
+  globalForStatus.memoryStatus = memoryStatus;
+}
+
 export async function getAgentStatus(): Promise<AgentStatus> {
   try {
     const data = await fs.readFile(STATUS_PATH, "utf-8");
     return JSON.parse(data);
   } catch {
-    return { isSearching: false, isSubmitting: false, status: "Idle", lastUpdated: new Date().toISOString(), resultsFound: 0 };
+    return memoryStatus;
   }
 }
 
 export async function setAgentStatus(status: Partial<AgentStatus>) {
   const current = await getAgentStatus();
   const updated = { ...current, ...status, lastUpdated: new Date().toISOString() };
-  await fs.mkdir(path.dirname(STATUS_PATH), { recursive: true });
-  await fs.writeFile(STATUS_PATH, JSON.stringify(updated, null, 2));
+  try {
+    await fs.mkdir(path.dirname(STATUS_PATH), { recursive: true });
+    await fs.writeFile(STATUS_PATH, JSON.stringify(updated, null, 2));
+  } catch (e: any) {
+    console.warn(`Writing agent status to filesystem failed (${e.message}), using in-memory fallback.`);
+  }
+  memoryStatus = updated;
+  if (process.env.NODE_ENV !== "production") {
+    globalForStatus.memoryStatus = memoryStatus;
+  }
   return updated;
 }
 
 export async function resolveApproval() {
   await setAgentStatus({ needsApproval: false, status: "Approval received. Resuming mission..." });
 }
-

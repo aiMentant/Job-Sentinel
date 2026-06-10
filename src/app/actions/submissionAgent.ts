@@ -115,10 +115,14 @@ export async function runBulkSubmissions(jobs: Job[]) {
 
           if (confirmed) {
             // Take a screenshot as "Proof of Work"
-            const screenshotPath = `public/proofs/${job.id}.png`;
-            await fs.mkdir(path.dirname(screenshotPath), { recursive: true });
-            await page.screenshot({ path: screenshotPath, fullPage: true });
-            console.log(`Proof of work saved to ${screenshotPath}`);
+            try {
+              const screenshotPath = `public/proofs/${job.id}.png`;
+              await fs.mkdir(path.dirname(screenshotPath), { recursive: true });
+              await page.screenshot({ path: screenshotPath, fullPage: true });
+              console.log(`Proof of work saved to ${screenshotPath}`);
+            } catch (e: any) {
+              console.warn(`Proof of work screenshot failed to save (${e.message}). Skipping screenshot step.`);
+            }
 
             // Update job status in DB
             const profileId = await getActiveProfileId();

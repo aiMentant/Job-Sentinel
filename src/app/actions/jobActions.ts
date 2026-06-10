@@ -351,7 +351,11 @@ export async function parseResumeText(text: string): Promise<Partial<UserProfile
       targetLocations: data.targetLocations || []
     };
   } catch (error: any) {
-    await require('fs/promises').writeFile('data/debug_error.txt', error.stack || error.message);
+    try {
+      await require('fs/promises').writeFile('data/debug_error.txt', error.stack || error.message);
+    } catch (fsErr) {
+      console.warn("Failed to write debug_error.txt in read-only environment.");
+    }
     console.error("Failed to parse resume:", error);
     throw error;
   }
