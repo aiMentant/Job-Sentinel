@@ -1,27 +1,24 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { 
   LayoutDashboard, 
   Search, 
   FileText, 
   Settings, 
   Briefcase, 
-  Bell,
-  CheckCircle2,
-  Cpu,
-  Plus,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Menu,
-  User
+  CheckCircle2, 
+  Cpu, 
+  Plus, 
+  ChevronDown, 
+  ChevronLeft, 
+  ChevronRight, 
+  User 
 } from "lucide-react";
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { listAllProfilesWithData } from "@/app/actions/jobActions";
-import { getActiveProfileId, setActiveProfileId } from "@/app/actions/profileSwitch";
+import { useProfile } from "@/components/ProfileContext";
 
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
@@ -35,43 +32,33 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const [profiles, setProfiles] = useState<{id: string, fullName: string, targetTitle?: string}[]>([]);
-
-  const [activeId, setActiveId] = useState("default");
+  const { activeProfileId, profiles, switchProfile, createProfile } = useProfile();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-
-  useEffect(() => {
-    async function loadData() {
-      const pId = await getActiveProfileId();
-      setActiveId(pId);
-      const all = await listAllProfilesWithData();
-      setProfiles(all);
-    }
-    loadData();
-  }, [pathname]); // Refresh on navigation
+  // Hide sidebar on login screen
+  if (pathname === "/login") return null;
 
   const handleSwitchProfile = async (id: string) => {
-    await setActiveProfileId(id);
-    setActiveId(id);
+    await switchProfile(id);
     router.refresh(); // Refresh current page to load new profile data
   };
 
   const handleCreateProfile = async () => {
     const name = prompt("Enter a name for the new profile:");
-    if (name) {
-      const id = name.toLowerCase().replace(/\s+/g, '-');
-      await handleSwitchProfile(id);
-      setProfiles(prev => [...prev, { id, fullName: name }]);
+    if (name && name.trim()) {
+      await createProfile(name.trim());
+      router.refresh();
     }
   };
+
+  const activeProfile = profiles.find(p => p.id === activeProfileId);
 
   return (
     <div className={`${isCollapsed ? "w-20" : "w-64"} border-r border-white/5 bg-[#0d0d0f]/50 backdrop-blur-xl h-screen sticky top-0 flex flex-col transition-all duration-300 ease-in-out p-4 group/sidebar`}>
       {/* Collapse Toggle Button */}
       <button 
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="absolute -right-3 top-20 w-6 h-6 bg-indigo-600 rounded-full flex items-center justify-center border border-white/10 text-white shadow-lg opacity-0 group-hover/sidebar:opacity-100 transition-opacity z-50"
+        className="absolute -right-3 top-20 w-6 h-6 bg-indigo-600 rounded-full flex items-center justify-center border border-white/10 text-white shadow-lg opacity-0 group-hover/sidebar:opacity-100 transition-opacity z-50 cursor-pointer"
       >
         {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
       </button>
@@ -96,7 +83,7 @@ export default function Sidebar() {
             <div className="flex gap-2">
               <div className="relative flex-1 min-w-0">
                 <select 
-                  value={activeId}
+                  value={activeProfileId}
                   onChange={(e) => handleSwitchProfile(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[11px] font-bold text-indigo-400 focus:ring-0 cursor-pointer appearance-none truncate"
                 >
@@ -110,7 +97,7 @@ export default function Sidebar() {
               </div>
               <button 
                 onClick={handleCreateProfile}
-                className="p-2 rounded-lg bg-white/5 text-slate-500 hover:text-white transition-all border border-white/5 flex-shrink-0"
+                className="p-2 rounded-lg bg-white/5 text-slate-500 hover:text-white transition-all border border-white/5 flex-shrink-0 cursor-pointer"
                 title="New Profile"
               >
                 <Plus className="w-4 h-4" />
@@ -154,9 +141,9 @@ export default function Sidebar() {
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex-shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">
-                {profiles.find(p => p.id === activeId)?.fullName || activeId.toUpperCase()}
+                {activeProfile?.fullName || activeProfileId.toUpperCase()}
               </p>
-              <p className="text-[10px] text-slate-500 truncate capitalize">{activeId} profile</p>
+              <p className="text-[10px] text-slate-500 truncate capitalize">{activeProfileId} profile</p>
             </div>
           </div>
           <Link 
@@ -170,4 +157,3 @@ export default function Sidebar() {
     </div>
   );
 }
-

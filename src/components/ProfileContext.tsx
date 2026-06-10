@@ -42,11 +42,28 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const switchProfile = async (id: string) => {
     await setActiveProfileId(id);
     setActiveProfileIdState(id);
+    try {
+      const all = await listAllProfilesWithData();
+      setProfiles(all);
+    } catch (e) {}
   };
 
   const createProfile = async (name: string) => {
     const id = name.toLowerCase().replace(/\s+/g, '-');
-    await switchProfile(id);
+    await setActiveProfileId(id);
+    setActiveProfileIdState(id);
+    
+    // Save an initial profile structure so it exists in Supabase/FileSystem
+    const { saveUserProfile } = await import("@/app/actions/jobActions");
+    await saveUserProfile({ 
+      fullName: name,
+      targetTitles: [],
+      targetLocations: [],
+      skills: [],
+      experience: [],
+      education: []
+    });
+    
     await refreshProfiles();
   };
 
