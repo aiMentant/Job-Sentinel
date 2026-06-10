@@ -55,7 +55,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     
     // Save an initial profile structure so it exists in Supabase/FileSystem
     const { saveUserProfile } = await import("@/app/actions/jobActions");
-    await saveUserProfile({ 
+    const result = await saveUserProfile({ 
       fullName: name,
       targetTitles: [],
       targetLocations: [],
@@ -63,6 +63,11 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       experience: [],
       education: []
     }, id);
+    
+    if (result && !result.success) {
+      alert(`Failed to create profile: ${result.error}`);
+      return;
+    }
     
     await refreshProfiles();
   };

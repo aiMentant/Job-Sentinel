@@ -23,8 +23,10 @@ import {
   Unlock
 } from "lucide-react";
 import { fetchUserProfile, patchUserProfile, testApiKey } from "@/app/actions/jobActions";
+import { useProfile } from "@/components/ProfileContext";
 
 export default function SettingsPage() {
+  const { activeProfileId } = useProfile();
   const [apiKey, setApiKey] = useState("");
   const [preferredModel, setPreferredModel] = useState("gemini-2.0-flash");
   const [stealthMode, setStealthMode] = useState(true);
@@ -43,9 +45,13 @@ export default function SettingsPage() {
       try {
         const profile = await fetchUserProfile();
         if (profile) {
-          if (profile.geminiApiKey) setApiKey(profile.geminiApiKey);
-          if (profile.preferredModel) setPreferredModel(profile.preferredModel);
-          if (profile.linkedinStealth !== undefined) setStealthMode(profile.linkedinStealth);
+          setApiKey(profile.geminiApiKey || "");
+          setPreferredModel(profile.preferredModel || "gemini-2.0-flash");
+          setStealthMode(profile.linkedinStealth ?? true);
+        } else {
+          setApiKey("");
+          setPreferredModel("gemini-2.0-flash");
+          setStealthMode(true);
         }
       } catch (error: any) {
         console.error("Failed to load settings profile:", error);
@@ -55,7 +61,7 @@ export default function SettingsPage() {
       }
     }
     loadSettings();
-  }, []);
+  }, [activeProfileId]);
 
   const handleSaveSettings = async () => {
     setIsSaving(true);
