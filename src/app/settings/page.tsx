@@ -59,13 +59,17 @@ export default function SettingsPage() {
     setIsSaving(true);
     setSaveStatus({ type: null, message: "" });
     try {
-      await patchUserProfile({
+      const res = await patchUserProfile({
         geminiApiKey: apiKey,
         preferredModel: preferredModel,
         linkedinStealth: stealthMode
       });
-      setSaveStatus({ type: 'success', message: "Configuration securely saved." });
-      setTimeout(() => setSaveStatus({ type: null, message: "" }), 4000);
+      if (res.success) {
+        setSaveStatus({ type: 'success', message: "Configuration securely saved." });
+        setTimeout(() => setSaveStatus({ type: null, message: "" }), 4000);
+      } else {
+        setSaveStatus({ type: 'error', message: res.error || "Failed to save configuration." });
+      }
     } catch (e: any) {
       setSaveStatus({ type: 'error', message: e.message || "Failed to save configuration." });
     } finally {

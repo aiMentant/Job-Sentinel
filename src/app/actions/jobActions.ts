@@ -190,9 +190,13 @@ export async function bulkDeleteJobs(ids: string[]) {
 }
 
 export async function saveUserProfile(profile: any) {
-  const profileId = await getActiveProfileId();
-  await saveProfile(profile, profileId);
-  return { success: true };
+  try {
+    const profileId = await getActiveProfileId();
+    await saveProfile(profile, profileId);
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message || "Failed to save user profile." };
+  }
 }
 
 export async function deleteProfile(profileId: string) {
@@ -220,10 +224,14 @@ export async function deleteProfile(profileId: string) {
 // Safe patch: reads existing profile first, merges only provided fields.
 // Use this instead of saveUserProfile when you only have partial state.
 export async function patchUserProfile(fields: Record<string, any>) {
-  const profileId = await getActiveProfileId();
-  const existing = (await getProfile(profileId)) || {};
-  await saveProfile({ ...existing, ...fields }, profileId);
-  return { success: true };
+  try {
+    const profileId = await getActiveProfileId();
+    const existing = (await getProfile(profileId)) || {};
+    await saveProfile({ ...existing, ...fields }, profileId);
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message || "Failed to patch user profile." };
+  }
 }
 
 export async function toggleJobFavourite(id: string) {

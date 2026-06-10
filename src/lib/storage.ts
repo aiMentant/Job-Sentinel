@@ -77,9 +77,13 @@ export async function saveProfile(profile: any, profileId: string = 'default') {
   }
 
   // Fallback to local files
-  const dir = path.join(BASE_DATA_PATH, profileId);
-  await ensureDir(dir);
-  await fs.writeFile(path.join(dir, 'profile.json'), JSON.stringify(profile, null, 2));
+  try {
+    const dir = path.join(BASE_DATA_PATH, profileId);
+    await ensureDir(dir);
+    await fs.writeFile(path.join(dir, 'profile.json'), JSON.stringify(profile, null, 2));
+  } catch (fsError) {
+    throw new Error("Unable to save profile. The production filesystem is read-only. Please ensure your Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY) are configured in your hosting dashboard settings (e.g. Netlify/Vercel) so database persistence is active.");
+  }
 }
 
 export async function getJobs(profileId: string = 'default') {
