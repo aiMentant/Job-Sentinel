@@ -632,6 +632,12 @@ export default function TrackerPage() {
               <Mail className="w-3.5 h-3.5" /> Recruiter Message
             </button>
             <button
+              onClick={() => { handleTailorCoverLetter(contextMenu.job); setContextMenu(null); }}
+              className="w-full text-left px-3 py-2 text-[11px] font-medium hover:bg-white/5 rounded transition-colors flex items-center gap-2 text-indigo-400"
+            >
+              <FileText className="w-3.5 h-3.5" /> Tailor Cover Letter
+            </button>
+            <button
               onClick={() => { setJdMatchModal({ job: contextMenu.job, result: null }); setContextMenu(null); }}
               className="w-full text-left px-3 py-2 text-[11px] font-medium hover:bg-white/5 rounded transition-colors flex items-center gap-2 text-amber-400"
             >
@@ -761,10 +767,25 @@ export default function TrackerPage() {
                 Delete Draft
               </button>
               <div className="flex gap-3">
-                <button className="btn-secondary py-2 px-6">
+                <button 
+                  onClick={async () => {
+                    await saveApplicationDraft(tailoringJob.id, { coverLetterText: coverLetter });
+                    setTailoringJob(null);
+                    loadJobs();
+                  }}
+                  className="btn-secondary py-2 px-6"
+                >
                   Save as Draft
                 </button>
-                <button className="btn-primary py-2 px-8 flex items-center gap-2">
+                <button 
+                  onClick={async () => {
+                    await saveApplicationDraft(tailoringJob.id, { coverLetterText: coverLetter });
+                    await updateJobStatus(tailoringJob.id, 'ready' as any);
+                    setTailoringJob(null);
+                    loadJobs();
+                  }}
+                  className="btn-primary py-2 px-8 flex items-center gap-2"
+                >
                   <Mail className="w-4 h-4" />
                   Ready to Apply
                 </button>

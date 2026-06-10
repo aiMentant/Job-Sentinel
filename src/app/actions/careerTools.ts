@@ -34,7 +34,7 @@ export async function rewriteResume(resumeText?: string): Promise<string> {
 
   if (!context) return "No resume text found. Please paste your resume or save it to your profile first.";
 
-  const prompt = `Here is my resume:\n\n${context}\n\nRewrite it to maximize interview callbacks. Use strong action verbs, quantified results, and ATS-friendly formatting. Do not exaggerate — stay 100% honest. Return the rewritten resume as plain text, preserving section headers.`;
+  const prompt = `Here is my resume:\n\n${context}\n\nRewrite it to maximize interview callbacks. Use strong action verbs, quantified results, and ATS-friendly formatting. CRITICAL GUARDRAIL: Do not invent any new job roles, projects, technologies, credentials, or achievements. Only optimize the phrasing, clarity, and layout of the existing content. Keep it 100% faithful to the source facts. Return the rewritten resume as plain text, preserving section headers.`;
   
   const result: any = await generateWithAI(prompt);
   return result;
@@ -63,6 +63,8 @@ Focus on:
 1. ATS Keyword Gap: What specific technical or industry terms am I missing?
 2. Score: A realistic score (0-100) based on how well my skills/years match the core requirements. 
 3. Brief Match Summary: 1 sentence on why/why not this is a fit.
+
+CRITICAL GUARDRAIL: Rely ONLY on the provided Resume/Profile. Do not assume or extrapolate skills not explicitly mentioned.
 
 Respond with ONLY a JSON object (no markdown):
 {
@@ -144,8 +146,7 @@ ${jobDescription}
 
 Write a short, tailored cover letter for the role of "${jobTitle}" at "${company}". 
 Rules: Sound human and confident, not generic or AI-written. Be specific to the actual job requirements. 
-Reference one or two concrete achievements from my background that directly match this role. 
-Keep it under 280 words. Do not use phrases like "I am writing to express my interest." Start with a strong hook.
+CRITICAL GUARDRAIL: Rely ONLY on the provided Background as the absolute source of truth. Do not invent or exaggerate achievements, tools, dates, or projects. If no direct match exists for a key requirement, focus on adjacent transferable skills mentioned in the background. Keep it under 280 words. Do not use phrases like "I am writing to express my interest." Start with a strong hook.
   `;
 
   const result: any = await generateWithAI(prompt);
@@ -168,6 +169,7 @@ ${jobDescription ? `\nJob Description:\n${jobDescription}` : ""}
 
 Write two outreach messages to a recruiter for this role — one for LinkedIn and one for email.
 Goal: Spark genuine interest and get a reply. Be concise, confident, and specific. 
+CRITICAL GUARDRAIL: Do not fabricate background details. Only use skills and experiences explicitly listed in 'My Background'.
 Avoid begging, generic phrases, or "I hope this message finds you well." 
 LinkedIn message must be under 100 words. Email must be under 150 words with a subject line.
 
@@ -306,6 +308,8 @@ export async function generateDreamCompanies(locations: string[], radius: number
       "careerUrl": "Best guess at their greenhouse/lever board or career page domain"
     }
   ]
+  
+  CRITICAL GUARDRAIL: For the 'careerUrl' field, return a URL only if you are highly confident it matches a standard, public career page or main company domain; otherwise, return null. Do not invent fictional URL paths.
   `;
 
   try {

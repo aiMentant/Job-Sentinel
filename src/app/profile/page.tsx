@@ -128,6 +128,12 @@ export default function ProfilePage() {
     setProfile({ ...profile, experience: newExp });
   };
 
+  const updateEducation = (index: number, field: keyof Education, value: any) => {
+    const newEdu = [...(profile.education || [])];
+    newEdu[index] = { ...newEdu[index], [field]: value };
+    setProfile({ ...profile, education: newEdu });
+  };
+
   const removeArrayItem = (field: 'skills' | 'targetTitles' | 'targetLocations', index: number) => {
     const arr = [...(profile[field] || [])];
     arr.splice(index, 1);
@@ -228,7 +234,20 @@ export default function ProfilePage() {
           <p className="text-slate-400">Switch between resumes or create a new profile for a different user.</p>
         </div>
         <div className="flex gap-3">
-          <button className="btn-secondary">Discard</button>
+          <button 
+            onClick={async () => {
+              const savedProfile = await fetchUserProfile();
+              if (savedProfile) {
+                setProfile(savedProfile);
+                setResumeText(savedProfile.resumeText || "");
+              }
+              setStatus("Changes discarded.");
+              setTimeout(() => setStatus(null), 3000);
+            }} 
+            className="btn-secondary"
+          >
+            Discard
+          </button>
           <button 
             onClick={handleSave}
             disabled={isSaving}
@@ -347,8 +366,18 @@ export default function ProfilePage() {
                             />
                           </div>
                           <div className="grid grid-cols-2 gap-4">
-                            <input className="input-field text-xs" value={exp.startDate} placeholder="Start Date" />
-                            <input className="input-field text-xs" value={exp.endDate} placeholder="End Date" />
+                            <input 
+                              className="input-field text-xs" 
+                              value={exp.startDate || ""} 
+                              onChange={(e) => updateExperience(i, "startDate", e.target.value)}
+                              placeholder="Start Date" 
+                            />
+                            <input 
+                              className="input-field text-xs" 
+                              value={exp.endDate || ""} 
+                              onChange={(e) => updateExperience(i, "endDate", e.target.value)}
+                              placeholder="End Date" 
+                            />
                           </div>
                           <div className="space-y-2">
                             <div className="flex items-center justify-between mb-1">
@@ -404,8 +433,18 @@ export default function ProfilePage() {
                     <div className="p-6 pt-0 space-y-4 border-t border-white/5">
                       {profile.education?.map((edu, i) => (
                         <div key={i} className="grid grid-cols-2 gap-4 py-4">
-                          <input className="input-field text-sm font-bold" value={edu.institution} />
-                          <input className="input-field text-sm" value={edu.degree} />
+                          <input 
+                            className="input-field text-sm font-bold" 
+                            value={edu.institution || ""} 
+                            onChange={(e) => updateEducation(i, "institution", e.target.value)}
+                            placeholder="Institution"
+                          />
+                          <input 
+                            className="input-field text-sm" 
+                            value={edu.degree || ""} 
+                            onChange={(e) => updateEducation(i, "degree", e.target.value)}
+                            placeholder="Degree / Field"
+                          />
                         </div>
                       ))}
                     </div>
