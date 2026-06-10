@@ -41,16 +41,15 @@ export default function ProfileTabs() {
               <button
                 key={p.id}
                 onClick={() => handleSwitch(p.id)}
-                className={`px-1 pb-3 text-xs font-bold transition-all flex items-center gap-2 shrink-0 border-b-2 cursor-pointer ${
+                className={`px-1 pb-3 text-xs font-bold transition-all flex items-center gap-2 shrink-0 border-b-[3px] cursor-pointer ${
                   isActive
-                    ? "border-indigo-500 text-indigo-400"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
+                    ? "border-emerald-500 text-emerald-400"
+                    : "border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-800"
                 }`}
               >
-                <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-indigo-400' : 'bg-slate-600'}`} />
                 {p.fullName}
                 {p.targetTitle && (
-                  <span className={`text-[9px] font-medium opacity-60 ${isActive ? 'text-indigo-400/80' : 'text-slate-500'}`}>
+                  <span className={`text-[9px] font-medium opacity-60 ${isActive ? 'text-emerald-400/80' : 'text-slate-500'}`}>
                     ({p.targetTitle.slice(0, 15)})
                   </span>
                 )}
