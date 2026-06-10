@@ -62,7 +62,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       skills: [],
       experience: [],
       education: []
-    });
+    }, id);
     
     await refreshProfiles();
   };

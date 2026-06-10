@@ -189,9 +189,9 @@ export async function bulkDeleteJobs(ids: string[]) {
   return { success: true };
 }
 
-export async function saveUserProfile(profile: any) {
+export async function saveUserProfile(profile: any, targetProfileId?: string) {
   try {
-    const profileId = await getActiveProfileId();
+    const profileId = targetProfileId || (await getActiveProfileId());
     await saveProfile(profile, profileId);
     return { success: true };
   } catch (e: any) {
