@@ -17,11 +17,19 @@ import {
 import { fetchJobs, updateJobStatus, deleteJob, generateCoverLetter, bulkDeleteJobs } from "@/app/actions/jobActions";
 
 const statusConfig = {
-  new: { icon: Clock, color: "text-blue-400", bg: "bg-blue-400/10", label: "Found" },
-  reviewed: { icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10", label: "Reviewed" },
-  applied: { icon: Calendar, color: "text-indigo-400", bg: "bg-indigo-400/10", label: "Applied" },
-  rejected: { icon: XCircle, color: "text-red-400", bg: "bg-red-400/10", label: "Rejected" },
-  interview: { icon: Mail, color: "text-purple-400", bg: "bg-purple-400/10", label: "Interview" },
+  Discovery: { icon: Clock, color: "text-blue-400", bg: "bg-blue-400/10", label: "Discovery" },
+  Triage: { icon: CheckCircle2, color: "text-yellow-400", bg: "bg-yellow-400/10", label: "Triage" },
+  Drafting: { icon: CheckCircle2, color: "text-amber-400", bg: "bg-amber-400/10", label: "Drafting" },
+  Ready: { icon: CheckCircle2, color: "text-indigo-400", bg: "bg-indigo-400/10", label: "Ready" },
+  Applied: { icon: Calendar, color: "text-emerald-400", bg: "bg-emerald-400/10", label: "Applied" },
+  'Recruiter Screen': { icon: Mail, color: "text-orange-400", bg: "bg-orange-400/10", label: "Recruiter Screen" },
+  'Technical Round': { icon: Mail, color: "text-teal-400", bg: "bg-teal-400/10", label: "Technical Round" },
+  'Portfolio Presentation': { icon: Mail, color: "text-pink-400", bg: "bg-pink-400/10", label: "Portfolio Presentation" },
+  '2nd Interview': { icon: Mail, color: "text-violet-400", bg: "bg-violet-400/10", label: "2nd Interview" },
+  'Final Round': { icon: Mail, color: "text-fuchsia-400", bg: "bg-fuchsia-400/10", label: "Final Round" },
+  Offer: { icon: CheckCircle2, color: "text-yellow-400", bg: "bg-yellow-400/10", label: "Offer" },
+  Rejected: { icon: XCircle, color: "text-red-400", bg: "bg-red-400/10", label: "Rejected" },
+  Cancelled: { icon: XCircle, color: "text-slate-400", bg: "bg-slate-400/10", label: "Cancelled" },
 };
 
 export default function ApplicationsPage() {
@@ -39,7 +47,7 @@ export default function ApplicationsPage() {
   const loadJobs = async () => {
     const data = await fetchJobs();
     // Only show "Actioned" jobs in the Submission Log
-    const actionedStatuses = ['applied', 'interview', 'rejected', 'ready', 'offered'];
+    const actionedStatuses = ['Applied', 'Recruiter Screen', 'Technical Round', 'Portfolio Presentation', '2nd Interview', 'Final Round', 'Offer', 'Rejected', 'Cancelled'];
     const filtered = data.filter((j: any) => actionedStatuses.includes(j.status));
     setJobs(filtered);
     setIsLoading(false);
@@ -152,7 +160,7 @@ export default function ApplicationsPage() {
               ) : jobs.length === 0 ? (
                 <tr><td colSpan={7} className="p-12 text-center text-slate-500">No applications found. Start a search to find roles!</td></tr>
               ) : jobs.map((job) => {
-                const config = statusConfig[job.status as keyof typeof statusConfig] || statusConfig.new;
+                const config = statusConfig[job.status as keyof typeof statusConfig] || statusConfig.Discovery;
                 const isSelected = selectedJobs.includes(job.id);
                 const isMenuOpen = activeMenu === job.id;
 
@@ -213,15 +221,15 @@ export default function ApplicationsPage() {
                           </button>
                           <div className="h-px bg-white/5 my-1" />
                           <p className="px-3 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-widest">Update Status</p>
-                          <button onClick={() => handleStatusUpdate(job.id, 'applied')} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5 rounded-lg transition-colors">
+                          <button onClick={() => handleStatusUpdate(job.id, 'Applied')} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5 rounded-lg transition-colors">
                             <Calendar className="w-4 h-4 text-indigo-400" />
                             Mark as Applied
                           </button>
-                          <button onClick={() => handleStatusUpdate(job.id, 'interview')} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5 rounded-lg transition-colors">
+                          <button onClick={() => handleStatusUpdate(job.id, 'Recruiter Screen')} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5 rounded-lg transition-colors">
                             <Mail className="w-4 h-4 text-purple-400" />
-                            Mark as Interviewing
+                            Mark as Screen
                           </button>
-                          <button onClick={() => handleStatusUpdate(job.id, 'rejected')} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5 rounded-lg transition-colors">
+                          <button onClick={() => handleStatusUpdate(job.id, 'Rejected')} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5 rounded-lg transition-colors">
                             <XCircle className="w-4 h-4 text-red-400" />
                             Mark as Rejected
                           </button>

@@ -51,7 +51,7 @@ export default function Dashboard() {
       setJobs(allJobs);
       // Get top 3 new jobs with score > 70 or just highest scores
       const filtered = allJobs
-        .filter((j: any) => j.status === 'new')
+        .filter((j: any) => j.status === 'Discovery')
         .sort((a: any, b: any) => (b.score || 0) - (a.score || 0))
         .slice(0, 3);
       setTopJobs(filtered);
@@ -71,7 +71,7 @@ export default function Dashboard() {
     const allJobs = await fetchJobs();
     setJobs(allJobs);
     const filtered = allJobs
-      .filter((j: any) => j.status === 'new')
+      .filter((j: any) => j.status === 'Discovery')
       .sort((a: any, b: any) => (b.score || 0) - (a.score || 0))
       .slice(0, 3);
     setTopJobs(filtered);
@@ -178,8 +178,8 @@ export default function Dashboard() {
         {[
           { label: "Jobs Found", value: jobs.length.toString(), icon: Target, color: "text-blue-400", bg: "bg-blue-400/10" },
           { label: "High Matches", value: jobs.filter(j => j.score >= 85).length.toString(), icon: Sparkles, color: "text-emerald-400", bg: "bg-emerald-400/10" },
-          { label: "Applied", value: jobs.filter(j => j.status === 'applied').length.toString(), icon: Send, color: "text-indigo-400", bg: "bg-indigo-400/10" },
-          { label: "Interviews", value: jobs.filter(j => j.status === 'interview').length.toString(), icon: MessageSquare, color: "text-purple-400", bg: "bg-purple-400/10" },
+          { label: "Applied", value: jobs.filter(j => j.status === 'Applied').length.toString(), icon: Send, color: "text-indigo-400", bg: "bg-indigo-400/10" },
+          { label: "Interviews", value: jobs.filter(j => ['Recruiter Screen', 'Technical Round', 'Portfolio Presentation', '2nd Interview', 'Final Round'].includes(j.status)).length.toString(), icon: MessageSquare, color: "text-purple-400", bg: "bg-purple-400/10" },
         ].map((stat, i) => (
 
           <div key={i} className="glass-card flex flex-col gap-1">
@@ -251,7 +251,7 @@ export default function Dashboard() {
                       </div>
                       <div className="ml-auto flex items-center gap-2">
                         <button 
-                          onClick={() => handleActionJob(job.id, 'triage')}
+                          onClick={() => handleActionJob(job.id, 'Triage')}
                           className="px-6 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-all shadow-lg shadow-indigo-600/20 font-black text-[10px] tracking-widest"
                         >
                           APPLY NOW

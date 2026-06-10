@@ -125,9 +125,9 @@ export async function runBulkSubmissions(jobs: Job[]) {
             const allJobs = await getJobs(profileId);
             const updated = allJobs.map((j: any) => j.id === job.id ? { 
               ...j, 
-              status: 'applied', 
+              status: 'Applied', 
               date: new Date().toISOString(),
-              applicationStatus: { stage: 'submitted', lastUpdated: new Date().toISOString() } 
+              applicationStatus: { stage: 'Applied', lastUpdated: new Date().toISOString() } 
             } : j);
             await saveJobs(updated, profileId);
           } else {

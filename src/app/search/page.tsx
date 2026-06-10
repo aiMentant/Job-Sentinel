@@ -36,7 +36,7 @@ import { getAgentStatus, setAgentStatus } from "@/app/actions/agentStatus";
 import { runWebDiscovery } from "@/app/actions/webSearchAgent";
 import { generateDreamCompanies } from "@/app/actions/careerTools";
 import { Job, UserProfile } from "@/lib/db";
-import Link from "next/navigation";
+import Link from "next/link";
 import { useProfile } from "@/components/ProfileContext";
 
 
@@ -81,7 +81,7 @@ export default function SearchPage() {
       // Load existing "new" jobs from the database so they persist on navigation
       const { fetchJobs } = await import("@/app/actions/jobActions");
       const allJobs = await fetchJobs();
-      setResults(allJobs.filter((j: any) => j.status === 'new'));
+      setResults(allJobs.filter((j: any) => j.status === 'Discovery'));
     }
     load();
 
@@ -96,7 +96,7 @@ export default function SearchPage() {
         setIsSearching(false);
         // Refresh the list to show all 'new' jobs including the latest matches
         const allJobs = await fetchJobs();
-        setResults(allJobs.filter((j: any) => j.status === 'new'));
+        setResults(allJobs.filter((j: any) => j.status === 'Discovery'));
       }
     }, 3000);
 
@@ -117,7 +117,7 @@ export default function SearchPage() {
   const filteredResults = results
     .filter(j => {
       const isGhostFlagged = (j.reason || "").toLowerCase().includes("flag") || (j.reason || "").toLowerCase().includes("ghost") || (j.reason || "").toLowerCase().includes("talent pool");
-      const isRejected = j.status === 'rejected' && isGhostFlagged;
+      const isRejected = j.status === 'Rejected' && isGhostFlagged;
       
       if (activeTab === 'live') return !isRejected && (!showHighScoresOnly || j.score >= 80);
       return isRejected;
@@ -316,7 +316,7 @@ export default function SearchPage() {
     // 1. Mark as favourite (moves to Pipeline)
     await toggleJobFavourite(job.id);
     // 2. Move to Drafting status for immediate tailoring
-    await updateJobStatus(job.id, 'drafting' as any);
+    await updateJobStatus(job.id, 'Drafting' as any);
     
     setResults(prev => prev.filter(j => j.id !== job.id));
     setReviewingJob(null);

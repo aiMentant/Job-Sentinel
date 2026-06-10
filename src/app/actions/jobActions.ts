@@ -89,7 +89,7 @@ export async function fetchPublicFallbackJobs(title: string, location: string): 
       description: j.description || `Public Remote role.`,
       score: 0,
       reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
-      status: 'new',
+      status: 'Discovery',
       url: j.url,
       source: 'Remotive',
       createdAt: new Date().toISOString(),
@@ -155,7 +155,7 @@ export async function runJobSearch(targetTitles: string[], targetLocations: stri
             description: "Details fetched during search.",
             score: 0,
             reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
-            status: 'new',
+            status: 'Discovery',
             createdAt: new Date().toISOString()
           };
           

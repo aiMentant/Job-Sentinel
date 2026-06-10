@@ -33,13 +33,19 @@ import { Job } from "@/lib/db";
 import { useProfile } from "@/components/ProfileContext";
 
 const statuses = [
-  { id: 'new', label: 'Discovery Inbox', color: 'bg-blue-500' },
-  { id: 'triage', label: 'Triage (Match Scan)', color: 'bg-yellow-500' },
-  { id: 'drafting', label: 'Drafting (Approved)', color: 'bg-amber-500' },
-  { id: 'ready', label: 'Ready for Bot', color: 'bg-indigo-500' },
-  { id: 'applied', label: 'Submitted', color: 'bg-emerald-500' },
-  { id: 'interviewing', label: 'Interviews', color: 'bg-purple-500' },
-  { id: 'rejected', label: 'Closed', color: 'bg-slate-600' },
+  { id: 'Discovery', label: 'Discovery Inbox', color: 'bg-blue-500' },
+  { id: 'Triage', label: 'Triage (Match Scan)', color: 'bg-yellow-500' },
+  { id: 'Drafting', label: 'Drafting (Approved)', color: 'bg-amber-500' },
+  { id: 'Ready', label: 'Ready for Bot', color: 'bg-indigo-500' },
+  { id: 'Applied', label: 'Submitted', color: 'bg-emerald-500' },
+  { id: 'Recruiter Screen', label: 'Recruiter Screen', color: 'bg-orange-500' },
+  { id: 'Technical Round', label: 'Technical Round', color: 'bg-teal-500' },
+  { id: 'Portfolio Presentation', label: 'Portfolio Presentation', color: 'bg-pink-500' },
+  { id: '2nd Interview', label: '2nd Interview', color: 'bg-violet-500' },
+  { id: 'Final Round', label: 'Final Round', color: 'bg-fuchsia-500' },
+  { id: 'Offer', label: 'Offer', color: 'bg-yellow-400' },
+  { id: 'Rejected', label: 'Closed/Rejected', color: 'bg-red-500' },
+  { id: 'Cancelled', label: 'Cancelled', color: 'bg-slate-600' },
 ] as const;
 
 export default function TrackerPage() {
@@ -121,7 +127,7 @@ export default function TrackerPage() {
       alert("Gemini API Key missing! Please navigate to Agent Settings to add your key.");
       return;
     }
-    const draftingJobs = jobs.filter(j => (j.status as any) === 'drafting');
+    const draftingJobs = jobs.filter(j => (j.status as any) === 'Drafting');
     if (draftingJobs.length === 0) return;
     
     if (confirm(`Run AI Auto-Tailor for ${draftingJobs.length} jobs? This will rewrite resumes and cover letters for each.`)) {
@@ -147,12 +153,12 @@ export default function TrackerPage() {
             applicationNotes: result.applicationStrategy,
             applicationStatus: { 
               ...job.applicationStatus, 
-              stage: 'ready', 
+              stage: 'Ready', 
               lastUpdated: new Date().toISOString() 
             }
           });
           // Also move status to ready automatically if successful
-          await updateJobStatus(job.id, 'ready' as any);
+          await updateJobStatus(job.id, 'Ready' as any);
         } catch (e) {
           console.error(`Failed to optimize ${job.company}:`, e);
         }
@@ -169,7 +175,7 @@ export default function TrackerPage() {
       alert("Gemini API Key missing! Please navigate to Agent Settings to add your key.");
       return;
     }
-    const triageJobs = jobs.filter(j => (j.status as any) === 'triage');
+    const triageJobs = jobs.filter(j => (j.status as any) === 'Triage');
     if (triageJobs.length === 0) return;
     
     setAgent(prev => ({ ...prev, isSubmitting: true, status: "Scanning roles for match fit...", progress: 0 }));
@@ -230,7 +236,7 @@ export default function TrackerPage() {
     document.body.removeChild(a);
   };
   const handleExecuteSubmissions = async () => {
-    const readyJobs = jobs.filter(j => (j.status as any) === 'ready');
+    const readyJobs = jobs.filter(j => (j.status as any) === 'Ready');
     if (readyJobs.length === 0) return;
     
     if (confirm(`Start automated submission for ${readyJobs.length} jobs?`)) {
@@ -379,8 +385,8 @@ export default function TrackerPage() {
   const stats = [
     { label: "Total Applications", value: jobs.length.toString(), icon: Briefcase, color: "text-blue-400" },
     { label: "AI Matches (>80%)", value: jobs.filter(j => j.score >= 80).length.toString(), icon: Target, color: "text-emerald-400" },
-    { label: "Interviews", value: jobs.filter(j => j.status === 'interviewing').length.toString(), icon: Users, color: "text-purple-400" },
-    { label: "Offered", value: jobs.filter(j => j.status === 'offered').length.toString(), icon: Trophy, color: "text-yellow-400" },
+    { label: "Interviews", value: jobs.filter(j => ['Recruiter Screen', 'Technical Round', 'Portfolio Presentation', '2nd Interview', 'Final Round'].includes(j.status)).length.toString(), icon: Users, color: "text-purple-400" },
+    { label: "Offered", value: jobs.filter(j => j.status === 'Offer').length.toString(), icon: Trophy, color: "text-yellow-400" },
   ];
 
   const copyToClipboard = (text: string) => {
@@ -408,11 +414,11 @@ export default function TrackerPage() {
           </button>
           <button 
             onClick={handleExecuteSubmissions}
-            disabled={jobs.filter(j => (j.status as any) === 'ready').length === 0}
+            disabled={jobs.filter(j => (j.status as any) === 'Ready').length === 0}
             className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white rounded-xl text-xs font-black tracking-widest uppercase transition-all shadow-lg shadow-indigo-500/20 flex items-center gap-2"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            EXECUTE [{jobs.filter(j => (j.status as any) === 'ready').length}] SUBMISSIONS
+            EXECUTE [{jobs.filter(j => (j.status as any) === 'Ready').length}] SUBMISSIONS
           </button>
         </div>
       </div>
@@ -479,7 +485,7 @@ export default function TrackerPage() {
                   <h3 className="font-bold text-[11px] uppercase tracking-[0.2em] text-slate-400">{status.label.split(' (')[0]}</h3>
                   <span className="bg-white/5 text-slate-500 text-[10px] px-2.5 py-1 rounded-full font-black">
                     {jobs.filter(j => {
-                      if (status.id === 'new') return j.status === 'new' && j.isFavourite;
+                      if (status.id === 'Discovery') return j.status === 'Discovery' && j.isFavourite;
                       return (j.status as any) === status.id;
                     }).length}
                   </span>
@@ -487,11 +493,11 @@ export default function TrackerPage() {
               </div>
               
               {/* Contextual Action Button - Full Width for better UX */}
-              {status.id === 'new' && jobs.filter(j => j.status === 'new' && j.isFavourite).length > 0 && (
+              {status.id === 'Discovery' && jobs.filter(j => j.status === 'Discovery' && j.isFavourite).length > 0 && (
                 <button 
                   onClick={async () => {
-                    const jobsToMove = jobs.filter(j => j.status === 'new' && j.isFavourite);
-                    for (const j of jobsToMove) await updateJobStatus(j.id, 'triage' as any);
+                    const jobsToMove = jobs.filter(j => j.status === 'Discovery' && j.isFavourite);
+                    for (const j of jobsToMove) await updateJobStatus(j.id, 'Triage' as any);
                     loadJobs();
                   }}
                   className="w-full py-2 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded-xl text-[10px] font-black tracking-widest uppercase transition-all border border-indigo-600/20"
@@ -499,7 +505,7 @@ export default function TrackerPage() {
                   Triage All
                 </button>
               )}
-              {status.id === 'triage' && jobs.filter(j => (j.status as any) === 'triage').length > 0 && (
+              {status.id === 'Triage' && jobs.filter(j => (j.status as any) === 'Triage').length > 0 && (
                 <button 
                   onClick={handleBulkMatch}
                   className="w-full py-2 bg-yellow-500/10 hover:bg-yellow-500 text-yellow-500 hover:text-black rounded-xl text-[10px] font-black tracking-widest uppercase transition-all border border-yellow-500/20"
@@ -507,7 +513,7 @@ export default function TrackerPage() {
                   Analyze All
                 </button>
               )}
-              {status.id === 'drafting' && jobs.filter(j => (j.status as any) === 'drafting').length > 0 && (
+              {status.id === 'Drafting' && jobs.filter(j => (j.status as any) === 'Drafting').length > 0 && (
                 <button 
                   onClick={handleBulkOptimize}
                   disabled={isBulkOptimizing}
@@ -521,7 +527,7 @@ export default function TrackerPage() {
             
             <div className="flex-1 space-y-4 px-4 pr-2 scrollbar-hide max-h-[calc(100vh-420px)] overflow-y-auto overflow-x-visible">
               {jobs.filter(j => {
-                if (status.id === 'new') return j.status === 'new' && j.isFavourite;
+                if (status.id === 'Discovery') return j.status === 'Discovery' && j.isFavourite;
                 return (j.status as any) === status.id;
               }).map((job) => (
                 <div key={job.id} className="group glass-card p-5 hover:border-white/20 transition-all cursor-grab active:cursor-grabbing border-white/5 hover:bg-white/[0.03]">
@@ -555,7 +561,7 @@ export default function TrackerPage() {
 
 
                   {/* Keyword Gaps (Visible in Triage) */}
-                  {status.id === 'triage' && job.applicationNotes?.includes('Missing Keywords:') && (
+                  {status.id === 'Triage' && job.applicationNotes?.includes('Missing Keywords:') && (
                     <div className="mb-4">
                       <p className="text-[8px] font-black text-slate-600 uppercase tracking-[0.2em] mb-2">Gaps Identified</p>
                       <div className="flex flex-wrap gap-1.5">
@@ -569,7 +575,7 @@ export default function TrackerPage() {
                   )}
 
                   {/* AI Status Badges */}
-                  {(job.coverLetterText || job.tailoredResumeText) && status.id !== 'triage' && (
+                  {(job.coverLetterText || job.tailoredResumeText) && status.id !== 'Triage' && (
                     <div className="flex flex-wrap gap-1.5 mb-4">
                       {job.coverLetterText && (
                         <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/5 text-emerald-400 text-[8px] font-black uppercase border border-emerald-500/10">
@@ -591,11 +597,11 @@ export default function TrackerPage() {
                     <button 
                       onClick={() => handleStartOptimize(job)}
                       className={`w-full py-1.5 rounded text-[10px] font-black tracking-tighter transition-all border uppercase
-                        ${status.id === 'triage' ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20 hover:bg-yellow-500/20' : 
-                          status.id === 'drafting' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20' :
+                        ${status.id === 'Triage' ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20 hover:bg-yellow-500/20' : 
+                          status.id === 'Drafting' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20 hover:bg-amber-500/20' :
                           'bg-indigo-500/10 text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/20'}`}
                     >
-                      {status.id === 'triage' ? 'SCAN MATCH' : status.id === 'drafting' ? 'REWRITE' : 'OPTIMIZE'}
+                      {status.id === 'Triage' ? 'SCAN MATCH' : status.id === 'Drafting' ? 'REWRITE' : 'OPTIMIZE'}
                     </button>
 
                   </div>
@@ -706,7 +712,7 @@ export default function TrackerPage() {
                         >
                           OPEN URL
                         </button>
-                        {((tailoringJob.status as any) === 'submitted' || (tailoringJob.status as any) === 'applied') && (
+                        {((tailoringJob.status as any) === 'submitted' || (tailoringJob.status as any) === 'Applied') && (
                           <button 
                             onClick={() => window.open(`/proofs/${tailoringJob.id}.png`, '_blank')}
                             className="flex-1 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded text-[10px] font-bold transition-colors border border-emerald-500/20"
@@ -780,7 +786,7 @@ export default function TrackerPage() {
                 <button 
                   onClick={async () => {
                     await saveApplicationDraft(tailoringJob.id, { coverLetterText: coverLetter });
-                    await updateJobStatus(tailoringJob.id, 'ready' as any);
+                    await updateJobStatus(tailoringJob.id, 'Ready' as any);
                     setTailoringJob(null);
                     loadJobs();
                   }}

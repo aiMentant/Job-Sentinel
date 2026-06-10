@@ -146,7 +146,7 @@ export async function runWebDiscovery(targetTitles: string[], targetLocations: s
             description: entry.snippet || `Deep web match on ${platform.site}`,
             score: 0,
             reason: "",
-            status: 'new',
+            status: 'Discovery',
             url: entry.href,
             source: platform.site,
             createdAt: new Date().toISOString()
@@ -195,7 +195,7 @@ export async function runWebDiscovery(targetTitles: string[], targetLocations: s
             description: j.description ? j.description.substring(0, 300) + "..." : "Deep web fallback match.",
             score: 0,
             reason: "Fetched via Deep Web Fallback index.",
-            status: 'new',
+            status: 'Discovery',
             url: j.url,
             source: source,
             createdAt: new Date().toISOString()
