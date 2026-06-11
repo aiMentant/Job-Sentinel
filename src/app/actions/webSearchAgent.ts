@@ -178,7 +178,10 @@ export async function runWebDiscovery(targetTitles: string[], targetLocations: s
         const rawList = data.jobs || [];
         
         for (const j of rawList) {
-          const titleMatches = targetTitles.some(t => j.title.toLowerCase().includes(t.toLowerCase()));
+          const titleMatches = targetTitles.length === 0 || targetTitles.some(t => {
+            const targetWords = t.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+            return targetWords.length === 0 || targetWords.some(word => j.title.toLowerCase().includes(word));
+          });
           if (!titleMatches) continue;
 
           // Check if this job redirects to Greenhouse/Lever/Workable

@@ -135,8 +135,11 @@ export async function runJobSearch(targetTitles: string[], targetLocations: stri
         for (const raw of rawJobs) {
           const titleLower = raw.title.toLowerCase();
           
-          // Must match at least one target title from the profile
-          const isTargetMatch = targetTitles.some(target => titleLower.includes(target.toLowerCase()));
+          // Flexible keyword matching: must match at least one significant word (length > 3) of target titles
+          const isTargetMatch = targetTitles.length === 0 || targetTitles.some(target => {
+            const targetWords = target.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+            return targetWords.length === 0 || targetWords.some(word => titleLower.includes(word));
+          });
 
           if (!isTargetMatch) {
              console.log(`[Guardrail] Skipping title as it doesn't match Target Roles: ${raw.title}`);
