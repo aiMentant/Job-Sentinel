@@ -302,9 +302,6 @@ CRITICAL ANTI-HALLUCINATION GUARDRAILS:
 }
 
 export async function parseResumeText(text: string): Promise<Partial<UserProfile>> {
-  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === "PASTE_YOUR_KEY_HERE") {
-    throw new Error("Missing Gemini API Key. Please add it to your .env.local file.");
-  }
   const prompt = `
     Extract resume data from the text below. 
     IMPORTANT: You must return ONLY a JSON object. No preamble, no markdown blocks.
