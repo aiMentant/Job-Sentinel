@@ -47,6 +47,8 @@ export default function SearchPage() {
   const [results, setResults] = useState<Job[]>([]);
   const [status, setStatus] = useState("");
   const [profile, setProfile] = useState<Partial<UserProfile>>({});
+  const [targetTitles, setTargetTitles] = useState<string[]>([]);
+  const [targetLocations, setTargetLocations] = useState<string[]>([]);
   const [radius, setRadius] = useState<number>(25);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [reviewingJob, setReviewingJob] = useState<Job | null>(null);
@@ -63,11 +65,9 @@ export default function SearchPage() {
     async function load() {
       const p = await fetchUserProfile();
       if (p) {
-        setProfile({
-          ...p,
-          targetTitles: p.targetTitles || [],
-          targetLocations: p.targetLocations || []
-        });
+        setProfile(p);
+        setTargetTitles(p.targetTitles || []);
+        setTargetLocations(p.targetLocations || []);
         if (p.searchRadius) setRadius(p.searchRadius);
       }
 
@@ -103,12 +103,7 @@ export default function SearchPage() {
     return () => clearInterval(interval);
   }, [isSearching, activeProfileId]);
 
-  useEffect(() => {
-    // Only patch radius — never save partial profile state
-    if (radius && profile.searchRadius !== radius) {
-      patchUserProfile({ searchRadius: radius });
-    }
-  }, [radius]); // deliberately NOT including profile in deps
+
 
   const toggleSelection = (id: string) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -189,21 +184,37 @@ export default function SearchPage() {
     else setSelectedIds(filteredResults.map(j => j.id));
   };
 
-  const removeArrayItem = async (field: 'targetTitles' | 'targetLocations', index: number) => {
-    const arr = [...(profile[field] || [])];
-    arr.splice(index, 1);
-    setProfile(prev => ({ ...prev, [field]: arr }));
-    await patchUserProfile({ [field]: arr });
+  const removeArrayItem = (field: 'targetTitles' | 'targetLocations', index: number) => {
+    if (field === 'targetTitles') {
+      setTargetTitles(prev => prev.filter((_, i) => i !== index));
+    } else {
+      setTargetLocations(prev => prev.filter((_, i) => i !== index));
+    }
   };
 
-  const addArrayItem = async (field: 'targetTitles' | 'targetLocations', value: string) => {
+  const addArrayItem = (field: 'targetTitles' | 'targetLocations', value: string) => {
     if (!value.trim()) return;
     const cleanValue = value.trim();
-    if (profile[field]?.includes(cleanValue)) return; // Prevent duplicates
-    
-    const arr = [...(profile[field] || []), cleanValue];
-    setProfile(prev => ({ ...prev, [field]: arr }));
-    await patchUserProfile({ [field]: arr });
+    if (field === 'targetTitles') {
+      setTargetTitles(prev => prev.includes(cleanValue) ? prev : [...prev, cleanValue]);
+    } else {
+      setTargetLocations(prev => prev.includes(cleanValue) ? prev : [...prev, cleanValue]);
+    }
+  };
+
+  const handleSaveToProfile = async () => {
+    setStatus("Saving strategy defaults to profile...");
+    const res = await patchUserProfile({
+      targetTitles,
+      targetLocations,
+      searchRadius: radius
+    });
+    if (res && res.success) {
+      setStatus("Defaults successfully saved to your Master Profile.");
+    } else {
+      setStatus("Failed to save profile defaults.");
+    }
+    setTimeout(() => setStatus(""), 3000);
   };
 
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -222,20 +233,12 @@ export default function SearchPage() {
       const data = await parseResumeText(profile.resumeText);
       
       // MERGE logic: Keep current, add new unique ones
-      const uniqueTitles = Array.from(new Set([...(profile.targetTitles || []), ...(data.targetTitles || [])]));
-      const uniqueLocations = Array.from(new Set([...(profile.targetLocations || []), ...(data.targetLocations || [])]));
+      const uniqueTitles = Array.from(new Set([...targetTitles, ...(data.targetTitles || [])]));
+      const uniqueLocations = Array.from(new Set([...targetLocations, ...(data.targetLocations || [])]));
 
-      const newProfile = { 
-        ...profile, 
-        targetTitles: uniqueTitles,
-        targetLocations: uniqueLocations
-      };
-      setProfile(newProfile);
-      await patchUserProfile({ 
-        targetTitles: uniqueTitles,
-        targetLocations: uniqueLocations 
-      });
-      setStatus("Search parameters updated from AI.");
+      setTargetTitles(uniqueTitles);
+      setTargetLocations(uniqueLocations);
+      setStatus("Search parameters updated from AI. Click 'Save Defaults' to persist.");
     } catch (e: any) {
       console.error(e);
       alert(e.message || "Failed to analyze resume. Please verify your API Key and connection.");
@@ -251,13 +254,11 @@ export default function SearchPage() {
     try {
       const p = await fetchUserProfile();
       if (p) {
-        setProfile({
-          ...p,
-          targetTitles: p.targetTitles || [],
-          targetLocations: p.targetLocations || []
-        });
+        setProfile(p);
+        setTargetTitles(p.targetTitles || []);
+        setTargetLocations(p.targetLocations || []);
         if (p.searchRadius) setRadius(p.searchRadius);
-        setStatus("Identity Synced: Parameters loaded from master profile.");
+        setStatus("Identity Synced: Query reloaded from master profile.");
         setTimeout(() => setStatus(""), 3000);
       }
     } catch (e) {
@@ -277,13 +278,13 @@ export default function SearchPage() {
       if (searchMode === 'deep') {
         setStatus("Precision Mode: Scanning ATS Platforms...");
         // Use top 3 titles for deep search to avoid noise
-        const precisionTitles = (profile.targetTitles || []).slice(0, 3);
-        newJobs = await runWebDiscovery(precisionTitles, profile.targetLocations || ["UK"], radius);
+        const precisionTitles = targetTitles.slice(0, 3);
+        newJobs = await runWebDiscovery(precisionTitles, targetLocations || ["UK"], radius);
 
       } else {
         newJobs = await runJobSearch(
-          profile.targetTitles || [], 
-          profile.targetLocations || [], 
+          targetTitles, 
+          targetLocations, 
           radius, 
           profile.resumeText || ""
         );
@@ -371,55 +372,60 @@ export default function SearchPage() {
         {/* Search Config */}
         <div className="lg:col-span-1 space-y-6">
             <div className="flex items-center justify-between">
-              <h3 className="font-bold text-sm text-white">Discovery Strategy</h3>
+              <h3 className="font-bold text-sm text-foreground">Discovery Strategy</h3>
               <div className="flex gap-2">
+                <button 
+                  onClick={handleSaveToProfile}
+                  className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 rounded text-[9px] font-bold uppercase tracking-widest hover:bg-emerald-500/20 transition-all cursor-pointer"
+                  title="Save defaults to active profile"
+                >
+                  Save Defaults
+                </button>
                 <button 
                   onClick={handleReload}
                   disabled={isRegenerating}
-                  className="p-1.5 rounded-lg bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white transition-all group"
-                  title="Sync with Identity"
+                  className="p-1.5 rounded-lg bg-foreground/5 text-text-muted hover:bg-foreground/10 hover:text-foreground transition-all group cursor-pointer"
+                  title="Reset to Profile Defaults"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
                 </button>
               </div>
             </div>
 
-
-            
             {/* Target Titles */}
             <div>
-              <label className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-2 block">Target Roles</label>
+              <label className="text-xs text-text-muted font-bold uppercase tracking-wider mb-2 block">Target Roles</label>
               <div className="flex flex-wrap gap-2 mb-2">
-                {profile.targetTitles?.map((title, i) => (
-                  <span key={i} className="px-2 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded text-[11px] text-indigo-300 flex items-center gap-1.5">
+                {targetTitles.map((title, i) => (
+                  <span key={i} className="px-2 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded text-[11px] text-indigo-400 flex items-center gap-1.5 font-semibold">
                     {title}
-                    <button onClick={() => removeArrayItem('targetTitles', i)} className="hover:text-white">&times;</button>
+                    <button onClick={() => removeArrayItem('targetTitles', i)} className="hover:text-white cursor-pointer">&times;</button>
                   </span>
                 ))}
               </div>
               <input 
                 type="text" 
                 placeholder="Add role & press Enter..." 
-                className="input-field text-xs py-1.5 w-full"
+                className="input-field text-xs py-1.5 w-full bg-card border-card-border focus:border-foreground/30 text-foreground"
                 onKeyDown={(e) => { if (e.key === 'Enter') { addArrayItem('targetTitles', e.currentTarget.value); e.currentTarget.value = ''; } }}
               />
             </div>
 
             {/* Target Locations */}
             <div>
-              <label className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-2 block">Locations / Postcodes</label>
+              <label className="text-xs text-text-muted font-bold uppercase tracking-wider mb-2 block">Locations / Postcodes</label>
               <div className="flex flex-wrap gap-2 mb-2">
-                {profile.targetLocations?.map((loc, i) => (
-                  <span key={i} className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded text-[11px] text-emerald-300 flex items-center gap-1.5">
+                {targetLocations.map((loc, i) => (
+                  <span key={i} className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded text-[11px] text-emerald-500 flex items-center gap-1.5 font-semibold">
                     {loc}
-                    <button onClick={() => removeArrayItem('targetLocations', i)} className="hover:text-white">&times;</button>
+                    <button onClick={() => removeArrayItem('targetLocations', i)} className="hover:text-white cursor-pointer">&times;</button>
                   </span>
                 ))}
               </div>
               <input 
                 type="text" 
                 placeholder="Add location & press Enter..." 
-                className="input-field text-xs py-1.5 w-full"
+                className="input-field text-xs py-1.5 w-full bg-card border-card-border focus:border-foreground/30 text-foreground"
                 onKeyDown={(e) => { if (e.key === 'Enter') { addArrayItem('targetLocations', e.currentTarget.value); e.currentTarget.value = ''; } }}
               />
             </div>
