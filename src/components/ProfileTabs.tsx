@@ -110,9 +110,16 @@ export default function ProfileTabs() {
             Cloud Database Connected
           </div>
         ) : (
-          <div className="px-3 py-1 bg-rose-500/10 border border-rose-500/20 text-rose-500 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-help" title={tooltipText}>
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
-            DB Offline (Memory Fallback)
+          <div className="flex flex-col items-end gap-1">
+            <div className="px-3 py-1 bg-rose-500/10 border border-rose-500/20 text-rose-500 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-help" title={tooltipText}>
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
+              DB Offline (Memory Fallback)
+            </div>
+            {dbStatus && (dbStatus.hasUrl === false || dbStatus.hasKey === false) && (
+              <span className="text-[8px] text-rose-400 font-bold tracking-wider uppercase opacity-90">
+                Missing: {!dbStatus.hasUrl && "URL"} {!dbStatus.hasKey && "KEY"}
+              </span>
+            )}
           </div>
         )}
       </div>
