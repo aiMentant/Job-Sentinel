@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useProfile } from "./ProfileContext";
 import { Plus, User, Sparkles } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
+import { getDbStatus } from "@/app/actions/jobActions";
 
 export default function ProfileTabs() {
   const { activeProfileId, profiles, switchProfile, createProfile } = useProfile();
@@ -19,7 +20,6 @@ export default function ProfileTabs() {
   useEffect(() => {
     async function checkStatus() {
       try {
-        const { getDbStatus } = await import("@/app/actions/jobActions");
         const status = await getDbStatus();
         setDbStatus(status);
       } catch (e) {
