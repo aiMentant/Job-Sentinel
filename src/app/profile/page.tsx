@@ -409,27 +409,41 @@ export default function ProfilePage() {
             </div>
           ) : (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
-              {/* Header Info */}
-              <div className="glass-card grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Full Name</label>
-                  <input 
-                    type="text" 
-                    value={profile.fullName || ""} 
-                    onChange={(e) => setProfile({...profile, fullName: e.target.value})}
-                    className="bg-transparent border-none text-xl font-bold w-full p-0 focus:ring-0" 
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Email Address</label>
-                  <input 
-                    type="text" 
-                    value={profile.email || ""} 
-                    onChange={(e) => setProfile({...profile, email: e.target.value})}
-                    className="bg-transparent border-none text-slate-300 w-full p-0 focus:ring-0" 
-                  />
-                </div>
-              </div>
+               {/* Profile Identity Display Name (Above the Card) */}
+               <div className="space-y-2">
+                 <label className="text-[10px] text-indigo-400 uppercase font-extrabold tracking-widest">Profile Identity Name</label>
+                 <input 
+                   type="text" 
+                   value={profile.fullName || ""} 
+                   onChange={(e) => setProfile({...profile, fullName: e.target.value})}
+                   placeholder="⚠️ Add Profile Name (e.g. Robert Madonia) - REQUIRED" 
+                   className="w-full bg-transparent border-b border-card-border hover:border-text-muted/40 focus:border-indigo-500 pb-2 text-2xl font-black text-foreground focus:outline-none transition-all placeholder:text-red-400/90 font-outfit"
+                 />
+               </div>
+
+               {/* Bio Details Card */}
+               <div className="glass-card grid grid-cols-1 md:grid-cols-2 gap-4">
+                 <div className="space-y-1">
+                   <label className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Contact Email</label>
+                   <input 
+                     type="email" 
+                     value={profile.email || ""} 
+                     onChange={(e) => setProfile({...profile, email: e.target.value})}
+                     placeholder="⚠️ Add Email Address (e.g. robert@email.com)"
+                     className="bg-transparent border-none text-slate-300 w-full p-0 focus:ring-0 placeholder:text-red-400/80 placeholder:text-xs font-semibold text-sm" 
+                   />
+                 </div>
+                 <div className="space-y-1">
+                   <label className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Phone Number</label>
+                   <input 
+                     type="text" 
+                     value={profile.phone || ""} 
+                     onChange={(e) => setProfile({...profile, phone: e.target.value})}
+                     placeholder="Add phone number..."
+                     className="bg-transparent border-none text-slate-300 w-full p-0 focus:ring-0 placeholder:text-text-muted/50 text-sm font-semibold" 
+                   />
+                 </div>
+               </div>
 
               {/* Collapsible Sections */}
               <div className="space-y-4">
