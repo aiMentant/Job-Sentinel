@@ -9,16 +9,21 @@ export default function ProfileTabs() {
   const { activeProfileId, profiles, switchProfile, createProfile } = useProfile();
   const router = useRouter();
   const pathname = usePathname();
-  const [dbConnected, setDbConnected] = useState(false);
+  const [dbStatus, setDbStatus] = useState<{
+    connected: boolean;
+    hasUrl: boolean;
+    hasKey: boolean;
+    clientInitialized: boolean;
+  } | null>(null);
 
   useEffect(() => {
     async function checkStatus() {
       try {
         const { getDbStatus } = await import("@/app/actions/jobActions");
         const status = await getDbStatus();
-        setDbConnected(status.connected);
+        setDbStatus(status);
       } catch (e) {
-        setDbConnected(false);
+        setDbStatus({ connected: false, hasUrl: false, hasKey: false, clientInitialized: false });
       }
     }
     checkStatus();
@@ -39,6 +44,22 @@ export default function ProfileTabs() {
       router.refresh();
     }
   };
+
+  let tooltipText = "Checking database connection status...";
+  if (dbStatus) {
+    const missing = [];
+    if (!dbStatus.hasUrl) missing.push("NEXT_PUBLIC_SUPABASE_URL");
+    if (!dbStatus.hasKey) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+    if (dbStatus.hasUrl && dbStatus.hasKey && !dbStatus.clientInitialized) missing.push("Supabase Client Initialization (check URL format)");
+    
+    if (missing.length > 0) {
+      tooltipText = `Missing environment variables on Netlify: ${missing.join(", ")}. Please add them to your Site Settings.`;
+    } else if (!dbStatus.connected) {
+      tooltipText = "Database variables exist but connection failed. Check your credentials in Supabase.";
+    } else {
+      tooltipText = "Successfully connected to cloud Supabase database.";
+    }
+  }
 
   return (
     <div className="w-full bg-card/75 border-b border-card-border px-8 pt-4 pb-0 flex items-center justify-between backdrop-blur-xl sticky top-0 z-40">
@@ -83,13 +104,13 @@ export default function ProfileTabs() {
       </div>
 
       <div className="flex items-center gap-2 pl-4 border-l border-card-border shrink-0 ml-4 pb-3">
-        {dbConnected ? (
-          <div className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center gap-1 animate-pulse" title="Connected to cloud Supabase database">
+        {dbStatus?.connected ? (
+          <div className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center gap-1 animate-pulse" title={tooltipText}>
             <Sparkles className="w-2.5 h-2.5" />
             Cloud Database Connected
           </div>
         ) : (
-          <div className="px-3 py-1 bg-rose-500/10 border border-rose-500/20 text-rose-500 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5" title="Failed to connect to Supabase. Check your env variables on Netlify. Changes will be lost on refresh!">
+          <div className="px-3 py-1 bg-rose-500/10 border border-rose-500/20 text-rose-500 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 cursor-help" title={tooltipText}>
             <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
             DB Offline (Memory Fallback)
           </div>

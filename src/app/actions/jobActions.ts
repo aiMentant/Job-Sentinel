@@ -444,8 +444,12 @@ export async function parseUploadedFile(formData: FormData): Promise<string> {
 
 export async function getDbStatus() {
   const { isSupabaseEnabled } = await import("@/lib/storage");
+  const { supabase } = await import("@/lib/supabaseClient");
   return {
-    connected: isSupabaseEnabled()
+    connected: isSupabaseEnabled(),
+    hasUrl: !!(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL),
+    hasKey: !!(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY),
+    clientInitialized: !!supabase
   };
 }
 
