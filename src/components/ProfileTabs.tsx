@@ -115,9 +115,9 @@ export default function ProfileTabs() {
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
               DB Offline (Memory Fallback)
             </div>
-            {dbStatus && (dbStatus.hasUrl === false || dbStatus.hasKey === false) && (
-              <span className="text-[8px] text-rose-400 font-bold tracking-wider uppercase opacity-90">
-                Missing: {!dbStatus.hasUrl && "URL"} {!dbStatus.hasKey && "KEY"}
+            {dbStatus && (
+              <span className="text-[7px] text-rose-400 font-mono opacity-80 mt-0.5">
+                DEBUG: {JSON.stringify(dbStatus)}
               </span>
             )}
           </div>
