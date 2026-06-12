@@ -49,6 +49,11 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   };
 
   const createProfile = async (name: string) => {
+    if (profiles.length >= 10) {
+      alert("Maximum limit of 10 profiles reached. Please delete an existing profile to add a new one.");
+      return;
+    }
+
     const id = name.toLowerCase().replace(/\s+/g, '-');
     await setActiveProfileId(id);
     setActiveProfileIdState(id);
