@@ -144,6 +144,7 @@ export default function ProfilePage() {
     setStatus("Saving profile to local database...");
     const profileToSave = { ...profile, resumeText };
     await saveUserProfile(profileToSave);
+    await refreshProfiles();
     setStatus("Profile securely saved.");
     setIsSaving(false);
   };
