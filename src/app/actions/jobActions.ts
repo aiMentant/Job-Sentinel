@@ -66,7 +66,8 @@ export async function listAllProfilesWithData() {
     return { 
       id, 
       fullName: data?.fullName || id, 
-      targetTitle: data?.targetTitles?.[0] || "" 
+      targetTitle: data?.targetTitles?.[0] || "",
+      profilePictureUrl: data?.profilePictureUrl || ""
     };
   }));
   return profiles;

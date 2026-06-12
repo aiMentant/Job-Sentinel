@@ -116,26 +116,23 @@ export default function Sidebar() {
       {!isCollapsed && (
         <div className="mt-auto bg-background border border-card-border rounded-2xl p-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex-shrink-0" />
+            {activeProfile?.profilePictureUrl ? (
+              <img 
+                src={activeProfile.profilePictureUrl} 
+                alt={activeProfile.fullName} 
+                className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-card-border"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex-shrink-0 flex items-center justify-center text-[10px] font-black text-white">
+                {activeProfile?.fullName?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() || "?"}
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold truncate text-foreground">
-                {activeProfile?.fullName || activeProfileId.toUpperCase()}
+                {activeProfile?.fullName || activeProfileId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
               </p>
               <p className="text-[10px] text-text-muted truncate capitalize">{activeProfileId} profile</p>
             </div>
-          </div>
-          <div className="mb-3">
-            <select
-              value={activeProfileId}
-              onChange={(e) => handleSwitchProfile(e.target.value)}
-              className="w-full bg-card border border-card-border rounded-xl px-2.5 py-1.5 text-xs text-foreground outline-none focus:border-foreground/30 transition-all cursor-pointer font-semibold"
-            >
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.fullName}
-                </option>
-              ))}
-            </select>
           </div>
           <Link 
             href="/profile"

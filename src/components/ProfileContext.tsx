@@ -8,6 +8,7 @@ type Profile = {
   id: string;
   fullName: string;
   targetTitle?: string;
+  profilePictureUrl?: string;
 };
 
 type ProfileContextType = {

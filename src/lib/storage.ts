@@ -70,6 +70,9 @@ export async function getProfile(profileId: string = 'default') {
     if (profileId === 'default') {
       return { fullName: "Lea Wenban", targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
     }
+    // Fallback for custom profile not found in Supabase yet
+    const formattedName = profileId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    return { fullName: formattedName, targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
   }
 
   // Fallback to local files
@@ -81,7 +84,11 @@ export async function getProfile(profileId: string = 'default') {
     if (memoryProfiles.has(profileId)) {
       return memoryProfiles.get(profileId);
     }
-    return { fullName: "Lea Wenban", targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
+    if (profileId === 'default') {
+      return { fullName: "Lea Wenban", targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
+    }
+    const formattedName = profileId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    return { fullName: formattedName, targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
   }
 }
 
