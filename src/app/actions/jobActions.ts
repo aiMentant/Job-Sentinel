@@ -442,3 +442,10 @@ export async function parseUploadedFile(formData: FormData): Promise<string> {
   throw new Error("Unsupported file format.");
 }
 
+export async function getDbStatus() {
+  const { isSupabaseEnabled } = await import("@/lib/storage");
+  return {
+    connected: isSupabaseEnabled()
+  };
+}
+

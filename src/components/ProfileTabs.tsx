@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useProfile } from "./ProfileContext";
 import { Plus, User, Sparkles } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
@@ -9,6 +9,20 @@ export default function ProfileTabs() {
   const { activeProfileId, profiles, switchProfile, createProfile } = useProfile();
   const router = useRouter();
   const pathname = usePathname();
+  const [dbConnected, setDbConnected] = useState(false);
+
+  useEffect(() => {
+    async function checkStatus() {
+      try {
+        const { getDbStatus } = await import("@/app/actions/jobActions");
+        const status = await getDbStatus();
+        setDbConnected(status.connected);
+      } catch (e) {
+        setDbConnected(false);
+      }
+    }
+    checkStatus();
+  }, [profiles]);
 
   // Don't show tabs on login screen
   if (pathname === "/login") return null;
@@ -69,10 +83,17 @@ export default function ProfileTabs() {
       </div>
 
       <div className="flex items-center gap-2 pl-4 border-l border-card-border shrink-0 ml-4 pb-3">
-        <div className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center gap-1 animate-pulse">
-          <Sparkles className="w-2.5 h-2.5" />
-          Cloud Funnel Online
-        </div>
+        {dbConnected ? (
+          <div className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center gap-1 animate-pulse" title="Connected to cloud Supabase database">
+            <Sparkles className="w-2.5 h-2.5" />
+            Cloud Database Connected
+          </div>
+        ) : (
+          <div className="px-3 py-1 bg-rose-500/10 border border-rose-500/20 text-rose-500 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5" title="Failed to connect to Supabase. Check your env variables on Netlify. Changes will be lost on refresh!">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
+            DB Offline (Memory Fallback)
+          </div>
+        )}
       </div>
     </div>
   );
