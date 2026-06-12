@@ -204,18 +204,43 @@ export async function saveUserProfile(profile: any, targetProfileId?: string) {
 }
 
 export async function deleteProfile(profileId: string) {
-  const { listProfiles } = await import("@/lib/storage");
-  const fs = await import("fs/promises");
-  const path = await import("path");
-  
-  const BASE_DATA_PATH = path.join(process.cwd(), 'data/profiles');
-  const dir = path.join(BASE_DATA_PATH, profileId);
-  
   if (profileId === 'default') {
     throw new Error("Cannot delete the default profile.");
   }
-  
-  await fs.rm(dir, { recursive: true, force: true });
+
+  const { isSupabaseEnabled } = await import("@/lib/storage");
+  const { supabase } = await import("@/lib/supabaseClient");
+
+  if (isSupabaseEnabled() && supabase) {
+    // Delete from profiles
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', profileId);
+    if (profileError) {
+      throw new Error(`Failed to delete profile from Supabase: ${profileError.message}`);
+    }
+
+    // Delete associated jobs record
+    const { error: jobsError } = await supabase
+      .from('jobs')
+      .delete()
+      .eq('profile_id', profileId);
+    if (jobsError) {
+      console.warn("Failed to delete associated jobs record from Supabase:", jobsError.message);
+    }
+  }
+
+  // Fallback / local file cleanup
+  try {
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const BASE_DATA_PATH = path.join(process.cwd(), 'data/profiles');
+    const dir = path.join(BASE_DATA_PATH, profileId);
+    await fs.rm(dir, { recursive: true, force: true });
+  } catch (fsErr) {
+    console.warn("Failed to clean up local files during profile delete:", fsErr);
+  }
   
   // If we deleted the active profile, switch back to default
   const { setActiveProfileId } = await import("./profileSwitch");

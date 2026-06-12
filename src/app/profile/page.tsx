@@ -40,6 +40,7 @@ export default function ProfilePage() {
   const [upgradingBulletIdx, setUpgradingBulletIdx] = useState<number | null>(null);
   const [aiResultModal, setAiResultModal] = useState<{ title: string; content: string } | null>(null);
   const [profileToDelete, setProfileToDelete] = useState<string | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   const [linkedInUrl, setLinkedInUrl] = useState("");
   const [isScraping, setIsScraping] = useState(false);
@@ -132,6 +133,7 @@ export default function ProfilePage() {
     try {
       await deleteProfile(profileToDelete);
       setProfileToDelete(null);
+      setDeleteConfirmText("");
       await refreshProfiles();
       setStatus("Identity successfully removed.");
     } catch (error: any) {
@@ -290,6 +292,7 @@ export default function ProfilePage() {
                     onClick={(e) => {
                       e.stopPropagation();
                       setProfileToDelete(p.id);
+                      setDeleteConfirmText("");
                     }}
                     className="p-0.5 rounded-md text-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors ml-1 cursor-pointer"
                     title="Delete Identity"
@@ -790,16 +793,30 @@ export default function ProfilePage() {
              <p className="text-[10px] text-red-400/80 font-bold uppercase tracking-widest">All associated jobs, resumes, and search history will be purged.</p>
           </div>
 
+          <div className="space-y-2">
+            <label className="text-[10px] text-text-muted uppercase font-bold tracking-wider">
+              Type <span className="text-red-400 font-extrabold">Delete</span> to confirm:
+            </label>
+            <input 
+              type="text"
+              className="input-field text-sm w-full font-bold focus:border-red-500"
+              placeholder='Type "Delete"'
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+            />
+          </div>
+
           <div className="flex gap-3">
             <button 
-              onClick={() => setProfileToDelete(null)}
+              onClick={() => { setProfileToDelete(null); setDeleteConfirmText(""); }}
               className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl font-bold text-sm transition-all"
             >
               Cancel
             </button>
             <button 
               onClick={handleDeleteProfile}
-              className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-black text-sm transition-all shadow-lg shadow-red-600/20"
+              disabled={deleteConfirmText !== "Delete"}
+              className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-black text-sm transition-all shadow-lg shadow-red-600/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
             >
               Delete Permanently
             </button>
