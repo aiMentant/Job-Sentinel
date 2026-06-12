@@ -445,11 +445,18 @@ export async function parseUploadedFile(formData: FormData): Promise<string> {
 export async function getDbStatus() {
   const { isSupabaseEnabled } = await import("@/lib/storage");
   const { supabase } = await import("@/lib/supabaseClient");
+  
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || "";
+  
   return {
     connected: isSupabaseEnabled(),
-    hasUrl: !!(process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL),
-    hasKey: !!(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY),
-    clientInitialized: !!supabase
+    hasUrl: !!url,
+    hasKey: !!key,
+    clientInitialized: !!supabase,
+    urlPreview: url ? `${url.slice(0, 8)}...${url.slice(-8)}` : "empty",
+    keyLength: key ? key.length : 0,
+    startsWithHttp: url.startsWith("http")
   };
 }
 

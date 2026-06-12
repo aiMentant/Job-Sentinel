@@ -15,6 +15,9 @@ export default function ProfileTabs() {
     hasUrl: boolean;
     hasKey: boolean;
     clientInitialized: boolean;
+    urlPreview?: string;
+    keyLength?: number;
+    startsWithHttp?: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -23,7 +26,7 @@ export default function ProfileTabs() {
         const status = await getDbStatus();
         setDbStatus(status);
       } catch (e) {
-        setDbStatus({ connected: false, hasUrl: false, hasKey: false, clientInitialized: false });
+        setDbStatus({ connected: false, hasUrl: false, hasKey: false, clientInitialized: false, urlPreview: "error", keyLength: 0, startsWithHttp: false });
       }
     }
     checkStatus();
