@@ -36,14 +36,15 @@ export default function ProfileTabs() {
 
         <div className="flex items-stretch gap-6 h-full">
           {profiles.map((p) => {
-            const isActive = p.id === activeProfileId;
+            // If the active profile ID isn't in the list of profiles, fallback to highlighting 'default' (Lea Wenban)
+            const isActive = p.id === activeProfileId || (p.id === 'default' && !profiles.some(pr => pr.id === activeProfileId));
             return (
               <button
                 key={p.id}
                 onClick={() => handleSwitch(p.id)}
-                className={`px-1 pb-3 text-xs font-bold transition-all flex items-center gap-2 shrink-0 border-b-2 border-solid cursor-pointer ${
+                className={`px-1 pb-3 text-xs font-bold transition-all flex items-center gap-2 shrink-0 border-b-[3px] border-solid cursor-pointer ${
                   isActive
-                    ? "border-emerald-500 text-emerald-500 font-extrabold"
+                    ? "border-emerald-500 text-emerald-500 font-black"
                     : "border-transparent text-text-muted hover:text-foreground hover:border-card-border"
                 }`}
               >
