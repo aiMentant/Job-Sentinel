@@ -28,8 +28,8 @@ export default function ProfileTabs() {
 
   return (
     <div className="w-full bg-card/75 border-b border-card-border px-8 pt-4 pb-0 flex items-center justify-between backdrop-blur-xl sticky top-0 z-40">
-      <div className="flex items-center gap-6 overflow-x-auto scrollbar-hide flex-1 h-11">
-        <div className="flex items-center gap-1.5 text-xs font-bold text-text-muted uppercase tracking-widest mr-2 shrink-0">
+      <div className="flex items-end gap-6 overflow-x-auto scrollbar-hide flex-1 h-11">
+        <div className="flex items-center gap-1.5 text-xs font-bold text-text-muted uppercase tracking-widest mr-2 shrink-0 pb-3">
           <User className="w-3.5 h-3.5 text-text-muted/70" />
           Active Profile:
         </div>
@@ -41,9 +41,9 @@ export default function ProfileTabs() {
               <button
                 key={p.id}
                 onClick={() => handleSwitch(p.id)}
-                className={`px-1 pb-3 text-xs font-bold transition-all flex items-center gap-2 shrink-0 border-b-[3px] border-solid cursor-pointer ${
+                className={`px-1 pb-3 text-xs font-bold transition-all flex items-center gap-2 shrink-0 border-b-2 border-solid cursor-pointer ${
                   isActive
-                    ? "border-emerald-500 text-emerald-500"
+                    ? "border-emerald-500 text-emerald-500 font-extrabold"
                     : "border-transparent text-text-muted hover:text-foreground hover:border-card-border"
                 }`}
               >

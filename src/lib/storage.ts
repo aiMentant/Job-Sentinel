@@ -39,7 +39,8 @@ export async function listProfiles() {
     if (error) {
       throw new Error(`Supabase listProfiles failed: ${error.message} (code: ${error.code})`);
     }
-    return (data || []).map((p: any) => p.id);
+    const dbIds = (data || []).map((p: any) => p.id);
+    return Array.from(new Set(['default', ...dbIds]));
   }
 
   // Fallback to local files
