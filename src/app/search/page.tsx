@@ -439,7 +439,7 @@ export default function SearchPage() {
     setIsRegenerating(true);
     setStatus("Reloading parameters from profile...");
     try {
-      const p = await fetchUserProfile();
+      const p = await fetchUserProfile(activeProfileId);
       if (p) {
         setProfile(p);
         const roles = p.targetTitles || [];
