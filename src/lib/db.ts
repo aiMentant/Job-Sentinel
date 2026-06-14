@@ -24,6 +24,13 @@ export type Job = {
   submittedAt?: string;           // When the application was submitted
   formFieldAnswers?: Record<string, string>; // Saved answers for unusual form fields
   referralRoutes?: ReferralRoute[];
+  interviewPrepData?: {
+    pitch?: string;
+    behavioralQuestions?: Array<{ q: string; a: string }>;
+    technicalQuestions?: Array<{ q: string; a: string }>;
+    reverseQuestions?: string[];
+    salaryNegotiation?: string;
+  };
   
   // Exact Database Columns from Catalog specifications
   job_id?: string;                // Reference to the scraped job listing (UUID)

@@ -77,6 +77,8 @@ export default function TrackerPage() {
   } | null>(null);
   const [stepperStep, setStepperStep] = useState(0);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [activeTrackerTab, setActiveTrackerTab] = useState<'workshop' | 'pipeline'>('workshop');
+  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [agent, setAgent] = useState({ isSubmitting: false, status: "Idle", lastUpdated: "", resultsFound: 0, progress: 0, currentJobTitle: "" });
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const { activeProfileId } = useProfile();
@@ -482,217 +484,314 @@ export default function TrackerPage() {
         ))}
       </div>
 
-      {/* Kanban Board - Horizontal Scrollable */}
-      <div className="flex gap-6 overflow-x-auto pb-8 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent snap-x snap-mandatory">
+      {/* Tabbing Controls */}
+      <div className="flex gap-6 border-b border-card-border pb-px">
+        <button
+          onClick={() => {
+            setActiveTrackerTab('workshop');
+            setSelectedIds([]);
+          }}
+          className={`flex items-center gap-2 text-xs font-black uppercase tracking-widest pb-4 border-b-2 transition-all ${
+            activeTrackerTab === 'workshop' 
+              ? "border-amber-500 text-amber-500 font-black" 
+              : "border-transparent text-text-muted hover:text-foreground"
+          }`}
+        >
+          <Briefcase className="w-4.5 h-4.5" />
+          Application Workshop
+        </button>
+        <button
+          onClick={() => {
+            setActiveTrackerTab('pipeline');
+            setSelectedIds([]);
+          }}
+          className={`flex items-center gap-2 text-xs font-black uppercase tracking-widest pb-4 border-b-2 transition-all ${
+            activeTrackerTab === 'pipeline' 
+              ? "border-amber-500 text-amber-500 font-black" 
+              : "border-transparent text-text-muted hover:text-foreground"
+          }`}
+        >
+          <Target className="w-4.5 h-4.5" />
+          Active Pipeline
+        </button>
+      </div>
 
-        {statuses.map(status => (
-          <div 
-            key={status.id} 
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={async (e) => {
-              e.preventDefault();
-              const jobId = e.dataTransfer.getData("text/plain");
-              if (jobId) {
-                await handleUpdateStatus(jobId, status.id);
-              }
-            }}
-            className="w-[340px] flex-shrink-0 flex flex-col h-full bg-card rounded-[2rem] border border-card-border pb-4 snap-start shadow-2xl"
-          >
+      {activeTrackerTab === 'workshop' ? (
+        /* Tab 1: Application Workshop Spreadsheet View */
+        <div className="glass-card p-6 overflow-hidden flex flex-col gap-6">
+          {(() => {
+            const workshopJobs = jobs.filter(j => {
+              if (j.status === 'Discovery') return j.isFavourite;
+              return ['Triage', 'Drafting', 'Ready'].includes(j.status);
+            });
 
-            <div className="p-6 flex flex-col gap-4 sticky top-0 bg-card/80 backdrop-blur-xl z-10 rounded-t-[2rem] border-b border-card-border mb-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-2.5 h-2.5 rounded-full ${status.color} shadow-lg shadow-${status.color.split('-')[1]}-500/50`} />
-                  <h3 className="font-bold text-[11px] uppercase tracking-[0.2em] text-text-muted">{status.label.split(' (')[0]}</h3>
-                  <span className="bg-black/5 dark:bg-white/5 text-text-muted text-[10px] px-2.5 py-1 rounded-full font-black">
-                    {jobs.filter(j => {
-                      if (status.id === 'Discovery') return j.status === 'Discovery' && j.isFavourite;
-                      return (j.status as any) === status.id;
-                    }).length}
-                  </span>
-                </div>
+            return workshopJobs.length === 0 ? (
+              <div className="py-20 text-center space-y-4">
+                <Briefcase className="w-12 h-12 text-text-muted mx-auto opacity-35" />
+                <p className="text-text-muted text-sm font-bold">No active jobs in your Workshop.</p>
+                <p className="text-xs text-text-muted max-w-xs mx-auto">Use the Job Search panel to run scrapes and add interesting roles to your pipeline.</p>
               </div>
-              
-              {/* Contextual Action Button - Full Width for better UX */}
-              {status.id === 'Discovery' && jobs.filter(j => j.status === 'Discovery' && j.isFavourite).length > 0 && (
-                <button 
-                  onClick={async () => {
-                    const jobsToMove = jobs.filter(j => j.status === 'Discovery' && j.isFavourite);
-                    for (const j of jobsToMove) await updateJobStatus(j.id, 'Triage' as any);
-                    loadJobs();
-                  }}
-                  className="w-full py-2 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white rounded-xl text-[10px] font-black tracking-widest uppercase transition-all border border-indigo-600/20"
-                >
-                  Triage All
-                </button>
-              )}
-              {status.id === 'Triage' && jobs.filter(j => (j.status as any) === 'Triage').length > 0 && (
-                <button 
-                  onClick={handleBulkMatch}
-                  className="w-full py-2 bg-yellow-500/10 hover:bg-yellow-500 text-yellow-500 hover:text-black rounded-xl text-[10px] font-black tracking-widest uppercase transition-all border border-yellow-500/20"
-                >
-                  Analyze All
-                </button>
-              )}
-              {status.id === 'Drafting' && jobs.filter(j => (j.status as any) === 'Drafting').length > 0 && (
-                <button 
-                  onClick={handleBulkOptimize}
-                  disabled={isBulkOptimizing}
-                  className="w-full py-2 bg-amber-500/10 hover:bg-amber-500 text-amber-500 hover:text-black rounded-xl text-[10px] font-black tracking-widest uppercase transition-all border border-amber-500/20 disabled:opacity-30"
-                >
-                  Tailor All
-                </button>
-              )}
-            </div>
-
-            
-            <div className="flex-1 space-y-4 px-4 pr-2 scrollbar-hide max-h-[calc(100vh-420px)] overflow-y-auto overflow-x-visible">
-              {jobs.filter(j => {
-                if (status.id === 'Discovery') return j.status === 'Discovery' && j.isFavourite;
-                return (j.status as any) === status.id;
-              }).map((job) => {
-                const isOptimized = job.coverLetterText || job.tailoredResumeText;
-                return (
-                  <div 
-                    key={job.id} 
-                    draggable={true}
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("text/plain", job.id);
-                    }}
-                    className="group glass-card p-5 hover:border-card-border transition-all cursor-grab active:cursor-grabbing border-card-border hover:bg-foreground/[0.03]"
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[9px] font-black text-indigo-600/75 dark:text-indigo-400/60 uppercase tracking-[0.2em]">{job.source}</span>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[11px] font-black ${job.score >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                            {job.score > 0 ? `${job.score}% MATCH` : 'PENDING'}
-                          </span>
-                          {job.referralRoutes && job.referralRoutes.length > 0 && (
-                            <span className="text-[9px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded border border-purple-500/20">
-                              👥 {job.referralRoutes.length} referral{job.referralRoutes.length > 1 ? 's' : ''}
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-card-border/80">
+                      <th className="py-3.5 px-4 w-12 text-left">
+                        <input 
+                          type="checkbox" 
+                          checked={workshopJobs.length > 0 && selectedIds.length === workshopJobs.length}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedIds(workshopJobs.map(j => j.id));
+                            } else {
+                              setSelectedIds([]);
+                            }
+                          }}
+                          className="rounded border-card-border bg-black/10 dark:bg-white/5 text-amber-500 focus:ring-amber-500/50"
+                        />
+                      </th>
+                      <th className="py-3.5 px-4 text-[10px] font-black text-text-muted uppercase tracking-widest">Company & Role</th>
+                      <th className="py-3.5 px-4 text-[10px] font-black text-text-muted uppercase tracking-widest">Source</th>
+                      <th className="py-3.5 px-4 text-[10px] font-black text-text-muted uppercase tracking-widest text-center">Match Score</th>
+                      <th className="py-3.5 px-4 text-[10px] font-black text-text-muted uppercase tracking-widest text-center">Workshop Stage</th>
+                      <th className="py-3.5 px-4 text-[10px] font-black text-text-muted uppercase tracking-widest text-center">AI Customization</th>
+                      <th className="py-3.5 px-4 text-[10px] font-black text-text-muted uppercase tracking-widest text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-card-border/40">
+                    {workshopJobs.map((job) => {
+                      const isSelected = selectedIds.includes(job.id);
+                      const isOptimized = job.coverLetterText || job.tailoredResumeText;
+                      return (
+                        <tr key={job.id} className={`hover:bg-foreground/[0.01] transition-colors ${isSelected ? 'bg-foreground/[0.02]' : ''}`}>
+                          <td className="py-4 px-4">
+                            <input 
+                              type="checkbox" 
+                              checked={isSelected}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedIds(prev => [...prev, job.id]);
+                                } else {
+                                  setSelectedIds(prev => prev.filter(id => id !== job.id));
+                                }
+                              }}
+                              className="rounded border-card-border bg-black/10 dark:bg-white/5 text-amber-500 focus:ring-amber-500/50"
+                            />
+                          </td>
+                          <td className="py-4 px-4">
+                            <div className="font-bold text-sm text-foreground leading-tight">{job.company}</div>
+                            <div className="text-xs text-text-muted mt-1 font-medium">{job.title}</div>
+                          </td>
+                          <td className="py-4 px-4">
+                            <span className="text-[9px] font-black uppercase tracking-wider text-text-muted">{job.source}</span>
+                          </td>
+                          <td className="py-4 px-4 text-center">
+                            <span className={`text-xs font-black ${job.score >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                              {job.score > 0 ? `${job.score}%` : 'PENDING'}
                             </span>
-                          )}
-                        </div>
-                      </div>
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                          setContextMenu(contextMenu?.job.id === job.id ? null : { 
-                            job, 
-                            top: rect.bottom + 6, 
-                            right: window.innerWidth - rect.right 
-                          });
-                        }}
-                        className="p-1.5 rounded-lg hover:bg-foreground/10 text-text-muted hover:text-foreground transition-all opacity-0 group-hover:opacity-100"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-                    </div>
-                    
-                    <h4 className="font-bold text-[13px] leading-tight mb-1 text-slate-900 dark:text-slate-100 group-hover:text-slate-950 dark:group-hover:text-white transition-colors">{job.title}</h4>
-                    <p className="text-[11px] text-text-muted font-medium mb-4">{job.company}</p>
-
-
-                    {/* Keyword Gaps (Visible in Triage) */}
-                    {status.id === 'Triage' && job.applicationNotes?.includes('Missing Keywords:') && (
-                      <div className="mb-4">
-                        <p className="text-[8px] font-black text-text-muted uppercase tracking-[0.2em] mb-2">Gaps Identified</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {job.applicationNotes.replace('Missing Keywords: ', '').split(',').slice(0, 3).map((kw, idx) => (
-                            <span key={idx} className="px-2 py-1 bg-amber-500/5 border border-amber-500/15 rounded-lg text-[10px] text-amber-600 dark:text-amber-400 font-bold">{kw.trim()}</span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* AI Status Badges */}
-                    {status.id !== 'Triage' && (
-                      <div className="flex flex-wrap gap-1.5 mb-4">
-                        {status.id === 'Drafting' && !isOptimized && (
-                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/5 text-amber-600 dark:text-amber-400 text-[8px] font-black uppercase border border-amber-500/10">
-                            <Clock className="w-2.5 h-2.5 animate-pulse" />
-                            PENDING AI TAILORING
-                          </div>
-                        )}
-                        {status.id === 'Drafting' && isOptimized && (
-                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-purple-500/5 text-purple-600 dark:text-purple-400 text-[8px] font-black uppercase border border-purple-500/10">
-                            <Sparkles className="w-2.5 h-2.5 animate-pulse" />
-                            READY FOR REVIEW
-                          </div>
-                        )}
-                        {job.coverLetterText && (
-                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 text-[8px] font-black uppercase border border-emerald-500/10">
-                            <CheckCircle className="w-2.5 h-2.5" />
-                            CL READY
-                          </div>
-                        )}
-                        {job.tailoredResumeText && (
-                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/5 text-blue-600 dark:text-blue-400 text-[8px] font-black uppercase border border-blue-500/10">
-                            <Sparkles className="w-2.5 h-2.5" />
-                            RESUME READY
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Quick Action Copy CTAs (Hover Only) */}
-                    {(job.coverLetterText || job.recruiterHookLinkedin || job.recruiterHookEmail) && (
-                      <div className="flex gap-2 justify-end mb-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {job.coverLetterText && (
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); copyToClipboard(job.coverLetterText || "", "Cover letter copied!"); }}
-                            title="Copy Cover Letter"
-                            className="p-1.5 rounded-lg bg-emerald-500/5 hover:bg-emerald-500/20 border border-emerald-500/10 text-emerald-600 dark:text-emerald-400 transition-all"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {job.recruiterHookLinkedin && (
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); copyToClipboard(job.recruiterHookLinkedin || "", "LinkedIn hook copied!"); }}
-                            title="Copy LinkedIn Hook"
-                            className="p-1.5 rounded-lg bg-blue-500/5 hover:bg-blue-500/20 border border-blue-500/10 text-blue-600 dark:text-blue-400 transition-all"
-                          >
-                            <Mail className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {job.recruiterHookEmail && (
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); copyToClipboard(job.recruiterHookEmail || "", "Email hook copied!"); }}
-                            title="Copy Email Hook"
-                            className="p-1.5 rounded-lg bg-indigo-500/5 hover:bg-indigo-500/20 border border-indigo-500/10 text-indigo-600 dark:text-indigo-400 transition-all"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="flex flex-col gap-2">
-                      <button 
-                        onClick={() => handleStartOptimize(job)}
-                        className={`w-full py-1.5 rounded text-[10px] font-black tracking-tighter transition-all border uppercase
-                          ${status.id === 'Triage' ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-500 border-yellow-500/20 hover:bg-yellow-500/20' : 
-                            status.id === 'Drafting' ? 
-                              (isOptimized ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 hover:bg-purple-500/20' : 'bg-amber-500/10 text-amber-600 dark:text-amber-500 border-amber-500/20 hover:bg-amber-500/20') :
-                            'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/20'}`}
-                      >
-                        {status.id === 'Triage' ? 'SCAN MATCH' : 
-                         status.id === 'Drafting' ? 
-                           (isOptimized ? 'Review & Edit' : 'Tailor Opportunity') : 
-                         status.id === 'Ready' ? 'Prepare Submit' : 'OPTIMIZE'}
-                      </button>
-
+                          </td>
+                          <td className="py-4 px-4 text-center">
+                            <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-foreground/5 text-text-muted border border-card-border/40">
+                              {job.status}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 text-center">
+                            {isOptimized ? (
+                              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 text-[8px] font-black uppercase border border-emerald-500/10">
+                                Ready for Review
+                              </div>
+                            ) : (
+                              <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/5 text-amber-600 dark:text-amber-400 text-[8px] font-black uppercase border border-amber-500/10">
+                                Pending AI
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-4 px-4 text-right">
+                            <div className="flex gap-2 justify-end items-center">
+                              {/* Quick Actions (Hover/Inline) */}
+                              {isOptimized && (
+                                <div className="flex gap-1.5 mr-2">
+                                  {job.coverLetterText && (
+                                    <button 
+                                      onClick={() => copyToClipboard(job.coverLetterText || "", "Cover letter copied!")}
+                                      title="Copy Cover Letter"
+                                      className="p-1.5 rounded-lg bg-emerald-500/5 hover:bg-emerald-500/20 border border-emerald-500/10 text-emerald-600 dark:text-emerald-400 transition-all"
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                  {job.recruiterHookLinkedin && (
+                                    <button 
+                                      onClick={() => copyToClipboard(job.recruiterHookLinkedin || "", "LinkedIn Hook copied!")}
+                                      title="Copy LinkedIn Outreach message"
+                                      className="p-1.5 rounded-lg bg-blue-500/5 hover:bg-blue-500/20 border border-blue-500/10 text-blue-600 dark:text-blue-400 transition-all"
+                                    >
+                                      <Mail className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                              <button
+                                onClick={() => handleStartOptimize(job)}
+                                className={`px-4.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
+                                  isOptimized 
+                                    ? "bg-purple-500/10 border-purple-500/20 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20" 
+                                    : "bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20"
+                                }`}
+                              >
+                                {isOptimized ? 'Review & Edit' : 'Tailor'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+        </div>
+      ) : (
+        /* Tab 2: Active Pipeline Kanban Board View */
+        <div className="flex gap-6 overflow-x-auto pb-8 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent snap-x snap-mandatory">
+          {statuses
+            .filter(s => !['Discovery', 'Triage', 'Drafting', 'Ready'].includes(s.id))
+            .map(status => (
+              <div 
+                key={status.id} 
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={async (e) => {
+                  e.preventDefault();
+                  const jobId = e.dataTransfer.getData("text/plain");
+                  if (jobId) {
+                    await handleUpdateStatus(jobId, status.id);
+                  }
+                }}
+                className="w-[340px] flex-shrink-0 flex flex-col h-full bg-card rounded-[2rem] border border-card-border pb-4 snap-start shadow-2xl"
+              >
+                <div className="p-6 flex flex-col gap-4 sticky top-0 bg-card/80 backdrop-blur-xl z-10 rounded-t-[2rem] border-b border-card-border mb-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-2.5 h-2.5 rounded-full ${status.color} shadow-lg shadow-${status.color.split('-')[1]}-500/50`} />
+                      <h3 className="font-bold text-[11px] uppercase tracking-[0.2em] text-text-muted">{status.label}</h3>
+                      <span className="bg-black/5 dark:bg-white/5 text-text-muted text-[10px] px-2.5 py-1 rounded-full font-black">
+                        {jobs.filter(j => (j.status as any) === status.id).length}
+                      </span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
+                </div>
+
+                <div className="flex-1 space-y-4 px-4 pr-2 scrollbar-hide max-h-[calc(100vh-420px)] overflow-y-auto overflow-x-visible">
+                  {jobs.filter(j => (j.status as any) === status.id).map((job) => {
+                    const isOptimized = job.coverLetterText || job.tailoredResumeText;
+                    return (
+                      <div 
+                        key={job.id} 
+                        draggable={true}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/plain", job.id);
+                        }}
+                        className="group glass-card p-5 hover:border-card-border transition-all cursor-grab active:cursor-grabbing border-card-border hover:bg-foreground/[0.03]"
+                      >
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[9px] font-black text-indigo-600/75 dark:text-indigo-400/60 uppercase tracking-[0.2em]">{job.source}</span>
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[11px] font-black ${job.score >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                                {job.score > 0 ? `${job.score}% MATCH` : 'PENDING'}
+                              </span>
+                              {job.referralRoutes && job.referralRoutes.length > 0 && (
+                                <span className="text-[9px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded border border-purple-500/20">
+                                  👥 {job.referralRoutes.length} referral{job.referralRoutes.length > 1 ? 's' : ''}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              setContextMenu(contextMenu?.job.id === job.id ? null : { 
+                                job, 
+                                top: rect.bottom + 6, 
+                                right: window.innerWidth - rect.right 
+                              });
+                            }}
+                            className="p-1.5 rounded-lg hover:bg-foreground/10 text-text-muted hover:text-foreground transition-all opacity-0 group-hover:opacity-100"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+                        </div>
+                        
+                        <h4 className="font-bold text-[13px] leading-tight mb-1 text-slate-900 dark:text-slate-100 group-hover:text-slate-950 dark:group-hover:text-white transition-colors">{job.title}</h4>
+                        <p className="text-[11px] text-text-muted font-medium mb-4">{job.company}</p>
+
+                        {/* AI Status Badges */}
+                        <div className="flex flex-wrap gap-1.5 mb-4">
+                          {job.coverLetterText && (
+                            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 text-[8px] font-black uppercase border border-emerald-500/10">
+                              <CheckCircle className="w-2.5 h-2.5" />
+                              CL READY
+                            </div>
+                          )}
+                          {job.tailoredResumeText && (
+                            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/5 text-blue-600 dark:text-blue-400 text-[8px] font-black uppercase border border-blue-500/10">
+                              <Sparkles className="w-2.5 h-2.5" />
+                              RESUME READY
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Quick Action Copy CTAs (Hover Only) */}
+                        {(job.coverLetterText || job.recruiterHookLinkedin || job.recruiterHookEmail) && (
+                          <div className="flex gap-2 justify-end mb-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {job.coverLetterText && (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); copyToClipboard(job.coverLetterText || "", "Cover letter copied!"); }}
+                                title="Copy Cover Letter"
+                                className="p-1.5 rounded-lg bg-emerald-500/5 hover:bg-emerald-500/20 border border-emerald-500/10 text-emerald-600 dark:text-emerald-400 transition-all"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {job.recruiterHookLinkedin && (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); copyToClipboard(job.recruiterHookLinkedin || "", "LinkedIn Hook copied!"); }}
+                                title="Copy LinkedIn Hook"
+                                className="p-1.5 rounded-lg bg-blue-500/5 hover:bg-blue-500/20 border border-blue-500/10 text-blue-600 dark:text-blue-400 transition-all"
+                              >
+                                <Mail className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {job.recruiterHookEmail && (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); copyToClipboard(job.recruiterHookEmail || "", "Email Hook copied!"); }}
+                                title="Copy Email Hook"
+                                className="p-1.5 rounded-lg bg-indigo-500/5 hover:bg-indigo-500/20 border border-indigo-500/10 text-indigo-600 dark:text-indigo-400 transition-all"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex flex-col gap-2">
+                          <button 
+                            onClick={() => handleStartOptimize(job)}
+                            className="w-full py-1.5 rounded text-[10px] font-black tracking-tighter transition-all border uppercase bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/20"
+                          >
+                            Review Prep
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
 
       {/* Global Context Menu Portal - outside all backdrop-blur/overflow stacking contexts */}
       {contextMenu && (

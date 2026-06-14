@@ -12,7 +12,8 @@ import {
   ChevronLeft, 
   ChevronRight, 
   Sun,
-  Moon
+  Moon,
+  Calendar
 } from "lucide-react";
 
 import Link from "next/link";
@@ -21,12 +22,16 @@ import { usePathname } from "next/navigation";
 import { useProfile } from "@/components/ProfileContext";
 import { useTheme } from "@/components/ThemeContext";
 
-const navItems = [
+const primaryNavItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
   { icon: Search, label: "Job Search", href: "/search" },
   { icon: Briefcase, label: "Application Tracker", href: "/tracker" },
-  { icon: FileText, label: "Submission Log", href: "/applications" },
+  { icon: Calendar, label: "Interview Hub", href: "/interview-hub" },
   { icon: CheckCircle2, label: "Profile & Identity", href: "/profile" },
+];
+
+const secondaryNavItems = [
+  { icon: FileText, label: "Submission Log", href: "/applications" },
   { icon: Settings, label: "Agent Settings", href: "/settings" },
 ];
 
@@ -64,7 +69,7 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 space-y-1">
-        {navItems.map((item) => {
+        {primaryNavItems.map((item) => {
           const isActive = pathname === item.href;
           return (
             <Link
@@ -86,6 +91,28 @@ export default function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Secondary Navigation Group (Bottom) */}
+      <div className="space-y-1 mb-4 border-t border-card-border/40 pt-4">
+        {secondaryNavItems.map((item) => {
+          const isActive = pathname === item.href;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`flex items-center ${isCollapsed ? "justify-center" : "gap-3 px-4"} py-3 rounded-xl transition-all duration-200 group ${
+                isActive 
+                  ? "bg-foreground/5 text-foreground font-semibold border border-card-border" 
+                  : "text-text-muted hover:bg-foreground/5 hover:text-foreground"
+              }`}
+              title={isCollapsed ? item.label : ""}
+            >
+              <item.icon className={`w-5 h-5 flex-shrink-0 ${isActive ? "text-foreground" : "text-text-muted group-hover:text-foreground"}`} />
+              {!isCollapsed && <span className="font-medium animate-in fade-in slide-in-from-left-2 duration-300 text-sm">{item.label}</span>}
+            </Link>
+          );
+        })}
+      </div>
 
       {/* Theme Toggler */}
       <button

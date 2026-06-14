@@ -386,3 +386,87 @@ export async function generateNicheJobBoards(profileIdOverride?: string): Promis
   }
 }
 
+// ────────────────────────────────────────────────────────
+// 11. Interview Prep Support Generator
+// Generates pitches, predictive behavioral + technical Q&As,
+// reverse questions, and salary negotiation strategies.
+// ────────────────────────────────────────────────────────
+export async function generateInterviewPrepMaterial(
+  jobDescription: string,
+  jobTitle: string,
+  companyName: string,
+  profileIdOverride?: string
+): Promise<{
+  pitch: string;
+  behavioralQuestions: Array<{ q: string; a: string }>;
+  technicalQuestions: Array<{ q: string; a: string }>;
+  reverseQuestions: string[];
+  salaryNegotiation: string;
+}> {
+  const context = await getProfileContext(profileIdOverride);
+  
+  const prompt = `
+  Job Description:
+  ${jobDescription}
+  
+  Job Title: ${jobTitle}
+  Company: ${companyName}
+  
+  Candidate Profile:
+  ${context}
+  
+  TASK: Generate comprehensive, highly tailored interview preparation materials for this candidate.
+  
+  Please provide:
+  1. Pitch: A custom, persuasive "Tell me about yourself" elevator pitch script (approx. 150-200 words) connecting their experiences to the company's mission and job requirements.
+  2. Behavioral Questions: 5 behavioral questions they are likely to be asked based on the job requirements, with tailored guideline answers showing how they can use the STAR method from their experience.
+  3. Technical Questions: 5 technical/role-specific questions based on the required skill set in the job description, with precise guideline answers.
+  4. Reverse Questions: 5 strategic, insightful questions the candidate should ask the interviewer to display deep interest and business acumen.
+  5. Salary Negotiation: Compensation advice with a realistic range and a mini-script/strategy for discussing target compensation.
+  
+  CRITICAL ANTI-HALLUCINATION GUARDRAILS:
+  - Rely strictly on the provided Candidate Profile for their accomplishments and credentials.
+  - Do NOT invent projects, metrics, certifications, or past titles that the candidate does not have.
+  - Formulate answer guidelines based strictly on the candidate's actual skills.
+  
+  Return ONLY a JSON object (no markdown):
+  {
+    "pitch": "Elevator pitch script text here...",
+    "behavioralQuestions": [
+      { "q": "Behavioral Question 1", "a": "Guideline answer using STAR method based on their profile..." }
+    ],
+    "technicalQuestions": [
+      { "q": "Technical/Role Question 1", "a": "Guideline answer based on their profile..." }
+    ],
+    "reverseQuestions": [
+      "Question 1",
+      "Question 2"
+    ],
+    "salaryNegotiation": "Comp advice, range and talking points..."
+  }
+  `;
+
+  const fallback = {
+    pitch: "Elevator pitch script generating failed.",
+    behavioralQuestions: [{ q: "Tell me about a time you solved a complex problem.", a: "Prepare a STAR method answer based on your achievements." }],
+    technicalQuestions: [{ q: "What technical skills qualify you for this role?", a: "Discuss the core requirements mentioned in the job post." }],
+    reverseQuestions: ["What does success look like in the first 90 days?", "How does this role contribute to the company's immediate goals?"],
+    salaryNegotiation: "Prepare compensation requirements based on local market averages."
+  };
+
+  try {
+    const result = await generateWithAI(prompt, { jsonMode: true });
+    return {
+      pitch: result.pitch || fallback.pitch,
+      behavioralQuestions: result.behavioralQuestions || fallback.behavioralQuestions,
+      technicalQuestions: result.technicalQuestions || fallback.technicalQuestions,
+      reverseQuestions: result.reverseQuestions || fallback.reverseQuestions,
+      salaryNegotiation: result.salaryNegotiation || fallback.salaryNegotiation
+    };
+  } catch (e) {
+    console.error("Gemini failed to generate interview prep:", e);
+    return fallback;
+  }
+}
+
+
