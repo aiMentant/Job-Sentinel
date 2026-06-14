@@ -25,8 +25,17 @@ export default function ProfileTabs() {
       try {
         const status = await getDbStatus();
         setDbStatus(status);
-      } catch (e) {
-        setDbStatus({ connected: false, hasUrl: false, hasKey: false, clientInitialized: false, urlPreview: "error", keyLength: 0, startsWithHttp: false });
+      } catch (e: any) {
+        setDbStatus({ 
+          connected: false, 
+          hasUrl: false, 
+          hasKey: false, 
+          clientInitialized: false, 
+          urlPreview: "error", 
+          keyLength: 0, 
+          startsWithHttp: false,
+          error: e.message || String(e)
+        } as any);
       }
     }
     checkStatus();
