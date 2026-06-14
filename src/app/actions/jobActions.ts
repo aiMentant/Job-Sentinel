@@ -569,21 +569,35 @@ export async function parseUploadedFile(formData: FormData): Promise<string> {
 }
 
 export async function getDbStatus() {
-  const { isSupabaseEnabled } = await import("@/lib/storage");
-  const { supabase } = await import("@/lib/supabaseClient");
-  
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || "";
-  
-  return {
-    connected: isSupabaseEnabled(),
-    hasUrl: !!url,
-    hasKey: !!key,
-    clientInitialized: !!supabase,
-    urlPreview: url ? `${url.slice(0, 8)}...${url.slice(-8)}` : "empty",
-    keyLength: key ? key.length : 0,
-    startsWithHttp: url.startsWith("http")
-  };
+  try {
+    const { isSupabaseEnabled } = await import("@/lib/storage");
+    const { supabase } = await import("@/lib/supabaseClient");
+    
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || "";
+    
+    return {
+      connected: isSupabaseEnabled(),
+      hasUrl: !!url,
+      hasKey: !!key,
+      clientInitialized: !!supabase,
+      urlPreview: url ? `${url.slice(0, 8)}...${url.slice(-8)}` : "empty",
+      keyLength: key ? key.length : 0,
+      startsWithHttp: url.startsWith("http"),
+      error: null
+    };
+  } catch (err: any) {
+    return {
+      connected: false,
+      hasUrl: false,
+      hasKey: false,
+      clientInitialized: false,
+      urlPreview: "error",
+      keyLength: 0,
+      startsWithHttp: false,
+      error: err.message || String(err)
+    };
+  }
 }
 
 export async function safeParseUploadedFile(formData: FormData): Promise<{ success: boolean; text?: string; error?: string }> {

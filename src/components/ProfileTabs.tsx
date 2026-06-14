@@ -125,7 +125,7 @@ export default function ProfileTabs() {
             </div>
             {dbStatus && (
               <span className="text-[7px] text-rose-400 font-mono opacity-80 mt-0.5">
-                DEBUG: {JSON.stringify(dbStatus)}
+                DEBUG: {(dbStatus as any).error ? `ERROR: ${(dbStatus as any).error}` : JSON.stringify(dbStatus)}
               </span>
             )}
           </div>
