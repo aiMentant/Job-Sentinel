@@ -8,7 +8,6 @@ import JSZip from "jszip";
 
 import { getAgentStatus, setAgentStatus } from "./agentStatus";
 import { getActiveProfileId } from "./profileSwitch";
-import { chromium } from "playwright";
 
 export async function fetchJobs(profileIdOverride?: string) {
   const profileId = profileIdOverride || await getActiveProfileId();
@@ -934,6 +933,7 @@ export async function findReferralRoutes(companyName: string, profile: UserProfi
     return [];
   }
   
+  const { chromium } = await import('playwright');
   let browser;
   try {
     browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`);
