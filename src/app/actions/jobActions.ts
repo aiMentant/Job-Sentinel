@@ -356,6 +356,8 @@ export async function saveApplicationDraft(id: string, fields: {
   coverLetterText?: string;
   applicationNotes?: string;
   formFieldAnswers?: Record<string, string>;
+  recruiterHookLinkedin?: string;
+  recruiterHookEmail?: string;
 }) {
   const profileId = await getActiveProfileId();
   return await dbUpdateJobField(id, { ...fields, applicationStatus: { stage: 'draft', lastUpdated: new Date().toISOString() } }, profileId);

@@ -1350,13 +1350,17 @@ export default function SearchPage() {
                 >
                   View Original Post
                 </a>
-                <button 
-                  onClick={() => handleExpressApply(reviewingJob)}
-                  className="flex-1 btn-primary justify-center py-3"
-                >
-                  Express Apply Now
-                </button>
-
+                <div className="flex-1 flex flex-col gap-1.5">
+                  <button 
+                    onClick={() => handleExpressApply(reviewingJob)}
+                    className="w-full btn-primary justify-center py-3 font-bold"
+                  >
+                    Express Apply Now
+                  </button>
+                  <span className="text-[9px] text-text-muted text-center font-medium leading-normal block">
+                    Favorites and places directly in Drafting queue for tailoring.
+                  </span>
+                </div>
               </div>
             </div>
 

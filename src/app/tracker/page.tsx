@@ -25,6 +25,7 @@ import {
   Download,
   CheckCircle,
   Share2,
+  Copy,
 } from "lucide-react";
 import { fetchJobs, updateJobStatus, deleteJob, generateCoverLetter, updateJob, saveApplicationDraft, markApplicationReady, fetchFullJobDescription } from "@/app/actions/jobActions";
 
@@ -74,6 +75,8 @@ export default function TrackerPage() {
     result: any | null; 
     isGenerating: boolean 
   } | null>(null);
+  const [stepperStep, setStepperStep] = useState(0);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
   const [agent, setAgent] = useState({ isSubmitting: false, status: "Idle", lastUpdated: "", resultsFound: 0, progress: 0, currentJobTitle: "" });
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const { activeProfileId } = useProfile();
@@ -375,12 +378,16 @@ export default function TrackerPage() {
     
     await saveApplicationDraft(job.id, {
       tailoredResumeText: result.tailoredResumeText,
-      coverLetterText: result.tailoredCoverLetter,
-      applicationNotes: result.applicationStrategy
+      coverLetterText: result.tailoredCoverLetter || result.coverLetterText,
+      applicationNotes: result.applicationStrategy || result.applicationNotes,
+      recruiterHookLinkedin: result.linkedinHook || result.recruiterHookLinkedin,
+      recruiterHookEmail: result.emailHook || result.recruiterHookEmail
     });
     
     await markApplicationReady(job.id);
+    await updateJobStatus(job.id, 'Ready' as any);
     setOptimizeModal(null);
+    setStepperStep(0);
     loadJobs();
   };
 
@@ -391,9 +398,10 @@ export default function TrackerPage() {
     { label: "Offered", value: jobs.filter(j => j.status === 'Offer').length.toString(), icon: Trophy, color: "text-yellow-400" },
   ];
 
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = (text: string, label: string = "Copied to clipboard!") => {
     navigator.clipboard.writeText(text);
-    alert("Copied to clipboard!");
+    setCopiedText(label);
+    setTimeout(() => setCopiedText(null), 2000);
   };
 
   return (
@@ -478,7 +486,18 @@ export default function TrackerPage() {
       <div className="flex gap-6 overflow-x-auto pb-8 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent snap-x snap-mandatory">
 
         {statuses.map(status => (
-          <div key={status.id} className="w-[340px] flex-shrink-0 flex flex-col h-full bg-card rounded-[2rem] border border-card-border pb-4 snap-start shadow-2xl">
+          <div 
+            key={status.id} 
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={async (e) => {
+              e.preventDefault();
+              const jobId = e.dataTransfer.getData("text/plain");
+              if (jobId) {
+                await handleUpdateStatus(jobId, status.id);
+              }
+            }}
+            className="w-[340px] flex-shrink-0 flex flex-col h-full bg-card rounded-[2rem] border border-card-border pb-4 snap-start shadow-2xl"
+          >
 
             <div className="p-6 flex flex-col gap-4 sticky top-0 bg-card/80 backdrop-blur-xl z-10 rounded-t-[2rem] border-b border-card-border mb-4">
               <div className="flex items-center justify-between">
@@ -531,87 +550,145 @@ export default function TrackerPage() {
               {jobs.filter(j => {
                 if (status.id === 'Discovery') return j.status === 'Discovery' && j.isFavourite;
                 return (j.status as any) === status.id;
-              }).map((job) => (
-                <div key={job.id} className="group glass-card p-5 hover:border-card-border transition-all cursor-grab active:cursor-grabbing border-card-border hover:bg-foreground/[0.03]">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[9px] font-black text-indigo-600/75 dark:text-indigo-400/60 uppercase tracking-[0.2em]">{job.source}</span>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[11px] font-black ${job.score >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                          {job.score > 0 ? `${job.score}% MATCH` : 'PENDING'}
-                        </span>
-                        {job.referralRoutes && job.referralRoutes.length > 0 && (
-                          <span className="text-[9px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded border border-purple-500/20">
-                            👥 {job.referralRoutes.length} referral{job.referralRoutes.length > 1 ? 's' : ''}
+              }).map((job) => {
+                const isOptimized = job.coverLetterText || job.tailoredResumeText;
+                return (
+                  <div 
+                    key={job.id} 
+                    draggable={true}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("text/plain", job.id);
+                    }}
+                    className="group glass-card p-5 hover:border-card-border transition-all cursor-grab active:cursor-grabbing border-card-border hover:bg-foreground/[0.03]"
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] font-black text-indigo-600/75 dark:text-indigo-400/60 uppercase tracking-[0.2em]">{job.source}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[11px] font-black ${job.score >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                            {job.score > 0 ? `${job.score}% MATCH` : 'PENDING'}
                           </span>
+                          {job.referralRoutes && job.referralRoutes.length > 0 && (
+                            <span className="text-[9px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded border border-purple-500/20">
+                              👥 {job.referralRoutes.length} referral{job.referralRoutes.length > 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setContextMenu(contextMenu?.job.id === job.id ? null : { 
+                            job, 
+                            top: rect.bottom + 6, 
+                            right: window.innerWidth - rect.right 
+                          });
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-foreground/10 text-text-muted hover:text-foreground transition-all opacity-0 group-hover:opacity-100"
+                      >
+                        <MoreVertical className="w-4 h-4" />
+                      </button>
+                    </div>
+                    
+                    <h4 className="font-bold text-[13px] leading-tight mb-1 text-slate-900 dark:text-slate-100 group-hover:text-slate-950 dark:group-hover:text-white transition-colors">{job.title}</h4>
+                    <p className="text-[11px] text-text-muted font-medium mb-4">{job.company}</p>
+
+
+                    {/* Keyword Gaps (Visible in Triage) */}
+                    {status.id === 'Triage' && job.applicationNotes?.includes('Missing Keywords:') && (
+                      <div className="mb-4">
+                        <p className="text-[8px] font-black text-text-muted uppercase tracking-[0.2em] mb-2">Gaps Identified</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {job.applicationNotes.replace('Missing Keywords: ', '').split(',').slice(0, 3).map((kw, idx) => (
+                            <span key={idx} className="px-2 py-1 bg-amber-500/5 border border-amber-500/15 rounded-lg text-[10px] text-amber-600 dark:text-amber-400 font-bold">{kw.trim()}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* AI Status Badges */}
+                    {status.id !== 'Triage' && (
+                      <div className="flex flex-wrap gap-1.5 mb-4">
+                        {status.id === 'Drafting' && !isOptimized && (
+                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-amber-500/5 text-amber-600 dark:text-amber-400 text-[8px] font-black uppercase border border-amber-500/10">
+                            <Clock className="w-2.5 h-2.5 animate-pulse" />
+                            PENDING AI TAILORING
+                          </div>
+                        )}
+                        {status.id === 'Drafting' && isOptimized && (
+                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-purple-500/5 text-purple-600 dark:text-purple-400 text-[8px] font-black uppercase border border-purple-500/10">
+                            <Sparkles className="w-2.5 h-2.5 animate-pulse" />
+                            READY FOR REVIEW
+                          </div>
+                        )}
+                        {job.coverLetterText && (
+                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 text-[8px] font-black uppercase border border-emerald-500/10">
+                            <CheckCircle className="w-2.5 h-2.5" />
+                            CL READY
+                          </div>
+                        )}
+                        {job.tailoredResumeText && (
+                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/5 text-blue-600 dark:text-blue-400 text-[8px] font-black uppercase border border-blue-500/10">
+                            <Sparkles className="w-2.5 h-2.5" />
+                            RESUME READY
+                          </div>
                         )}
                       </div>
-                    </div>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                        setContextMenu(contextMenu?.job.id === job.id ? null : { 
-                          job, 
-                          top: rect.bottom + 6, 
-                          right: window.innerWidth - rect.right 
-                        });
-                      }}
-                      className="p-1.5 rounded-lg hover:bg-foreground/10 text-text-muted hover:text-foreground transition-all opacity-0 group-hover:opacity-100"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-                  </div>
-                  
-                  <h4 className="font-bold text-[13px] leading-tight mb-1 text-slate-900 dark:text-slate-100 group-hover:text-slate-950 dark:group-hover:text-white transition-colors">{job.title}</h4>
-                  <p className="text-[11px] text-text-muted font-medium mb-4">{job.company}</p>
+                    )}
 
-
-                  {/* Keyword Gaps (Visible in Triage) */}
-                  {status.id === 'Triage' && job.applicationNotes?.includes('Missing Keywords:') && (
-                    <div className="mb-4">
-                      <p className="text-[8px] font-black text-text-muted uppercase tracking-[0.2em] mb-2">Gaps Identified</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {job.applicationNotes.replace('Missing Keywords: ', '').split(',').slice(0, 3).map((kw, idx) => (
-                          <span key={idx} className="px-2 py-1 bg-amber-500/5 border border-amber-500/15 rounded-lg text-[10px] text-amber-600 dark:text-amber-400 font-bold">{kw.trim()}</span>
-                        ))}
+                    {/* Quick Action Copy CTAs (Hover Only) */}
+                    {(job.coverLetterText || job.recruiterHookLinkedin || job.recruiterHookEmail) && (
+                      <div className="flex gap-2 justify-end mb-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {job.coverLetterText && (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); copyToClipboard(job.coverLetterText || "", "Cover letter copied!"); }}
+                            title="Copy Cover Letter"
+                            className="p-1.5 rounded-lg bg-emerald-500/5 hover:bg-emerald-500/20 border border-emerald-500/10 text-emerald-600 dark:text-emerald-400 transition-all"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {job.recruiterHookLinkedin && (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); copyToClipboard(job.recruiterHookLinkedin || "", "LinkedIn hook copied!"); }}
+                            title="Copy LinkedIn Hook"
+                            className="p-1.5 rounded-lg bg-blue-500/5 hover:bg-blue-500/20 border border-blue-500/10 text-blue-600 dark:text-blue-400 transition-all"
+                          >
+                            <Mail className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {job.recruiterHookEmail && (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); copyToClipboard(job.recruiterHookEmail || "", "Email hook copied!"); }}
+                            title="Copy Email Hook"
+                            className="p-1.5 rounded-lg bg-indigo-500/5 hover:bg-indigo-500/20 border border-indigo-500/10 text-indigo-600 dark:text-indigo-400 transition-all"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
+                    )}
+
+                    <div className="flex flex-col gap-2">
+                      <button 
+                        onClick={() => handleStartOptimize(job)}
+                        className={`w-full py-1.5 rounded text-[10px] font-black tracking-tighter transition-all border uppercase
+                          ${status.id === 'Triage' ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-500 border-yellow-500/20 hover:bg-yellow-500/20' : 
+                            status.id === 'Drafting' ? 
+                              (isOptimized ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 hover:bg-purple-500/20' : 'bg-amber-500/10 text-amber-600 dark:text-amber-500 border-amber-500/20 hover:bg-amber-500/20') :
+                            'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/20'}`}
+                      >
+                        {status.id === 'Triage' ? 'SCAN MATCH' : 
+                         status.id === 'Drafting' ? 
+                           (isOptimized ? 'Review & Edit' : 'Tailor Opportunity') : 
+                         status.id === 'Ready' ? 'Prepare Submit' : 'OPTIMIZE'}
+                      </button>
+
                     </div>
-                  )}
-
-                  {/* AI Status Badges */}
-                  {(job.coverLetterText || job.tailoredResumeText) && status.id !== 'Triage' && (
-                    <div className="flex flex-wrap gap-1.5 mb-4">
-                      {job.coverLetterText && (
-                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 text-[8px] font-black uppercase border border-emerald-500/10">
-                          <CheckCircle className="w-2.5 h-2.5" />
-                          CL READY
-                        </div>
-                      )}
-                      {job.tailoredResumeText && (
-                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-500/5 text-blue-600 dark:text-blue-400 text-[8px] font-black uppercase border border-blue-500/10">
-                          <Sparkles className="w-2.5 h-2.5" />
-                          RESUME
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-
-                  <div className="flex flex-col gap-2">
-                    <button 
-                      onClick={() => handleStartOptimize(job)}
-                      className={`w-full py-1.5 rounded text-[10px] font-black tracking-tighter transition-all border uppercase
-                        ${status.id === 'Triage' ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-500 border-yellow-500/20 hover:bg-yellow-500/20' : 
-                          status.id === 'Drafting' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-500 border-amber-500/20 hover:bg-amber-500/20' :
-                          'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/20'}`}
-                    >
-                      {status.id === 'Triage' ? 'SCAN MATCH' : status.id === 'Drafting' ? 'REWRITE' : 'OPTIMIZE'}
-                    </button>
-
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))}
@@ -863,6 +940,8 @@ export default function TrackerPage() {
       {optimizeModal && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className="bg-card border border-card-border w-full max-w-6xl h-[90vh] rounded-[2.5rem] overflow-hidden shadow-2xl flex flex-col">
+            
+            {/* Modal Header */}
             <div className="p-8 border-b border-card-border flex justify-between items-center bg-black/[0.02] dark:bg-white/[0.02]">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-3xl bg-amber-500 flex items-center justify-center text-black">
@@ -873,118 +952,324 @@ export default function TrackerPage() {
                   <p className="text-xs text-text-muted uppercase font-black tracking-widest">{optimizeModal.job.company} • {optimizeModal.job.title}</p>
                 </div>
               </div>
-              <button onClick={() => setOptimizeModal(null)} className="p-2 hover:bg-foreground/10 rounded-full text-text-muted transition-all"><XCircle className="w-8 h-8" /></button>
+              <button 
+                onClick={() => { setOptimizeModal(null); setStepperStep(0); }} 
+                className="p-2 hover:bg-foreground/10 rounded-full text-text-muted transition-all"
+              >
+                <XCircle className="w-8 h-8" />
+              </button>
             </div>
 
+            {/* Stepper Timeline Nav */}
+            <div className="px-8 py-4 border-b border-card-border flex items-center justify-between bg-black/[0.01] dark:bg-white/[0.01] overflow-x-auto gap-4 scrollbar-hide">
+              {["Calibrate", "Resume", "Cover Letter", "Outreach", "Confirm & Dispatch"].map((stepName, index) => (
+                <button 
+                  key={index}
+                  disabled={!optimizeModal.result && index > 0}
+                  onClick={() => setStepperStep(index)}
+                  className={`flex items-center gap-2 text-xs font-black uppercase tracking-widest pb-2 border-b-2 transition-all ${
+                    stepperStep === index 
+                      ? "border-amber-500 text-amber-500" 
+                      : "border-transparent text-text-muted hover:text-foreground disabled:opacity-30"
+                  }`}
+                >
+                  <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
+                    stepperStep === index ? "bg-amber-500 text-black font-black" : "bg-black/15 dark:bg-white/10 text-text-muted"
+                  }`}>
+                    {index + 1}
+                  </span>
+                  {stepName}
+                </button>
+              ))}
+            </div>
+
+            {/* Steps Container */}
             <div className="flex-1 overflow-hidden flex">
-              {/* Left Column: Input & Context */}
-              <div className="w-1/3 border-r border-card-border p-8 overflow-y-auto space-y-8">
-                <div>
-                  <label className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-3 block">Job Description Source</label>
+              
+              {/* STEP 0: CALIBRATE */}
+              {stepperStep === 0 && (
+                <div className="flex-1 flex overflow-hidden">
+                  {/* Left Column: Input & Context */}
+                  <div className="w-1/3 border-r border-card-border p-8 overflow-y-auto space-y-8">
+                    <div>
+                      <label className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-3 block">Job Description Source</label>
+                      <textarea 
+                        value={optimizeModal.jd}
+                        onChange={(e) => setOptimizeModal(prev => prev ? { ...prev, jd: e.target.value } : null)}
+                        className="w-full h-80 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-4 text-xs font-mono text-slate-700 dark:text-slate-400 focus:border-amber-500/50 outline-none transition-all scrollbar-hide"
+                        placeholder="Paste job details here..."
+                      />
+                    </div>
+                    {optimizeModal.job.referralRoutes && optimizeModal.job.referralRoutes.length > 0 && (
+                      <div className="bg-purple-500/5 border border-purple-500/20 rounded-2xl p-5 space-y-3">
+                        <h4 className="font-bold text-xs text-purple-600 dark:text-purple-400 flex items-center gap-2">
+                          <Users className="w-4 h-4" />
+                          Potential Referral Routes
+                        </h4>
+                        <div className="space-y-3 max-h-48 overflow-y-auto">
+                          {optimizeModal.job.referralRoutes.map((r, idx) => (
+                            <div key={idx} className="text-xs bg-card border border-card-border p-3 rounded-xl flex flex-col gap-1">
+                              <div className="flex justify-between items-start">
+                                <span className="font-semibold text-foreground">{r.name}</span>
+                                <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 bg-purple-500/10 text-purple-500 rounded border border-purple-500/20">
+                                  {r.connectionType}
+                                </span>
+                              </div>
+                              <p className="text-text-muted text-[10px]">{r.role}</p>
+                              {r.profileUrl && (
+                                <a 
+                                  href={r.profileUrl} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  className="text-[10px] text-blue-500 hover:underline mt-1 font-bold inline-flex items-center gap-1"
+                                >
+                                  LinkedIn Profile <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <button 
+                      onClick={handleRunOptimization}
+                      disabled={optimizeModal.isGenerating}
+                      className="w-full py-4 bg-amber-500 hover:bg-amber-400 text-black rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-3 disabled:opacity-50"
+                    >
+                      {optimizeModal.isGenerating ? (
+                        <><div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> ANALYZING...</>
+                      ) : (
+                        <><Sparkles className="w-4 h-4" /> {optimizeModal.result ? 'RE-RUN AI TRANSFORMATION' : 'RUN AI TRANSFORMATION'}</>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Right Column: AI Output */}
+                  <div className="flex-1 p-8 overflow-y-auto space-y-12 bg-foreground/[0.01]">
+                    {!optimizeModal.result ? (
+                      <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
+                        <Sparkles className="w-12 h-12 mb-4 text-text-muted" />
+                        <p className="text-lg font-bold text-text-muted">Ready to Transform</p>
+                        <p className="text-sm text-text-muted max-w-xs">Click the button on the left to run the full AI optimization package.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-12">
+                        <div className="grid grid-cols-3 gap-6">
+                          <div className="p-6 rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border">
+                            <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-1">Match Score</p>
+                            <p className={`text-4xl font-black ${optimizeModal.result.matchScore >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>{optimizeModal.result.matchScore}%</p>
+                          </div>
+                          <div className="col-span-2 p-6 rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border">
+                            <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-1">Strategic Advice</p>
+                            <p className="text-xs text-slate-800 dark:text-slate-300 font-bold leading-relaxed">{optimizeModal.result.applicationStrategy || optimizeModal.result.applicationNotes}</p>
+                          </div>
+                        </div>
+                        <div className="p-6 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-3">
+                          <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                          <span>AI transformation completed. Click "Next Step" or select steps above to review and edit custom documents.</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 1: RESUME TAILORING */}
+              {stepperStep === 1 && optimizeModal.result && (
+                <div className="flex-1 p-8 overflow-y-auto space-y-6">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h4 className="font-bold text-lg text-foreground flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-amber-500" />
+                        Tailored Resume Highlights
+                      </h4>
+                      <p className="text-xs text-text-muted">Edit or polish the tailored bullet points. These will be mapped to your resume.</p>
+                    </div>
+                    <button 
+                      onClick={() => copyToClipboard(optimizeModal.result!.tailoredResumeText || "", "Resume copied!")} 
+                      className="btn-secondary py-2 px-4 text-xs font-bold gap-2"
+                    >
+                      <Copy className="w-3.5 h-3.5" /> Copy Highlights
+                    </button>
+                  </div>
                   <textarea 
-                    value={optimizeModal.jd}
-                    onChange={(e) => setOptimizeModal(prev => prev ? { ...prev, jd: e.target.value } : null)}
-                    className="w-full h-80 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-4 text-xs font-mono text-slate-700 dark:text-slate-400 focus:border-amber-500/50 outline-none transition-all scrollbar-hide"
-                    placeholder="Paste job details here..."
+                    value={optimizeModal.result.tailoredResumeText || ""}
+                    onChange={(e) => setOptimizeModal(prev => {
+                      if (!prev || !prev.result) return prev;
+                      return {
+                        ...prev,
+                        result: { ...prev.result, tailoredResumeText: e.target.value }
+                      };
+                    })}
+                    className="w-full h-[52vh] bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 text-xs font-mono text-slate-700 dark:text-slate-400 focus:border-amber-500/50 outline-none transition-all resize-none"
+                    placeholder="Tailored resume bullets..."
                   />
                 </div>
-                {optimizeModal.job.referralRoutes && optimizeModal.job.referralRoutes.length > 0 && (
-                  <div className="bg-purple-500/5 border border-purple-500/20 rounded-2xl p-5 space-y-3">
-                    <h4 className="font-bold text-xs text-purple-600 dark:text-purple-400 flex items-center gap-2">
-                      <Users className="w-4 h-4" />
-                      Potential Referral Routes
+              )}
+
+              {/* STEP 2: COVER LETTER */}
+              {stepperStep === 2 && optimizeModal.result && (
+                <div className="flex-1 p-8 overflow-y-auto space-y-6">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h4 className="font-bold text-lg text-foreground flex items-center gap-2">
+                        <Mail className="w-5 h-5 text-amber-500" />
+                        Personalized Cover Letter
+                      </h4>
+                      <p className="text-xs text-text-muted">Review and refine the cover letter drafted for this role.</p>
+                    </div>
+                    <button 
+                      onClick={() => copyToClipboard(optimizeModal.result!.tailoredCoverLetter || optimizeModal.result!.coverLetterText || "", "Cover letter copied!")} 
+                      className="btn-secondary py-2 px-4 text-xs font-bold gap-2"
+                    >
+                      <Copy className="w-3.5 h-3.5" /> Copy Cover Letter
+                    </button>
+                  </div>
+                  <textarea 
+                    value={optimizeModal.result.tailoredCoverLetter || optimizeModal.result.coverLetterText || ""}
+                    onChange={(e) => setOptimizeModal(prev => {
+                      if (!prev || !prev.result) return prev;
+                      return {
+                        ...prev,
+                        result: { ...prev.result, tailoredCoverLetter: e.target.value }
+                      };
+                    })}
+                    className="w-full h-[52vh] bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 text-xs font-mono text-slate-700 dark:text-slate-400 focus:border-amber-500/50 outline-none transition-all resize-none italic"
+                    placeholder="Custom cover letter..."
+                  />
+                </div>
+              )}
+
+              {/* STEP 3: OUTREACH HOOKS */}
+              {stepperStep === 3 && optimizeModal.result && (
+                <div className="flex-1 p-8 overflow-y-auto space-y-6 flex flex-col">
+                  <div>
+                    <h4 className="font-bold text-lg text-foreground flex items-center gap-2">
+                      <Send className="w-5 h-5 text-amber-500" />
+                      Recruiter Outreach Hooks
                     </h4>
-                    <div className="space-y-3 max-h-48 overflow-y-auto">
-                      {optimizeModal.job.referralRoutes.map((r, idx) => (
-                        <div key={idx} className="text-xs bg-card border border-card-border p-3 rounded-xl flex flex-col gap-1">
-                          <div className="flex justify-between items-start">
-                            <span className="font-semibold text-foreground">{r.name}</span>
-                            <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 bg-purple-500/10 text-purple-500 rounded border border-purple-500/20">
-                              {r.connectionType}
-                            </span>
-                          </div>
-                          <p className="text-text-muted text-[10px]">{r.role}</p>
-                          {r.profileUrl && (
-                            <a 
-                              href={r.profileUrl} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              className="text-[10px] text-blue-500 hover:underline mt-1 font-bold inline-flex items-center gap-1"
-                            >
-                              LinkedIn Profile <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-xs text-text-muted font-medium">Outreach follow-ups created automatically for this job. Copy hooks directly from here.</p>
                   </div>
-                )}
-                <button 
-                  onClick={handleRunOptimization}
-                  disabled={optimizeModal.isGenerating}
-                  className="w-full py-4 bg-amber-500 hover:bg-amber-400 text-black rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-lg shadow-amber-500/20 flex items-center justify-center gap-3 disabled:opacity-50"
-                >
-                  {optimizeModal.isGenerating ? (
-                    <><div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> ANALYZING...</>
-                  ) : (
-                    <><Sparkles className="w-4 h-4" /> RUN STAFF TRANSFORMATION</>
-                  )}
-                </button>
-              </div>
-
-              {/* Right Column: AI Output */}
-              <div className="flex-1 p-8 overflow-y-auto space-y-12 bg-foreground/[0.01]">
-                {!optimizeModal.result ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
-                    <Sparkles className="w-12 h-12 mb-4 text-text-muted" />
-                    <p className="text-lg font-bold text-text-muted">Ready to Transform</p>
-                    <p className="text-sm text-text-muted max-w-xs">Click the button on the left to run the full 7-module optimization package.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-12">
-                    <div className="grid grid-cols-3 gap-6">
-                      <div className="p-6 rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border">
-                        <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-1">Match Score</p>
-                        <p className={`text-4xl font-black ${optimizeModal.result.matchScore >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>{optimizeModal.result.matchScore}%</p>
-                      </div>
-                      <div className="col-span-2 p-6 rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border">
-                        <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-1">Strategic Advice</p>
-                        <p className="text-xs text-slate-800 dark:text-slate-300 font-bold leading-relaxed">{optimizeModal.result.applicationStrategy}</p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 overflow-hidden">
+                    <div className="flex flex-col gap-3">
                       <div className="flex justify-between items-center">
-                        <p className="text-[10px] font-black text-text-muted uppercase tracking-widest flex items-center gap-2"><FileText className="w-3 h-3" /> Tailored Resume Content</p>
-                        <button onClick={() => copyToClipboard(optimizeModal.result!.tailoredResumeText)} className="text-[10px] font-bold text-amber-600 dark:text-amber-500 hover:text-amber-400 uppercase tracking-widest">Copy Content</button>
+                        <label className="text-[10px] font-black text-text-muted uppercase tracking-widest flex items-center gap-1.5"><Share2 className="w-3 h-3 text-blue-500" /> LinkedIn Outreach (300 chars limit)</label>
+                        <button 
+                          onClick={() => copyToClipboard(optimizeModal.result!.linkedinHook || optimizeModal.result!.recruiterHookLinkedin || "", "LinkedIn hook copied!")} 
+                          className="text-[10px] font-bold text-amber-500 hover:underline"
+                        >
+                          Copy
+                        </button>
                       </div>
-                      <div className="p-6 rounded-3xl bg-black/[0.03] dark:bg-white/[0.03] border border-card-border text-xs font-mono text-slate-700 dark:text-slate-400 leading-relaxed whitespace-pre-wrap">
-                        {optimizeModal.result.tailoredResumeText}
-                      </div>
+                      <textarea 
+                        value={optimizeModal.result.linkedinHook || optimizeModal.result.recruiterHookLinkedin || ""}
+                        onChange={(e) => setOptimizeModal(prev => {
+                          if (!prev || !prev.result) return prev;
+                          return {
+                            ...prev,
+                            result: { ...prev.result, linkedinHook: e.target.value }
+                          };
+                        })}
+                        className="w-full flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-5 text-xs font-mono text-slate-700 dark:text-slate-400 focus:border-amber-500/50 outline-none transition-all resize-none italic"
+                        placeholder="LinkedIn outreach text..."
+                      />
                     </div>
 
-                    <div className="space-y-4">
+                    <div className="flex flex-col gap-3">
                       <div className="flex justify-between items-center">
-                        <p className="text-[10px] font-black text-text-muted uppercase tracking-widest flex items-center gap-2"><Mail className="w-3 h-3" /> Personalized Cover Letter</p>
-                        <button onClick={() => copyToClipboard(optimizeModal.result!.tailoredCoverLetter)} className="text-[10px] font-bold text-amber-600 dark:text-amber-500 hover:text-amber-400 uppercase tracking-widest">Copy Content</button>
+                        <label className="text-[10px] font-black text-text-muted uppercase tracking-widest flex items-center gap-1.5"><Mail className="w-3 h-3 text-indigo-500" /> Cold Email Follow-up</label>
+                        <button 
+                          onClick={() => copyToClipboard(optimizeModal.result!.emailHook || optimizeModal.result!.recruiterHookEmail || "", "Email hook copied!")} 
+                          className="text-[10px] font-bold text-amber-500 hover:underline"
+                        >
+                          Copy
+                        </button>
                       </div>
-                      <div className="p-6 rounded-3xl bg-black/[0.03] dark:bg-white/[0.03] border border-card-border text-xs font-mono text-slate-700 dark:text-slate-400 leading-relaxed whitespace-pre-wrap italic">
-                        {optimizeModal.result.tailoredCoverLetter}
-                      </div>
-                    </div>
-
-                    <div className="pt-8 border-t border-card-border">
-                      <button 
-                        onClick={handleSaveReady}
-                        className="w-full py-5 bg-emerald-500 hover:bg-emerald-400 text-black rounded-2xl font-black text-lg uppercase tracking-tighter transition-all shadow-xl shadow-emerald-500/20"
-                      >
-                        CONFIRM & MOVE TO "READY FOR BOT"
-                      </button>
+                      <textarea 
+                        value={optimizeModal.result.emailHook || optimizeModal.result.recruiterHookEmail || ""}
+                        onChange={(e) => setOptimizeModal(prev => {
+                          if (!prev || !prev.result) return prev;
+                          return {
+                            ...prev,
+                            result: { ...prev.result, emailHook: e.target.value }
+                          };
+                        })}
+                        className="w-full flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-5 text-xs font-mono text-slate-700 dark:text-slate-400 focus:border-amber-500/50 outline-none transition-all resize-none italic"
+                        placeholder="Email follow-up text..."
+                      />
                     </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+
+              {/* STEP 4: DISPATCH */}
+              {stepperStep === 4 && optimizeModal.result && (
+                <div className="flex-1 p-8 overflow-y-auto space-y-8 flex flex-col justify-center items-center text-center max-w-2xl mx-auto">
+                  <div className="w-20 h-20 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center shadow-xl shadow-emerald-500/5 mb-4">
+                    <CheckCircle className="w-10 h-10" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-2xl text-foreground">Refinement Complete!</h4>
+                    <p className="text-sm text-text-muted mt-2">All customized materials (Resume bullets, Cover Letter, Outreach Hooks) are ready and saved for this application.</p>
+                  </div>
+
+                  <div className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-3xl p-6 text-left grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-[10px] font-black text-text-muted uppercase tracking-widest block mb-1">Company</span>
+                      <span className="text-sm font-bold text-foreground">{optimizeModal.job.company}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black text-text-muted uppercase tracking-widest block mb-1">Job Title</span>
+                      <span className="text-sm font-bold text-foreground">{optimizeModal.job.title}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black text-text-muted uppercase tracking-widest block mb-1">AI Match Score</span>
+                      <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{optimizeModal.result.matchScore}% Match</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-black text-text-muted uppercase tracking-widest block mb-1">Resume Highlights</span>
+                      <span className="text-xs font-medium text-text-muted">Generated & Edited</span>
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={handleSaveReady}
+                    className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-emerald-500/20"
+                  >
+                    APPROVE & MOVE TO "READY FOR BOT"
+                  </button>
+                </div>
+              )}
             </div>
+
+            {/* Stepper Navigation Footer */}
+            <div className="p-6 border-t border-card-border flex justify-between items-center bg-black/[0.02] dark:bg-white/[0.02]">
+              <button
+                disabled={stepperStep === 0}
+                onClick={() => setStepperStep(prev => Math.max(0, prev - 1))}
+                className="px-6 py-3 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-text-muted disabled:opacity-30 rounded-xl font-black text-xs uppercase tracking-widest transition-all border border-card-border"
+              >
+                Previous Step
+              </button>
+              {stepperStep < 4 ? (
+                <button
+                  disabled={!optimizeModal.result}
+                  onClick={() => setStepperStep(prev => Math.min(4, prev + 1))}
+                  className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-30 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-amber-500/20"
+                >
+                  Next Step
+                </button>
+              ) : (
+                <button
+                  onClick={handleSaveReady}
+                  className="px-8 py-3 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-500/20"
+                >
+                  Approve & Queue
+                </button>
+              )}
+            </div>
+
           </div>
         </div>
       )}
@@ -1062,6 +1347,11 @@ export default function TrackerPage() {
               )}
             </div>
           </div>
+        </div>
+      )}
+      {copiedText && (
+        <div className="fixed bottom-6 right-6 z-[99999] px-6 py-3 bg-emerald-600 text-white rounded-xl shadow-2xl font-black text-xs uppercase tracking-widest animate-in fade-in slide-in-from-bottom-5 duration-300 border border-emerald-500/20">
+          {copiedText}
         </div>
       )}
     </div>
