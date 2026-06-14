@@ -35,12 +35,14 @@ async function ensureDir(dir: string) {
 
 export async function listProfiles() {
   if (isSupabaseEnabled()) {
-    const { data, error } = await supabase.from('profiles').select('id');
-    if (error) {
-      throw new Error(`Supabase listProfiles failed: ${error.message} (code: ${error.code})`);
+    try {
+      const { data, error } = await supabase.from('profiles').select('id');
+      if (error) throw error;
+      const dbIds = (data || []).map((p: any) => p.id);
+      return Array.from(new Set(['default', ...dbIds]));
+    } catch (supabaseError: any) {
+      console.warn("Supabase listProfiles failed, falling back to local files:", supabaseError.message || supabaseError);
     }
-    const dbIds = (data || []).map((p: any) => p.id);
-    return Array.from(new Set(['default', ...dbIds]));
   }
 
   // Fallback to local files
@@ -59,21 +61,17 @@ export async function listProfiles() {
 
 export async function getProfile(profileId: string = 'default') {
   if (isSupabaseEnabled()) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('data')
-      .eq('id', profileId)
-      .single();
-    if (error && error.code !== 'PGRST116') {
-      throw new Error(`Supabase getProfile failed: ${error.message} (code: ${error.code})`);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('data')
+        .eq('id', profileId)
+        .single();
+      if (error && error.code !== 'PGRST116') throw error;
+      if (data) return data.data;
+    } catch (supabaseError: any) {
+      console.warn("Supabase getProfile failed, falling back to local files:", supabaseError.message || supabaseError);
     }
-    if (data) return data.data;
-    if (profileId === 'default') {
-      return { fullName: "Lea Wenban", targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
-    }
-    // Fallback for custom profile not found in Supabase yet
-    const formattedName = profileId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    return { fullName: formattedName, targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
   }
 
   // Fallback to local files
@@ -95,13 +93,15 @@ export async function getProfile(profileId: string = 'default') {
 
 export async function saveProfile(profile: any, profileId: string = 'default') {
   if (isSupabaseEnabled()) {
-    const { error } = await supabase
-      .from('profiles')
-      .upsert({ id: profileId, data: profile });
-    if (error) {
-      throw new Error(`Supabase saveProfile failed: ${error.message} (code: ${error.code})`);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({ id: profileId, data: profile });
+      if (error) throw error;
+      return;
+    } catch (supabaseError: any) {
+      console.warn("Supabase saveProfile failed, falling back to local files:", supabaseError.message || supabaseError);
     }
-    return;
   }
 
   // Fallback to local files
@@ -117,15 +117,17 @@ export async function saveProfile(profile: any, profileId: string = 'default') {
 
 export async function getJobs(profileId: string = 'default') {
   if (isSupabaseEnabled()) {
-    const { data, error } = await supabase
-      .from('jobs')
-      .select('jobs')
-      .eq('profile_id', profileId)
-      .single();
-    if (error && error.code !== 'PGRST116') {
-      throw new Error(`Supabase getJobs failed: ${error.message} (code: ${error.code})`);
+    try {
+      const { data, error } = await supabase
+        .from('jobs')
+        .select('jobs')
+        .eq('profile_id', profileId)
+        .single();
+      if (error && error.code !== 'PGRST116') throw error;
+      if (data) return data.jobs || [];
+    } catch (supabaseError: any) {
+      console.warn("Supabase getJobs failed, falling back to local files:", supabaseError.message || supabaseError);
     }
-    if (data) return data.jobs || [];
   }
 
   // Fallback to local files
@@ -143,13 +145,15 @@ export async function getJobs(profileId: string = 'default') {
 
 export async function saveJobs(jobs: any[], profileId: string = 'default') {
   if (isSupabaseEnabled()) {
-    const { error } = await supabase
-      .from('jobs')
-      .upsert({ profile_id: profileId, jobs: jobs });
-    if (error) {
-      throw new Error(`Supabase saveJobs failed: ${error.message} (code: ${error.code})`);
+    try {
+      const { error } = await supabase
+        .from('jobs')
+        .upsert({ profile_id: profileId, jobs: jobs });
+      if (error) throw error;
+      return;
+    } catch (supabaseError: any) {
+      console.warn("Supabase saveJobs failed, falling back to local files:", supabaseError.message || supabaseError);
     }
-    return;
   }
 
   // Fallback to local files
