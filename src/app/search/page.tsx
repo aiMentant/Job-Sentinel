@@ -113,53 +113,58 @@ export default function SearchPage() {
   useEffect(() => {
     async function load() {
       setIsDataLoading(true);
-      const p = await fetchUserProfile(activeProfileId);
-      if (p) {
-        setProfile(p);
-        
-        // 1. Get explicit roles, or fall back to experience roles
-        let roles = p.targetTitles || [];
-        if (roles.length === 0 && p.experience && p.experience.length > 0) {
-          roles = p.experience.map((e: any) => e.role).filter(Boolean);
+      try {
+        const p = await fetchUserProfile(activeProfileId);
+        if (p) {
+          setProfile(p);
+          
+          // 1. Get explicit roles, or fall back to experience roles
+          let roles = p.targetTitles || [];
+          if (roles.length === 0 && p.experience && p.experience.length > 0) {
+            roles = p.experience.map((e: any) => e.role).filter(Boolean);
+          }
+
+          // 2. Get explicit locations, or fall back to general profile location
+          let locs = (p.targetLocations || []).filter(isValidLocation);
+          if (locs.length === 0 && p.location && isValidLocation(p.location)) {
+            locs = [p.location];
+          }
+
+          setTargetTitles(roles);
+          setTargetLocations(locs);
+          if (p.targetSites && p.targetSites.length > 0) setTargetSites(p.targetSites);
+          if (p.searchRadius) setRadius(p.searchRadius);
+
+          // Check if absolutely required parameters are missing
+          if (roles.length === 0 || locs.length === 0) {
+            setMissingRoleInput(roles.join(", "));
+            setMissingLocationInput(locs.join("; "));
+            setShowMissingParamsModal(true);
+          }
+
+          // Check for background search
+          const agent = await getAgentStatus();
+          let backgroundSearching = agent.isSearching;
+          if (backgroundSearching) {
+            setIsSearching(true);
+            setStatus(`${agent.status} (Found ${agent.resultsFound || 0} matches so far)`);
+          }
+
+          // 3. Mark profile as loaded without auto-triggering a heavy live crawl on mount
+          if (roles.length > 0 && locs.length > 0 && lastSearchedProfileId.current !== activeProfileId) {
+            lastSearchedProfileId.current = activeProfileId;
+          }
         }
 
-        // 2. Get explicit locations, or fall back to general profile location
-        let locs = (p.targetLocations || []).filter(isValidLocation);
-        if (locs.length === 0 && p.location && isValidLocation(p.location)) {
-          locs = [p.location];
-        }
-
-        setTargetTitles(roles);
-        setTargetLocations(locs);
-        if (p.targetSites && p.targetSites.length > 0) setTargetSites(p.targetSites);
-        if (p.searchRadius) setRadius(p.searchRadius);
-
-        // Check if absolutely required parameters are missing
-        if (roles.length === 0 || locs.length === 0) {
-          setMissingRoleInput(roles.join(", "));
-          setMissingLocationInput(locs.join("; "));
-          setShowMissingParamsModal(true);
-        }
-
-        // Check for background search
-        const agent = await getAgentStatus();
-        let backgroundSearching = agent.isSearching;
-        if (backgroundSearching) {
-          setIsSearching(true);
-          setStatus(`${agent.status} (Found ${agent.resultsFound || 0} matches so far)`);
-        }
-
-        // 3. Mark profile as loaded without auto-triggering a heavy live crawl on mount
-        if (roles.length > 0 && locs.length > 0 && lastSearchedProfileId.current !== activeProfileId) {
-          lastSearchedProfileId.current = activeProfileId;
-        }
+        // Load existing "new" jobs from the database so they persist on navigation
+        const { fetchJobs } = await import("@/app/actions/jobActions");
+        const allJobs = await fetchJobs(activeProfileId);
+        setResults(allJobs.filter((j: any) => j.status === 'Discovery'));
+      } catch (err) {
+        console.error("Failed to load initial data in search view:", err);
+      } finally {
+        setIsDataLoading(false);
       }
-
-      // Load existing "new" jobs from the database so they persist on navigation
-      const { fetchJobs } = await import("@/app/actions/jobActions");
-      const allJobs = await fetchJobs(activeProfileId);
-      setResults(allJobs.filter((j: any) => j.status === 'Discovery'));
-      setIsDataLoading(false);
     }
     load();
   }, [activeProfileId]);
@@ -1044,6 +1049,34 @@ export default function SearchPage() {
             </div>
           ) : (
             <div className="space-y-4">
+              {isSearching && scanningTitles.length > 0 && (
+                <div className="mb-6 p-6 glass-card rounded-[2rem] border-indigo-500/20 bg-indigo-500/5 space-y-4">
+                  <h3 className="font-bold text-xs uppercase tracking-widest text-indigo-600 dark:text-indigo-400">Stealth Engine Active Scanning Process</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {scanningTitles.map((scan, i) => (
+                      <div key={i} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${scan.status === 'scanning' ? 'border-indigo-500 bg-indigo-500/5' : 'border-card-border/60 opacity-60'}`}>
+                        {scan.status === 'scanning' ? (
+                          <div className="w-4 h-4 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shrink-0" />
+                        ) : scan.status === 'done' ? (
+                          <div className="w-4 h-4 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-[10px] font-bold shrink-0">✓</div>
+                        ) : scan.status === 'failed' ? (
+                          <div className="w-4 h-4 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center text-[10px] font-bold shrink-0">!</div>
+                        ) : (
+                          <div className="w-4 h-4 rounded-full bg-slate-500/10 text-slate-500 flex items-center justify-center text-[10px] font-bold shrink-0">•</div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-xs text-foreground truncate">Scanning &quot;{scan.title}&quot;</p>
+                          <p className="text-[9px] text-text-muted font-black uppercase tracking-wider">
+                            {scan.status === 'scanning' ? 'Running Stealth Crawler...' : 
+                             scan.status === 'done' ? 'Completed' : 
+                             scan.status === 'failed' ? 'Quota Rate Limited' : 'Queued'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {filteredResults.map((job) => {
                 const jobText = `${job.title} ${job.description}`.toLowerCase();
                 const userSkills = profile.skills || [];
