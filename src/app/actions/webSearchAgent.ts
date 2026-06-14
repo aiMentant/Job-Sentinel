@@ -50,9 +50,6 @@ export async function runWebDiscovery(targetTitles: string[], targetLocations: s
     for (const chunk of titleChunks) {
       for (const rawLocation of targetLocations) {
         let searchLocation = rawLocation;
-        if (radius > 50 && !rawLocation.toLowerCase().includes('uk')) {
-          searchLocation = `${rawLocation} or nearby UK`;
-        }
 
         for (const platform of platforms) {
           const chunkQuery = chunk.map(t => t.includes(' ') ? `"${t}"` : t).join(' OR ');
@@ -137,11 +134,54 @@ export async function runWebDiscovery(targetTitles: string[], targetLocations: s
           // Prevent duplicates in current session
           if (results.some(r => r.url === entry.href)) continue;
 
+          const titleLower = entry.title.toLowerCase();
+          const genericWords = ["senior", "junior", "lead", "staff", "principal", "manager", "director", "designer", "developer", "engineer", "associate", "intern", "creative", "digital", "motion"];
+          
+          const isTitleMatch = targetTitles.length === 0 || targetTitles.some(target => {
+            const targetWords = target.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+            const nonGenericTargetWords = targetWords.filter(w => !genericWords.includes(w));
+            
+            if (nonGenericTargetWords.length > 0) {
+              return nonGenericTargetWords.some(word => titleLower.includes(word));
+            } else {
+              return targetWords.some(word => titleLower.includes(word));
+            }
+          });
+
+          if (!isTitleMatch) {
+             console.log(`[Deep Discovery] Skipping title due to guardrail: ${entry.title}`);
+             continue;
+          }
+
+          const jobLocLower = location.toLowerCase();
+          const isLocationMatch = targetLocations.length === 0 || targetLocations.some(target => {
+            const cleanTarget = target.toLowerCase().trim();
+            if (!cleanTarget) return false;
+            
+            // Check direct inclusion first
+            if (jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower)) {
+              return true;
+            }
+            
+            const isRemoteTarget = cleanTarget.includes("remote");
+            if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere") || jobLocLower.includes("worldwide"))) {
+              return true;
+            }
+            
+            // Split by words/regions but allow shorter state abbreviations/components (length >= 2)
+            const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length >= 2);
+            return targetWords.length > 0 && targetWords.some(word => jobLocLower.includes(word));
+          });
+
+          if (!isLocationMatch) {
+             console.log(`[Deep Discovery] Skipping location due to guardrail: ${location}`);
+             continue;
+          }
+
           results.push({
             id: crypto.randomUUID(),
             title: entry.title.split(' - ')[0] || chunk[0] || "Staff Designer", 
             company: company,
-
             location: location,
             description: entry.snippet || `Deep web match on ${platform.site}`,
             score: 0,
@@ -151,6 +191,8 @@ export async function runWebDiscovery(targetTitles: string[], targetLocations: s
             source: platform.site,
             createdAt: new Date().toISOString()
           });
+
+          await setAgentStatus({ resultsFound: results.length });
         }
         
         // Longer Human-like delay (3-7 seconds)
@@ -178,11 +220,41 @@ export async function runWebDiscovery(targetTitles: string[], targetLocations: s
         const rawList = data.jobs || [];
         
         for (const j of rawList) {
-          const titleMatches = targetTitles.length === 0 || targetTitles.some(t => {
-            const targetWords = t.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-            return targetWords.length === 0 || targetWords.some(word => j.title.toLowerCase().includes(word));
+          const titleLower = j.title.toLowerCase();
+          const genericWords = ["senior", "junior", "lead", "staff", "principal", "manager", "director", "designer", "developer", "engineer", "associate", "intern", "creative", "digital", "motion"];
+          
+          const isTitleMatch = targetTitles.length === 0 || targetTitles.some(target => {
+            const targetWords = target.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+            const nonGenericTargetWords = targetWords.filter(w => !genericWords.includes(w));
+            
+            if (nonGenericTargetWords.length > 0) {
+              return nonGenericTargetWords.some(word => titleLower.includes(word));
+            } else {
+              return targetWords.some(word => titleLower.includes(word));
+            }
           });
-          if (!titleMatches) continue;
+          if (!isTitleMatch) continue;
+
+          const jobLocLower = (j.candidate_required_location || "").toLowerCase();
+          const isLocationMatch = targetLocations.length === 0 || targetLocations.some(target => {
+            const cleanTarget = target.toLowerCase().trim();
+            if (!cleanTarget) return false;
+            
+            // Check direct inclusion first
+            if (jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower)) {
+              return true;
+            }
+            
+            const isRemoteTarget = cleanTarget.includes("remote");
+            if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere") || jobLocLower.includes("worldwide"))) {
+              return true;
+            }
+            
+            // Split by words/regions but allow shorter state abbreviations/components (length >= 2)
+            const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length >= 2);
+            return targetWords.length > 0 && targetWords.some(word => jobLocLower.includes(word));
+          });
+          if (!isLocationMatch) continue;
 
           // Check if this job redirects to Greenhouse/Lever/Workable
           let source = "Deep Index";

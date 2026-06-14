@@ -11,13 +11,30 @@ export async function generateWithAI(prompt: string, options: { retries?: number
   const profileId = await getActiveProfileId().catch(() => "default");
   const profile = await getProfile(profileId).catch(() => null);
   
-  const key = profile?.geminiApiKey || process.env.GEMINI_API_KEY || "";
+  let key = profile?.geminiApiKey;
+  let model = profile?.preferredModel;
+
   if (!key || key === "PASTE_YOUR_KEY_HERE") {
-    throw new Error("Missing Gemini API Key. Please add it in settings or in your .env.local file.");
+    const defaultProfile = await getProfile("default").catch(() => null);
+    key = defaultProfile?.geminiApiKey;
+    if (!model) {
+      model = defaultProfile?.preferredModel;
+    }
+  }
+
+  if (!key || key === "PASTE_YOUR_KEY_HERE") {
+    key = process.env.GEMINI_API_KEY || "";
+  }
+
+  if (!model || model.includes("gemini-2.0-flash")) {
+    model = "gemini-2.5-flash";
+  }
+
+  if (!key || key === "PASTE_YOUR_KEY_HERE" || !key.trim()) {
+    throw new Error("Missing Gemini API Key. Please add it in Settings or your environment config.");
   }
 
   const retries = options.retries || 3;
-  const model = profile?.preferredModel || "gemini-2.0-flash";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
   for (let i = 0; i < retries; i++) {

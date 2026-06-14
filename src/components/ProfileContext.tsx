@@ -27,8 +27,20 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfiles = async () => {
     try {
-      const pId = await getActiveProfileId();
-      setActiveProfileIdState(pId);
+      let urlProfileId = null;
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        urlProfileId = params.get("profileId");
+      }
+
+      let pId = urlProfileId;
+      if (!pId) {
+        pId = await getActiveProfileId();
+      } else {
+        await setActiveProfileId(pId);
+      }
+      
+      setActiveProfileIdState(pId || "default");
       const all = await listAllProfilesWithData();
       setProfiles(all);
     } catch (error) {
@@ -38,11 +50,25 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshProfiles();
+    
+    // Listen for history popstate events (e.g. browser back/forward)
+    const handlePopState = () => {
+      refreshProfiles();
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
   const switchProfile = async (id: string) => {
     await setActiveProfileId(id);
     setActiveProfileIdState(id);
+    
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("profileId", id);
+      window.history.pushState({}, "", url.toString());
+    }
+
     try {
       const all = await listAllProfilesWithData();
       setProfiles(all);

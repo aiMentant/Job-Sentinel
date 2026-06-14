@@ -27,8 +27,8 @@ export default function RootLayout({
           <ProfileProvider>
             <Sidebar />
             <main className="flex-1 flex flex-col overflow-hidden h-screen bg-background border-l border-card-border">
-              <ProfileTabs />
               <div className="flex-1 overflow-y-auto">
+                <ProfileTabs />
                 {children}
               </div>
             </main>

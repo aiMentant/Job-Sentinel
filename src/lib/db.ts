@@ -23,6 +23,7 @@ export type Job = {
   applicationNotes?: string;      // User notes / recruiter contact
   submittedAt?: string;           // When the application was submitted
   formFieldAnswers?: Record<string, string>; // Saved answers for unusual form fields
+  referralRoutes?: ReferralRoute[];
   
   // Exact Database Columns from Catalog specifications
   job_id?: string;                // Reference to the scraped job listing (UUID)
@@ -47,6 +48,13 @@ export type Job = {
   submitted_at?: string;
   last_updated?: string;
   notes?: string;
+};
+
+export type ReferralRoute = {
+  name: string;
+  role: string;
+  connectionType: 'Alumni' | 'Ex-Colleague';
+  profileUrl?: string;
 };
 
 export type ApplicationStatus = {
@@ -91,6 +99,8 @@ export type QuickAnswer = {
 
 export type UserProfile = {
   fullName: string;
+  firstName?: string;
+  lastName?: string;
   email: string;
   phone: string;
   location: string;
@@ -105,6 +115,10 @@ export type UserProfile = {
   targetTitles?: string[];
   targetLocations?: string[];
   searchRadius?: number;
+  matchStrictness?: 'exact' | 'strong' | 'flexible';
+  booleanSearchString?: string;
+  positioningSummary?: string;
+  dailySearchEnabled?: boolean;
   // Application pipeline fields
   salaryExpectations?: SalaryExpectations;
   quickAnswers?: QuickAnswer[];   // Reusable answer bank for screening questions

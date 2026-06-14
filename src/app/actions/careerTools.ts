@@ -4,8 +4,8 @@ import { generateWithAI } from "@/lib/gemini";
 import { getActiveProfileId } from "./profileSwitch";
 import { getProfile } from "@/lib/storage";
 
-async function getProfileContext() {
-  const profileId = await getActiveProfileId();
+async function getProfileContext(profileIdOverride?: string) {
+  const profileId = profileIdOverride || await getActiveProfileId();
   const profile = await getProfile(profileId);
   if (!profile) return "";
   const experience = (profile.experience || [])
@@ -309,18 +309,21 @@ Return ONLY a JSON object (no markdown):
 // 9. Dream Company Researcher
 // Researches and lists top-tier companies within a radius for the user's background.
 // ────────────────────────────────────────────────────────
-export async function generateDreamCompanies(locations: string[], radius: number): Promise<Array<{ name: string; industry: string; reasoning: string; careerUrl?: string }>> {
-  const context = await getProfileContext();
+export async function generateDreamCompanies(locations: string[], radius: number, roles?: string[], profileIdOverride?: string): Promise<Array<{ name: string; industry: string; reasoning: string; careerUrl?: string }>> {
+  const context = await getProfileContext(profileIdOverride);
   if (!context) return [];
+
+  const rolesQuery = roles && roles.length > 0 ? roles : [];
 
   const prompt = `
   Context:
   ${context}
   
+  Active Target Roles to prioritize: ${rolesQuery.join(", ")}
   Target Locations: ${locations.join(", ")}
   Search Radius: ${radius} miles
   
-  TASK: Research and identify 15-20 "Dream Companies" within these locations (or globally if they hire remote for these roles) that are a high-value match for this person's career.
+  TASK: Research and identify 15-20 "Dream Companies" within these locations (or globally if they hire remote for these roles) that are a high-value match for this person's career and actively hire for the target roles: ${rolesQuery.join(", ")}.
   Include:
   - Big Tech / Enterprises (if applicable)
   - High-growth startups
@@ -345,3 +348,41 @@ export async function generateDreamCompanies(locations: string[], radius: number
     return [];
   }
 }
+
+// ────────────────────────────────────────────────────────
+// 10. Niche Job Board Finder
+// Suggests 8-12 niche job boards based on user profile and skills.
+// ────────────────────────────────────────────────────────
+export async function generateNicheJobBoards(profileIdOverride?: string): Promise<Array<{ name: string; industry: string; reasoning: string; searchUrl: string }>> {
+  const context = await getProfileContext(profileIdOverride);
+  if (!context) return [];
+
+  const prompt = `
+  Context:
+  ${context}
+  
+  TASK: Identify 8-12 high-value, highly specific niche job boards or career platforms (e.g. BuiltIn, WeWorkRemotely, Dice, Dribbble, RemoteOK, Crunchboard, Behance, AngelList/Wellfound) that align perfectly with this professional's industry, tech stack, and target roles.
+  
+  Do NOT suggest generic search aggregators like LinkedIn, Indeed, Glassdoor, or ZipRecruiter. Focus strictly on niche portals.
+  
+  For each board, determine a viable search query URL format. Use "{query}" as a placeholder where the search keyword/role should go.
+  If the platform does not support query routing via URLs or is best browsed manually, provide the main career or dashboard URL.
+  
+  Return ONLY a JSON array (no markdown):
+  [
+    { 
+      "name": "Platform Name", 
+      "industry": "Focus Area (e.g., Tech Startup, Creative, Remote-first)", 
+      "reasoning": "Briefly state why this board is a high-yield channel for their specific stack.",
+      "searchUrl": "https://example.com/jobs?q={query} or main domain URL"
+    }
+  ]
+  `;
+
+  try {
+    return await generateWithAI(prompt, { jsonMode: true });
+  } catch (e) {
+    return [];
+  }
+}
+

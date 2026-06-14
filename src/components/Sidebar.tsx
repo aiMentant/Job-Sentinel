@@ -9,17 +9,15 @@ import {
   Briefcase, 
   CheckCircle2, 
   Cpu, 
-  Plus, 
-  ChevronDown, 
   ChevronLeft, 
   ChevronRight, 
-  User,
   Sun,
   Moon
 } from "lucide-react";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { useProfile } from "@/components/ProfileContext";
 import { useTheme } from "@/components/ThemeContext";
 
@@ -34,26 +32,12 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
-  const { activeProfileId, profiles, switchProfile, createProfile } = useProfile();
+  const { activeProfileId, profiles } = useProfile();
   const { theme, toggleTheme } = useTheme();
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   // Hide sidebar on login screen
   if (pathname === "/login") return null;
-
-  const handleSwitchProfile = async (id: string) => {
-    await switchProfile(id);
-    router.refresh(); // Refresh current page to load new profile data
-  };
-
-  const handleCreateProfile = async () => {
-    const name = prompt("Enter a name for the new profile:");
-    if (name && name.trim()) {
-      await createProfile(name.trim());
-      router.refresh();
-    }
-  };
 
   const activeProfile = profiles.find(p => p.id === activeProfileId);
 
@@ -117,21 +101,26 @@ export default function Sidebar() {
         <div className="mt-auto bg-background border border-card-border rounded-2xl p-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="flex items-center gap-3 mb-3">
             {activeProfile?.profilePictureUrl ? (
-              <img 
+              <Image 
                 src={activeProfile.profilePictureUrl} 
                 alt={activeProfile.fullName} 
+                width={32}
+                height={32}
+                unoptimized
                 className="w-8 h-8 rounded-full object-cover flex-shrink-0 border border-card-border"
               />
             ) : (
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex-shrink-0 flex items-center justify-center text-[10px] font-black text-white">
-                {activeProfile?.fullName?.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() || "?"}
+                {activeProfile?.fullName 
+                  ? activeProfile.fullName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() 
+                  : "?"}
               </div>
             )}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold truncate text-foreground">
                 {activeProfile?.fullName || activeProfileId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
               </p>
-              <p className="text-[10px] text-text-muted truncate capitalize">{activeProfileId} profile</p>
+              <p className="text-[10px] text-text-muted truncate capitalize">{activeProfileId === 'default' ? 'Lea W - Admin' : activeProfileId} Profile</p>
             </div>
           </div>
           <Link 

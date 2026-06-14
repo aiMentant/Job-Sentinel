@@ -171,12 +171,28 @@ export async function scrapePublicLinkedInProfile(url: string): Promise<string> 
       
       return results.join("\n\n");
     });
+
+    const currentUrl = page.url();
+    const textLower = profileText.toLowerCase();
+
+    if (
+      currentUrl.includes("authwall") || 
+      currentUrl.includes("login") || 
+      currentUrl.includes("signup") || 
+      textLower.includes("authwall") || 
+      textLower.includes("sign in to linkedin") || 
+      textLower.includes("join linkedin") || 
+      textLower.includes("agree & join") ||
+      (textLower.includes("security") && textLower.includes("verification"))
+    ) {
+      throw new Error("LinkedIn authentication wall block encountered. Please manually copy-paste the profile details into the source text area or upload a resume.");
+    }
     
     await browser.close();
     return profileText;
   } catch (error: any) {
     console.error('[Scraper] Profile scrape failed:', error.message);
     await browser.close();
-    return `Failed to scrape profile. Error: ${error.message}`;
+    throw new Error(error.message.includes("authentication wall") ? error.message : `Failed to scrape profile: ${error.message}`);
   }
 }

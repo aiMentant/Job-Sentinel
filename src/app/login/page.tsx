@@ -36,7 +36,7 @@ export default function LoginPage() {
       <div className="absolute -left-48 -top-48 w-96 h-96 bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute -right-48 -bottom-48 w-96 h-96 bg-emerald-500/10 rounded-full blur-[100px] pointer-events-none" />
 
-      <div className="w-full max-w-md bg-[#0d0d0f]/50 border border-white/5 backdrop-blur-2xl rounded-3xl p-8 shadow-2xl relative z-10 transition-all duration-300 hover:border-white/10">
+      <div className="w-full max-w-md bg-[#0d0d0f]/50 border border-white/10 backdrop-blur-2xl rounded-3xl p-8 shadow-2xl relative z-10 transition-all duration-300 hover:border-white/20">
         <div className="flex flex-col items-center mb-8 text-center">
           <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-500/20 mb-4 animate-pulse">
             <Cpu className="text-white w-8 h-8" />
@@ -54,19 +54,19 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
-            <label className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Operator Identity</label>
+            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Operator Identity</label>
             <input
               type="text"
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Username"
-              className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-4 py-3 text-sm focus:outline-none transition-all placeholder:text-slate-600 font-medium"
+              className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-4 py-3 text-sm focus:outline-none transition-all placeholder:text-slate-500 font-medium"
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Access Key</label>
+            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Access Key</label>
             <div className="relative">
               <input
                 type="password"
@@ -74,9 +74,9 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
-                className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-4 py-3 text-sm focus:outline-none transition-all placeholder:text-slate-600 font-mono tracking-widest"
+                className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-4 py-3 text-sm focus:outline-none transition-all placeholder:text-slate-500 font-mono tracking-widest"
               />
-              <Lock className="absolute right-4 top-3.5 w-4 h-4 text-slate-600" />
+              <Lock className="absolute right-4 top-3.5 w-4 h-4 text-slate-400" />
             </div>
           </div>
 

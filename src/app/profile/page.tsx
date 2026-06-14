@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { 
   Save, 
   FileText, 
@@ -17,22 +17,53 @@ import {
   GraduationCap,
   Upload
 } from "lucide-react";
-import { parseResumeText, saveUserProfile, fetchUserProfile, listAllProfilesWithData, deleteProfile, runLinkedInProfileScrape, parseUploadedFile } from "@/app/actions/jobActions";
+import { parseResumeText, saveUserProfile, fetchUserProfile, listAllProfilesWithData, deleteProfile, runLinkedInProfileScrape, parseUploadedFile, safeParseUploadedFile, safeParseResumeText, safeLinkedInProfileScrape } from "@/app/actions/jobActions";
 
 import { getActiveProfileId, setActiveProfileId } from "@/app/actions/profileSwitch";
 import { findRoleFit, upgradeBullets } from "@/app/actions/careerTools";
 import { UserProfile, WorkExperience, Education, QuickAnswer, SalaryExpectations } from "@/lib/db";
 import { useProfile } from "@/components/ProfileContext";
+import { useSearchParams, useRouter } from "next/navigation";
 
-export default function ProfilePage() {
+function ProfilePageContent() {
   const [resumeText, setResumeText] = useState("");
   const [isParsing, setIsParsing] = useState(false);
   const [profile, setProfile] = useState<Partial<UserProfile>>({});
   const [expandedSection, setExpandedSection] = useState<string | null>("experience");
   const [status, setStatus] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [copiedSearch, setCopiedSearch] = useState(false);
 
   const { activeProfileId, profiles, switchProfile, createProfile, refreshProfiles } = useProfile();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const isNewMode = searchParams.get("new") === "true";
+  const [newProfileId, setNewProfileId] = useState("");
+  const [editableProfileId, setEditableProfileId] = useState("");
+
+  const setProfileHelper = (data: Partial<UserProfile>) => {
+    const updated = { ...data };
+    if (updated.fullName && (!updated.firstName || !updated.lastName)) {
+      const parts = updated.fullName.trim().split(/\s+/);
+      updated.firstName = parts[0] || "";
+      updated.lastName = parts.slice(1).join(" ") || "";
+      // Re-compute standard format
+      updated.fullName = `${updated.firstName} ${updated.lastName ? updated.lastName[0] + "." : ""}`.trim();
+    }
+    if (!updated.firstName) updated.firstName = "";
+    if (!updated.lastName) updated.lastName = "";
+    setProfile(updated);
+  };
+
+  const handleNameChange = (first: string, last: string) => {
+    const computedFullName = `${first} ${last ? last[0] + "." : ""}`.trim();
+    setProfile(prev => ({
+      ...prev,
+      firstName: first,
+      lastName: last,
+      fullName: computedFullName
+    }));
+  };
 
   // Career Tools state
   const [isRewriting, setIsRewriting] = useState(false);
@@ -50,24 +81,40 @@ export default function ProfilePage() {
     if (!linkedInUrl) return;
     setIsScraping(true);
     setStatus("Scraping LinkedIn profile...");
-    try {
-      const text = await runLinkedInProfileScrape(linkedInUrl);
-      setResumeText(text);
-      setStatus("LinkedIn profile scraped. Parsing into profile structure...");
-      const data = await parseResumeText(text);
-      if (Object.keys(data).length === 0 || (!data.fullName && !data.experience?.length)) {
-        setStatus("LinkedIn scrape succeeded, but AI found no structured data. Review raw text on left.");
-      } else {
-        setProfile(data);
-        setStatus("LinkedIn profile imported successfully.");
-      }
-    } catch (error: any) {
-      console.error(error);
-      alert(error.message || "Failed to scrape LinkedIn profile.");
+    
+    const scrapeRes = await safeLinkedInProfileScrape(linkedInUrl);
+    if (!scrapeRes.success) {
+      alert(scrapeRes.error || "Failed to scrape LinkedIn profile.");
       setStatus("LinkedIn scrape failed.");
-    } finally {
       setIsScraping(false);
+      return;
     }
+
+    const text = scrapeRes.text || "";
+    setResumeText(text);
+    setStatus("LinkedIn profile scraped. Parsing into profile structure...");
+    
+    const parseRes = await safeParseResumeText(text);
+    if (!parseRes.success) {
+      const isQuotaError = parseRes.error?.includes("429") || parseRes.error?.includes("quota");
+      if (isQuotaError) {
+        alert("Gemini API Quota Exceeded (429). The profile text was successfully extracted and loaded on the left, but the AI could not auto-parse the details. Please go to Settings to add your own active Gemini API Key, or fill in the details manually.");
+      } else {
+        alert(parseRes.error || "Failed to parse profile.");
+      }
+      setStatus("LinkedIn scrape failed.");
+      setIsScraping(false);
+      return;
+    }
+
+    const data = parseRes.data || {};
+    if (Object.keys(data).length === 0 || (!data.fullName && !data.experience?.length)) {
+      setStatus("LinkedIn scrape succeeded, but AI found no structured data. Review raw text on left.");
+    } else {
+      setProfileHelper(data);
+      setStatus("LinkedIn profile imported successfully.");
+    }
+    setIsScraping(false);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -75,61 +122,121 @@ export default function ProfilePage() {
     if (!file) return;
     setIsUploading(true);
     setStatus(`Reading ${file.name}...`);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const text = await parseUploadedFile(formData);
-      setResumeText(text);
-      setStatus("File content loaded. Parsing into profile structure...");
-      const data = await parseResumeText(text);
-      if (Object.keys(data).length === 0 || (!data.fullName && !data.experience?.length)) {
-        setStatus("Resume upload succeeded, but AI found no structured data. Review raw text on left.");
-      } else {
-        setProfile(data);
-        setStatus("Resume file imported successfully.");
-      }
-    } catch (error: any) {
-      console.error(error);
-      alert(error.message || "Failed to upload/parse resume.");
+    
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    const fileRes = await safeParseUploadedFile(formData);
+    if (!fileRes.success) {
+      alert(fileRes.error || "Failed to read file.");
       setStatus("Resume upload failed.");
-    } finally {
       setIsUploading(false);
       e.target.value = "";
+      return;
     }
+
+    const text = fileRes.text || "";
+    setResumeText(text);
+    setStatus("File content loaded. Parsing into profile structure...");
+    
+    const parseRes = await safeParseResumeText(text);
+    if (!parseRes.success) {
+      const isQuotaError = parseRes.error?.includes("429") || parseRes.error?.includes("quota");
+      if (isQuotaError) {
+        alert("Gemini API Quota Exceeded (429). The PDF text was successfully extracted and loaded on the left, but the AI could not auto-parse the details. Please go to Settings to add your own active Gemini API Key, or fill in the details manually.");
+      } else {
+        alert(parseRes.error || "Failed to parse resume.");
+      }
+      setStatus("Resume upload failed.");
+      setIsUploading(false);
+      e.target.value = "";
+      return;
+    }
+
+    const data = parseRes.data || {};
+    if (Object.keys(data).length === 0 || (!data.fullName && !data.experience?.length)) {
+      setStatus("Resume upload succeeded, but AI found no structured data. Review raw text on left.");
+    } else {
+      setProfileHelper(data);
+      setStatus("Resume file imported successfully.");
+    }
+    setIsUploading(false);
+    e.target.value = "";
   };
 
+  const [isDataLoading, setIsDataLoading] = useState(false);
+
   useEffect(() => {
+    if (isNewMode) {
+      setProfileHelper({
+        fullName: "",
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        location: "",
+        portfolioUrl: "",
+        linkedInUrl: "",
+        experience: [],
+        education: [],
+        skills: [],
+        targetTitles: [],
+        targetLocations: [],
+      });
+      setResumeText("");
+      setNewProfileId("");
+      setEditableProfileId("");
+      return;
+    }
+
+    let isMounted = true;
+
     async function loadData() {
+      setIsDataLoading(true);
       try {
         const savedProfile = await fetchUserProfile();
+        if (!isMounted) return;
         if (savedProfile) {
-          setProfile(savedProfile);
-          if (savedProfile.resumeText) setResumeText(savedProfile.resumeText);
+          setProfileHelper(savedProfile);
+          setResumeText(savedProfile.resumeText || "");
+          setEditableProfileId(activeProfileId);
         } else {
-          setProfile({});
+          setProfileHelper({});
           setResumeText("");
+          setEditableProfileId("");
         }
       } catch (error: any) {
+        if (!isMounted) return;
         console.error("Failed to load profile data:", error);
         setStatus(`Database error: ${error.message || error}`);
+      } finally {
+        if (isMounted) {
+          setIsDataLoading(false);
+        }
       }
     }
     loadData();
-  }, [activeProfileId]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeProfileId, isNewMode]);
 
   const handleSwitchProfile = async (id: string) => {
     await switchProfile(id);
   };
 
   const handleCreateProfile = async () => {
-    const name = prompt("Enter a name for the new profile:");
-    if (name && name.trim()) {
-      await createProfile(name.trim());
-    }
+    router.push("/profile?new=true");
   };
 
   const handleDeleteProfile = async () => {
     if (!profileToDelete) return;
+    const pw = prompt("Enter Admin Password to delete this profile:");
+    if (pw !== "pixel1") {
+      alert("Incorrect password. Access Denied.");
+      return;
+    }
     try {
       await deleteProfile(profileToDelete);
       setProfileToDelete(null);
@@ -144,31 +251,92 @@ export default function ProfilePage() {
   const handleSave = async () => {
     setIsSaving(true);
     setStatus("Saving profile to local database...");
-    const profileToSave = { ...profile, resumeText };
-    await saveUserProfile(profileToSave);
+    
+    const first = profile.firstName || "";
+    const last = profile.lastName || "";
+    let finalId = isNewMode ? newProfileId.trim() : editableProfileId.trim();
+
+    if (activeProfileId === "default" || finalId === "default") {
+      const pw = prompt("Enter Admin Password to modify this profile:");
+      if (pw !== "pixel1") {
+        alert("Incorrect password. Access Denied.");
+        setIsSaving(false);
+        return;
+      }
+    }
+
+    // Prepopulate with first name and last initial if nothing is entered
+    if (!finalId && first) {
+      finalId = `${first.charAt(0).toUpperCase() + first.slice(1)}${last ? "-" + last[0].toUpperCase() : ""}`.replace(/[^a-zA-Z0-9-_]/g, '');
+    }
+
+    if (!finalId) {
+      alert("Please enter a Profile ID/Slug or enter a First Name to generate one.");
+      setIsSaving(false);
+      return;
+    }
+
+    // Handle renaming of an existing profile
+    if (!isNewMode && activeProfileId !== finalId) {
+      try {
+        const profileToSave = { ...profile, resumeText };
+        await saveUserProfile(profileToSave, finalId);
+        if (activeProfileId !== "default") {
+          await deleteProfile(activeProfileId);
+        }
+        await setActiveProfileId(finalId);
+      } catch (error: any) {
+        alert(`Failed to rename profile: ${error.message}`);
+        setIsSaving(false);
+        return;
+      }
+    } else {
+      const profileToSave = { ...profile, resumeText };
+      const result = await saveUserProfile(profileToSave, finalId);
+      if (result && !result.success) {
+        alert(`Failed to save profile: ${result.error}`);
+        setIsSaving(false);
+        return;
+      }
+      if (isNewMode) {
+        await setActiveProfileId(finalId);
+      }
+    }
+
     await refreshProfiles();
     setStatus("Profile securely saved.");
     setIsSaving(false);
+
+    if (isNewMode) {
+      router.push("/profile");
+    }
   };
 
   const handleParse = async () => {
     if (!resumeText) return;
     setIsParsing(true);
-    try {
-      const data = await parseResumeText(resumeText);
-      if (Object.keys(data).length === 0 || (!data.fullName && !data.experience?.length)) {
-        setStatus("AI found no structured data. Try a different format.");
+    
+    const parseRes = await safeParseResumeText(resumeText);
+    if (!parseRes.success) {
+      const isQuotaError = parseRes.error?.includes("429") || parseRes.error?.includes("quota");
+      if (isQuotaError) {
+        alert("Gemini API Quota Exceeded (429). The AI parser failed. Please go to Settings to add your own active Gemini API Key, or fill in the details manually.");
       } else {
-        setProfile(data);
-        setStatus("Parse successful. Review and edit on the right.");
+        alert(parseRes.error || "Failed to parse resume. Check your API key connection.");
       }
-    } catch (error: any) {
-      console.error(error);
-      alert(error.message || "Failed to parse resume. Check your API key connection.");
-      setStatus(error.message || "Failed to parse resume.");
-    } finally {
+      setStatus("Failed to parse resume.");
       setIsParsing(false);
+      return;
     }
+
+    const data = parseRes.data || {};
+    if (Object.keys(data).length === 0 || (!data.fullName && !data.experience?.length)) {
+      setStatus("AI found no structured data. Try a different format.");
+    } else {
+      setProfileHelper(data);
+      setStatus("Parse successful. Review and edit on the right.");
+    }
+    setIsParsing(false);
   };
 
   const updateExperience = (index: number, field: keyof WorkExperience, value: any) => {
@@ -218,6 +386,20 @@ export default function ProfilePage() {
     }
   };
 
+  const openExternalBooleanSearch = (query: string, platform: 'linkedin' | 'indeed') => {
+    if (!query) return;
+    const location = profile.targetLocations?.[0] || profile.location || "";
+    let url = "";
+    if (platform === 'linkedin') {
+      url = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(query)}`;
+      if (location) url += `&location=${encodeURIComponent(location)}`;
+    } else {
+      url = `https://www.indeed.com/jobs?q=${encodeURIComponent(query)}`;
+      if (location) url += `&l=${encodeURIComponent(location)}`;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   // Tool 4: Upgrade bullet points for a specific role
   const handleUpgradeBullets = async (expIndex: number) => {
     setUpgradingBulletIdx(expIndex);
@@ -237,7 +419,7 @@ export default function ProfilePage() {
 
   return (
     <>
-    <div className="p-8 max-w-6xl mx-auto space-y-8">
+    <div className="p-8 max-w-none mx-auto space-y-8">
 
       <div className="space-y-4">
         <div className="flex justify-between items-center">
@@ -248,6 +430,10 @@ export default function ProfilePage() {
           <div className="flex gap-3">
             <button 
               onClick={async () => {
+                if (isNewMode) {
+                  router.push("/profile");
+                  return;
+                }
                 const savedProfile = await fetchUserProfile();
                 if (savedProfile) {
                   setProfile(savedProfile);
@@ -258,7 +444,7 @@ export default function ProfilePage() {
               }} 
               className="btn-secondary"
             >
-              Discard
+              {isNewMode ? "Cancel" : "Discard"}
             </button>
             <button 
               onClick={handleSave}
@@ -285,7 +471,7 @@ export default function ProfilePage() {
                 }`}
                 onClick={() => handleSwitchProfile(p.id)}
               >
-                <span>{p.fullName.toUpperCase()} {p.targetTitle ? `— ${p.targetTitle.toUpperCase()}` : ""}</span>
+                <span>{p.id === 'default' ? 'LEA W - ADMIN' : p.id.toUpperCase()}</span>
                 
                 {p.id !== "default" && (
                   <button
@@ -314,7 +500,13 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 relative">
+        {isDataLoading && (
+          <div className="absolute inset-0 bg-background/70 backdrop-blur-sm z-50 flex flex-col items-center justify-center space-y-4 rounded-3xl min-h-[400px]">
+            <div className="w-10 h-10 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
+            <p className="text-xs font-bold uppercase tracking-wider text-text-muted animate-pulse">Syncing profile identity...</p>
+          </div>
+        )}
         {/* Left: Raw Ingest */}
         <div className="lg:col-span-5 space-y-6">
           <div className="glass-card space-y-4">
@@ -345,18 +537,18 @@ export default function ProfilePage() {
                   </svg>
                   LinkedIn Import
                 </label>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2">
                   <input
                     type="url"
                     placeholder="https://linkedin.com/in/username"
                     value={linkedInUrl}
                     onChange={(e) => setLinkedInUrl(e.target.value)}
-                    className="input-field text-xs py-1.5 flex-1 min-w-0"
+                    className="input-field text-xs py-1.5 w-full"
                   />
                   <button
                     onClick={handleLinkedInScrape}
                     disabled={isScraping || !linkedInUrl}
-                    className="px-3 py-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg text-xs font-bold border border-indigo-500/20 hover:bg-indigo-500/20 transition-all disabled:opacity-50 cursor-pointer"
+                    className="w-full py-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg text-xs font-bold border border-indigo-500/20 hover:bg-indigo-500/20 transition-all disabled:opacity-50 cursor-pointer"
                   >
                     {isScraping ? "Scraping..." : "Scrape"}
                   </button>
@@ -374,8 +566,8 @@ export default function ProfilePage() {
                     disabled={isUploading}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
                   />
-                  <div className="flex items-center justify-center gap-2 border border-dashed border-card-border hover:border-emerald-500/30 bg-card hover:bg-emerald-500/[0.02] transition-all py-1.5 px-3 rounded-lg text-xs font-medium text-text-muted">
-                    <Upload className="w-3.5 h-3.5 text-text-muted" />
+                  <div className="flex flex-col items-center justify-center gap-1 border border-dashed border-card-border hover:border-emerald-500/30 bg-card hover:bg-emerald-500/[0.02] transition-all h-[76px] rounded-lg text-xs font-medium text-text-muted">
+                    <Upload className="w-4 h-4 text-text-muted" />
                     <span>{isUploading ? "Uploading..." : "Upload PDF / DOCX / TXT"}</span>
                   </div>
                 </div>
@@ -399,51 +591,96 @@ export default function ProfilePage() {
         <div className="lg:col-span-7 space-y-6">
           {Object.keys(profile).length === 0 && !isParsing ? (
             <div className="glass-card py-32 text-center space-y-4 border-dashed">
-              <Sparkles className="w-12 h-12 text-slate-700 mx-auto" />
+              <Sparkles className="w-12 h-12 text-text-muted mx-auto" />
               <div>
-                <p className="font-bold text-slate-400">No Structured Data Yet</p>
-                <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                <p className="font-bold text-text-muted">No Structured Data Yet</p>
+                <p className="text-xs text-text-muted max-w-xs mx-auto">
                   Paste your resume on the left and click "AI Parse" to generate your automation profile.
                 </p>
               </div>
             </div>
           ) : (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
-               {/* Profile Identity Display Name (Above the Card) */}
-               <div className="space-y-2">
-                 <label className="text-[10px] text-indigo-400 uppercase font-extrabold tracking-widest">Profile Identity Name</label>
-                 <input 
-                   type="text" 
-                   value={profile.fullName || ""} 
-                   onChange={(e) => setProfile({...profile, fullName: e.target.value})}
-                   placeholder="⚠️ Add Profile Name (e.g. Robert Madonia) - REQUIRED" 
-                   className="w-full bg-transparent border-b border-card-border hover:border-text-muted/40 focus:border-indigo-500 pb-2 text-2xl font-black text-foreground focus:outline-none transition-all placeholder:text-red-400/90 font-outfit"
-                 />
-               </div>
+                {/* Profile Identity Name ID field */}
+                <div className="space-y-1.5">
+                  <label className="text-xs text-text-muted font-bold">Profile Identity Name (ID)</label>
+                  <input 
+                    type="text" 
+                    value={isNewMode ? newProfileId : editableProfileId} 
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/[^a-zA-Z0-9-_]/g, '');
+                      if (isNewMode) {
+                        setNewProfileId(val);
+                      } else {
+                        setEditableProfileId(val);
+                      }
+                    }}
+                    placeholder="e.g. lea-w" 
+                    className="input-field text-sm w-full"
+                  />
+                </div>
 
-               {/* Bio Details Card */}
-               <div className="glass-card grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <div className="space-y-1">
-                   <label className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Contact Email</label>
-                   <input 
-                     type="email" 
-                     value={profile.email || ""} 
-                     onChange={(e) => setProfile({...profile, email: e.target.value})}
-                     placeholder="⚠️ Add Email Address (e.g. robert@email.com)"
-                     className="bg-transparent border-none text-slate-300 w-full p-0 focus:ring-0 placeholder:text-red-400/80 placeholder:text-xs font-semibold text-sm" 
-                   />
-                 </div>
-                 <div className="space-y-1">
-                   <label className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">Phone Number</label>
-                   <input 
-                     type="text" 
-                     value={profile.phone || ""} 
-                     onChange={(e) => setProfile({...profile, phone: e.target.value})}
-                     placeholder="Add phone number..."
-                     className="bg-transparent border-none text-slate-300 w-full p-0 focus:ring-0 placeholder:text-text-muted/50 text-sm font-semibold" 
-                   />
-                 </div>
-               </div>
+                {/* First and Last Name Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-text-muted font-bold">First Name</label>
+                    <input 
+                      type="text" 
+                      value={profile.firstName || ""} 
+                      onChange={(e) => handleNameChange(e.target.value, profile.lastName || "")}
+                      placeholder="e.g. Lea" 
+                      className="input-field text-sm w-full"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-text-muted font-bold">Last Name</label>
+                    <input 
+                      type="text" 
+                      value={profile.lastName || ""} 
+                      onChange={(e) => handleNameChange(profile.firstName || "", e.target.value)}
+                      placeholder="e.g. Wenban" 
+                      className="input-field text-sm w-full"
+                    />
+                  </div>
+                </div>
+
+                {/* Bio Details Card */}
+                <div className="glass-card grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-text-muted font-bold">Contact Email</label>
+                    <input 
+                      type="email" 
+                      value={profile.email || ""} 
+                      onChange={(e) => setProfile({...profile, email: e.target.value})}
+                      placeholder="e.g. robert@email.com"
+                      className="input-field text-sm w-full" 
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-text-muted font-bold">Phone Number</label>
+                    <input 
+                      type="text" 
+                      value={profile.phone || ""} 
+                      onChange={(e) => setProfile({...profile, phone: e.target.value})}
+                      placeholder="e.g. +44 7123 456789"
+                      className="input-field text-sm w-full" 
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-text-muted font-bold">LinkedIn Profile URL</label>
+                    <input 
+                      type="text" 
+                      value={profile.linkedInUrl || ""} 
+                      onChange={(e) => {
+                        setProfile({...profile, linkedInUrl: e.target.value});
+                        setLinkedInUrl(e.target.value);
+                      }}
+                      placeholder="https://linkedin.com/in/username"
+                      className="input-field text-sm w-full" 
+                    />
+                  </div>
+                </div>
 
               {/* Collapsible Sections */}
               <div className="space-y-4">
@@ -451,12 +688,12 @@ export default function ProfilePage() {
                 <div className="glass-card !p-0 overflow-hidden">
                   <button 
                     onClick={() => setExpandedSection(expandedSection === "experience" ? null : "experience")}
-                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-white/5 transition-colors"
+                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-foreground/5 transition-colors"
                   >
                     <div className="flex items-center gap-3">
-                      <Building2 className="w-5 h-5 text-indigo-400" />
+                      <Building2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
                       <h3 className="font-bold">Work History</h3>
-                      <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-400 rounded text-[10px] font-bold">
+                      <span className="px-2 py-0.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded text-[10px] font-bold">
                         {profile.experience?.length || 0} Roles
                       </span>
                     </div>
@@ -464,9 +701,9 @@ export default function ProfilePage() {
                   </button>
                   
                   {expandedSection === "experience" && (
-                    <div className="p-6 pt-0 space-y-6 border-t border-white/5 bg-white/[0.01]">
+                    <div className="p-6 pt-0 space-y-6 border-t border-card-border bg-foreground/[0.01]">
                       {profile.experience?.map((exp, i) => (
-                        <div key={i} className="space-y-4 pt-6 first:pt-0 border-t first:border-none border-white/5">
+                        <div key={i} className="space-y-4 pt-6 first:pt-0 border-t first:border-none border-card-border">
                           <div className="grid grid-cols-2 gap-4">
                             <input 
                               className="input-field text-sm font-bold" 
@@ -497,11 +734,11 @@ export default function ProfilePage() {
                           </div>
                           <div className="space-y-2">
                             <div className="flex items-center justify-between mb-1">
-                              <label className="text-[10px] text-slate-500 uppercase font-bold">Key Achievements</label>
+                              <label className="text-[10px] text-text-muted uppercase font-bold">Key Achievements</label>
                               <button
                                 onClick={() => handleUpgradeBullets(i)}
                                 disabled={upgradingBulletIdx === i}
-                                className="text-[10px] uppercase font-bold px-2 py-0.5 bg-amber-500/10 text-amber-400 rounded border border-amber-500/20 hover:bg-amber-500/20 transition-all disabled:opacity-50"
+                                className="text-[10px] uppercase font-bold px-2 py-0.5 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded border border-amber-500/20 hover:bg-amber-500/20 transition-all disabled:opacity-50"
                               >
                                 {upgradingBulletIdx === i ? "Upgrading..." : "✦ Upgrade Bullets"}
                               </button>
@@ -511,7 +748,7 @@ export default function ProfilePage() {
                                 <div key={j} className="flex gap-2">
                                   <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/50 mt-2 shrink-0" />
                                   <textarea 
-                                    className="bg-transparent border-none text-xs text-slate-400 w-full p-0 focus:ring-0 resize-none" 
+                                    className="bg-transparent border-none text-xs text-foreground w-full p-0 focus:ring-0 resize-none" 
                                     value={ach}
                                     onChange={(e) => {
                                       const newExp = [...(profile.experience || [])];
@@ -536,17 +773,17 @@ export default function ProfilePage() {
                 <div className="glass-card !p-0 overflow-hidden">
                   <button 
                     onClick={() => setExpandedSection(expandedSection === "education" ? null : "education")}
-                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-white/5 transition-colors"
+                    className="w-full px-6 py-4 flex items-center justify-between hover:bg-foreground/5 transition-colors"
                   >
                     <div className="flex items-center gap-3">
-                      <GraduationCap className="w-5 h-5 text-purple-400" />
+                      <GraduationCap className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                       <h3 className="font-bold">Education</h3>
                     </div>
                     {expandedSection === "education" ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   </button>
                   
                   {expandedSection === "education" && (
-                    <div className="p-6 pt-0 space-y-4 border-t border-white/5">
+                    <div className="p-6 pt-0 space-y-4 border-t border-card-border">
                       {profile.education?.map((edu, i) => (
                         <div key={i} className="grid grid-cols-2 gap-4 py-4">
                           <input 
@@ -572,13 +809,13 @@ export default function ProfilePage() {
                   <div>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-bold flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-indigo-400" />
+                        <Sparkles className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
                         Target Job Titles
                       </h3>
                       <button
                         onClick={handleFindRoleFit}
                         disabled={isFindingRoles}
-                        className="text-[10px] uppercase font-bold px-3 py-1 bg-indigo-500/10 text-indigo-400 rounded border border-indigo-500/20 hover:bg-indigo-500/20 transition-all disabled:opacity-50"
+                        className="text-[10px] uppercase font-bold px-3 py-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded border border-indigo-500/20 hover:bg-indigo-500/20 transition-all disabled:opacity-50"
                         title="AI suggests roles you may be overlooking"
                       >
                         {isFindingRoles ? "Analyzing..." : "✦ Suggest Roles"}
@@ -586,8 +823,14 @@ export default function ProfilePage() {
                     </div>
                     <div className="flex flex-wrap gap-2 mb-3">
                       {profile.targetTitles?.map((title, i) => (
-                        <span key={i} className="px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-xs text-indigo-300 flex items-center gap-2">
-                          {title}
+                        <span key={i} className="px-3 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-full text-xs text-indigo-600 dark:text-indigo-300 flex items-center gap-2">
+                          <span 
+                            onClick={() => openExternalBooleanSearch(title, 'linkedin')}
+                            className="cursor-pointer hover:underline hover:text-indigo-400"
+                            title="Click to search role on LinkedIn"
+                          >
+                            {title}
+                          </span>
                           <button onClick={() => removeArrayItem('targetTitles', i)} className="hover:text-white">&times;</button>
                         </span>
                       ))}
@@ -602,12 +845,12 @@ export default function ProfilePage() {
 
                   <div>
                     <h3 className="font-bold flex items-center gap-2 mb-3">
-                      <MapPin className="w-5 h-5 text-emerald-400" />
+                      <MapPin className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                       Search Locations (Cities/Postcodes)
                     </h3>
                     <div className="flex flex-wrap gap-2 mb-3">
                       {profile.targetLocations?.map((loc, i) => (
-                        <span key={i} className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-xs text-emerald-300 flex items-center gap-2">
+                        <span key={i} className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-xs text-emerald-600 dark:text-emerald-300 flex items-center gap-2">
                           {loc}
                           <button onClick={() => removeArrayItem('targetLocations', i)} className="hover:text-white">&times;</button>
                         </span>
@@ -621,14 +864,72 @@ export default function ProfilePage() {
                     />
                   </div>
 
+                  {/* Positioning Summary */}
                   <div>
                     <h3 className="font-bold flex items-center gap-2 mb-3">
-                      <FileText className="w-5 h-5 text-slate-400" />
+                      <Sparkles className="w-5 h-5 text-amber-500" />
+                      Positioning Summary (Elevator Pitch)
+                    </h3>
+                    <textarea
+                      placeholder="A 1-sentence high-impact elevator pitch to customize cover letters..."
+                      className="input-field text-sm w-full h-20 resize-none font-medium text-foreground leading-relaxed"
+                      value={profile.positioningSummary || ""}
+                      onChange={(e) => setProfile({ ...profile, positioningSummary: e.target.value })}
+                    />
+                  </div>
+
+                  {/* Boolean Search String */}
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-bold flex items-center gap-2">
+                        <Settings className="w-5 h-5 text-indigo-500" />
+                        Boolean Search String
+                      </h3>
+                      {profile.booleanSearchString && (
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(profile.booleanSearchString || "");
+                            setCopiedSearch(true);
+                            setTimeout(() => setCopiedSearch(false), 2000);
+                          }}
+                          className="text-[10px] uppercase font-bold px-3 py-1 bg-emerald-500/10 text-emerald-500 rounded border border-emerald-500/20 hover:bg-emerald-500/20 transition-all cursor-pointer"
+                        >
+                          {copiedSearch ? "✓ Copied" : "Copy Query"}
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      placeholder='e.g. ("Programme Director" OR "Head of PMO") AND (IT OR Digital)...'
+                      className="input-field text-xs font-mono w-full h-20 resize-none text-indigo-400 bg-black/10 dark:bg-black/25 leading-relaxed"
+                      value={profile.booleanSearchString || ""}
+                      onChange={(e) => setProfile({ ...profile, booleanSearchString: e.target.value })}
+                    />
+                    {profile.booleanSearchString && (
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={() => openExternalBooleanSearch(profile.booleanSearchString || "", 'linkedin')}
+                          className="text-[10px] uppercase font-bold px-3 py-1 bg-blue-600/10 text-blue-500 rounded border border-blue-500/20 hover:bg-blue-600/20 transition-all cursor-pointer flex-1"
+                        >
+                          Search LinkedIn
+                        </button>
+                        <button
+                          onClick={() => openExternalBooleanSearch(profile.booleanSearchString || "", 'indeed')}
+                          className="text-[10px] uppercase font-bold px-3 py-1 bg-indigo-600/10 text-indigo-500 rounded border border-indigo-500/20 hover:bg-indigo-500/20 transition-all cursor-pointer flex-1"
+                        >
+                          Search Indeed
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <h3 className="font-bold flex items-center gap-2 mb-3">
+                      <FileText className="w-5 h-5 text-text-muted" />
                       Core Skills
                     </h3>
                     <div className="flex flex-wrap gap-2 mb-3">
                       {profile.skills?.map((skill, i) => (
-                        <span key={i} className="px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs text-slate-300 flex items-center gap-2">
+                        <span key={i} className="px-3 py-1 bg-black/5 dark:bg-white/5 border border-card-border rounded-full text-xs text-slate-700 dark:text-slate-300 flex items-center gap-2">
                           {skill}
                           <button onClick={() => removeArrayItem('skills', i)} className="hover:text-white">&times;</button>
                         </span>
@@ -646,7 +947,7 @@ export default function ProfilePage() {
                 {/* Salary Expectations */}
                 <div className="glass-card space-y-4">
                   <h3 className="font-bold flex items-center gap-2">
-                    <span className="text-emerald-400">£</span>
+                    <span className="text-emerald-600 dark:text-emerald-400">£</span>
                     Salary Expectations
                   </h3>
                   <div className="grid grid-cols-3 gap-3">
@@ -656,7 +957,7 @@ export default function ProfilePage() {
                       { label: "Max Ask", key: "maximumAsk" },
                     ].map(({ label, key }) => (
                       <div key={key} className="space-y-1">
-                        <label className="text-[10px] text-slate-500 uppercase font-bold">{label}</label>
+                        <label className="text-[10px] text-text-muted uppercase font-bold">{label}</label>
                         <input
                           type="number"
                           className="input-field text-sm w-full"
@@ -688,7 +989,7 @@ export default function ProfilePage() {
                       <option value="USD">USD $</option>
                       <option value="EUR">EUR €</option>
                     </select>
-                    <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+                    <label className="flex items-center gap-2 text-xs text-text-muted cursor-pointer">
                       <input
                         type="checkbox"
                         checked={profile.salaryExpectations?.negotiable ?? true}
@@ -703,12 +1004,12 @@ export default function ProfilePage() {
                 {/* Application Defaults */}
                 <div className="glass-card space-y-4">
                   <h3 className="font-bold flex items-center gap-2">
-                    <Settings className="w-5 h-5 text-slate-400" />
+                    <Settings className="w-5 h-5 text-text-muted" />
                     Application Defaults
                   </h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] text-slate-500 uppercase font-bold">Work Authorisation</label>
+                      <label className="text-[10px] text-text-muted uppercase font-bold">Work Authorisation</label>
                       <input
                         className="input-field text-sm w-full"
                         placeholder="e.g. UK Citizen, Need sponsorship"
@@ -717,7 +1018,7 @@ export default function ProfilePage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] text-slate-500 uppercase font-bold">Notice Period</label>
+                      <label className="text-[10px] text-text-muted uppercase font-bold">Notice Period</label>
                       <input
                         className="input-field text-sm w-full"
                         placeholder="e.g. 1 month, Immediate"
@@ -726,7 +1027,7 @@ export default function ProfilePage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] text-slate-500 uppercase font-bold">Daily Application Cap</label>
+                      <label className="text-[10px] text-text-muted uppercase font-bold">Daily Application Cap</label>
                       <input
                         type="number"
                         className="input-field text-sm w-full"
@@ -736,7 +1037,7 @@ export default function ProfilePage() {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[10px] text-slate-500 uppercase font-bold">Supervised Rounds Before Auto</label>
+                      <label className="text-[10px] text-text-muted uppercase font-bold">Supervised Rounds Before Auto</label>
                       <input
                         type="number"
                         className="input-field text-sm w-full"
@@ -744,6 +1045,17 @@ export default function ProfilePage() {
                         value={profile.supervisedModeCount || 5}
                         onChange={(e) => setProfile({ ...profile, supervisedModeCount: Number(e.target.value) })}
                       />
+                    </div>
+                    <div className="space-y-1 col-span-2 mt-2">
+                      <label className="flex items-center gap-2 text-xs text-text-muted cursor-pointer font-bold">
+                        <input
+                          type="checkbox"
+                          checked={profile.dailySearchEnabled || false}
+                          onChange={(e) => setProfile({ ...profile, dailySearchEnabled: e.target.checked })}
+                          className="w-4 h-4 text-indigo-500 rounded border-card-border"
+                        />
+                        Enable Daily Background Search & Email Reports
+                      </label>
                     </div>
                   </div>
                 </div>
@@ -760,11 +1072,11 @@ export default function ProfilePage() {
       <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
         <div className="glass-card w-full max-w-2xl max-h-[80vh] flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <h3 className="font-bold text-lg text-indigo-400">{aiResultModal.title}</h3>
-            <button onClick={() => setAiResultModal(null)} className="text-slate-400 hover:text-white">✕</button>
+            <h3 className="font-bold text-lg text-indigo-600 dark:text-indigo-400">{aiResultModal.title}</h3>
+            <button onClick={() => setAiResultModal(null)} className="text-text-muted hover:text-foreground">✕</button>
           </div>
           <textarea
-            className="flex-1 bg-[#0d0d0f] rounded-xl p-4 text-sm text-slate-300 font-mono resize-none min-h-[400px] border border-white/5 focus:ring-0"
+            className="flex-1 bg-card rounded-xl p-4 text-sm text-slate-700 dark:text-slate-300 font-mono resize-none min-h-[400px] border border-card-border focus:ring-0"
             value={aiResultModal.content}
             readOnly
           />
@@ -797,19 +1109,19 @@ export default function ProfilePage() {
             </div>
             <div>
               <h3 className="font-bold text-xl">Delete Identity?</h3>
-              <p className="text-xs text-slate-500">This action is permanent and cannot be undone.</p>
+              <p className="text-xs text-text-muted">This action is permanent and cannot be undone.</p>
             </div>
           </div>
           
           <div className="bg-red-500/5 border border-red-500/10 p-4 rounded-xl space-y-2">
-             <p className="text-sm text-slate-300 font-medium">You are about to delete:</p>
-             <p className="text-lg font-black text-white">{profiles.find(p => p.id === profileToDelete)?.fullName || profileToDelete.toUpperCase()}</p>
-             <p className="text-[10px] text-red-400/80 font-bold uppercase tracking-widest">All associated jobs, resumes, and search history will be purged.</p>
+             <p className="text-sm text-slate-900 dark:text-slate-300 font-medium">You are about to delete:</p>
+             <p className="text-lg font-black text-foreground">{profiles.find(p => p.id === profileToDelete)?.fullName || profileToDelete.toUpperCase()}</p>
+             <p className="text-[10px] text-red-600 dark:text-red-400/80 font-bold uppercase tracking-widest">All associated jobs, resumes, and search history will be purged.</p>
           </div>
 
           <div className="space-y-2">
             <label className="text-[10px] text-text-muted uppercase font-bold tracking-wider">
-              Type <span className="text-red-400 font-extrabold">Delete</span> to confirm:
+              Type <span className="text-red-600 dark:text-red-400 font-extrabold">Delete</span> to confirm:
             </label>
             <input 
               type="text"
@@ -823,7 +1135,7 @@ export default function ProfilePage() {
           <div className="flex gap-3">
             <button 
               onClick={() => { setProfileToDelete(null); setDeleteConfirmText(""); }}
-              className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl font-bold text-sm transition-all"
+              className="flex-1 py-3 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-sm transition-all"
             >
               Cancel
             </button>
@@ -839,6 +1151,20 @@ export default function ProfilePage() {
       </div>
     )}
     </>
+  );
+}
 
+export default function ProfilePage() {
+  return (
+    <Suspense fallback={
+      <div className="p-8 text-center text-text-muted flex items-center justify-center min-h-[400px]">
+        <div className="space-y-4">
+          <Sparkles className="w-8 h-8 text-indigo-500 animate-pulse mx-auto" />
+          <p className="font-bold text-sm">Loading Identity Hub...</p>
+        </div>
+      </div>
+    }>
+      <ProfilePageContent />
+    </Suspense>
   );
 }
