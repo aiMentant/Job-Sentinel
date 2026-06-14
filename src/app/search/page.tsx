@@ -395,7 +395,7 @@ export default function SearchPage() {
       targetLocations,
       targetSites,
       searchRadius: radius
-    });
+    }, activeProfileId);
     if (res && res.success) {
       setStatus("Defaults successfully saved to your Master Profile.");
     } else {

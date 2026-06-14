@@ -118,14 +118,14 @@ export default function Dashboard() {
     const arr = [...(profile[field] || [])];
     arr.splice(index, 1);
     setProfile(prev => ({ ...prev, [field]: arr }));
-    await patchUserProfile({ [field]: arr });
+    await patchUserProfile({ [field]: arr }, activeProfileId);
   };
 
   const addArrayItem = async (field: 'targetTitles' | 'targetLocations', value: string) => {
     if (!value.trim()) return;
     const arr = [...(profile[field] || []), value.trim()];
     setProfile(prev => ({ ...prev, [field]: arr }));
-    await patchUserProfile({ [field]: arr });
+    await patchUserProfile({ [field]: arr }, activeProfileId);
   };
 
   const handleGetStrategy = async () => {

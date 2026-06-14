@@ -76,7 +76,7 @@ export default function SettingsPage() {
         preferredModel: preferredModel,
         linkedinStealth: stealthMode,
         linkedinCookie: linkedinCookie
-      });
+      }, activeProfileId);
       if (res.success) {
         setSaveStatus({ type: 'success', message: "Configuration securely saved." });
         setTimeout(() => setSaveStatus({ type: null, message: "" }), 4000);

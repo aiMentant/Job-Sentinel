@@ -347,9 +347,9 @@ export async function deleteProfile(profileId: string) {
 
 // Safe patch: reads existing profile first, merges only provided fields.
 // Use this instead of saveUserProfile when you only have partial state.
-export async function patchUserProfile(fields: Record<string, any>) {
+export async function patchUserProfile(fields: Record<string, any>, profileIdOverride?: string) {
   try {
-    const profileId = await getActiveProfileId();
+    const profileId = profileIdOverride || await getActiveProfileId();
     const existing = (await getProfile(profileId)) || {};
     await saveProfile({ ...existing, ...fields }, profileId);
     return { success: true };
