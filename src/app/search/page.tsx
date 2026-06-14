@@ -188,6 +188,13 @@ export default function SearchPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // Reset active filter dropdown states when profile or search mode changes
+  useEffect(() => {
+    setSelectedJobType("all");
+    setSelectedLocationFilter("all");
+    setSelectedSiteFilter("all");
+  }, [activeProfileId, searchMode]);
+
 
 
   const toggleSelection = (id: string) => {
@@ -211,23 +218,30 @@ export default function SearchPage() {
       if (searchMode === 'standard' && isDeepSource) return false;
       if (searchMode === 'deep' && !isDeepSource) return false;
 
-      // Filter by location
+      // Filter by location (flexible matching)
       if (selectedLocationFilter !== "all") {
         const cleanFilter = selectedLocationFilter.toLowerCase().trim();
-        const jobLocLower = (j.location || "").toLowerCase();
+        const jobLocLower = (j.location || "").toLowerCase().trim();
         if (cleanFilter === "remote") {
           const isRemote = jobLocLower.includes("remote") || jobLocLower.includes("anywhere") || jobLocLower.includes("worldwide");
           if (!isRemote) return false;
         } else {
-          if (!jobLocLower.includes(cleanFilter) && !cleanFilter.includes(jobLocLower)) {
-            return false;
+          // Direct substring match
+          const hasDirectMatch = jobLocLower.includes(cleanFilter) || cleanFilter.includes(jobLocLower);
+          if (!hasDirectMatch) {
+            // Check primary city name match (split by comma, slash, or parentheses)
+            const filterMainCity = cleanFilter.split(/[,(/]/)[0].trim();
+            const jobMainCity = jobLocLower.split(/[,(/]/)[0].trim();
+            if (!filterMainCity || !jobMainCity || (!jobLocLower.includes(filterMainCity) && !cleanFilter.includes(jobMainCity))) {
+              return false;
+            }
           }
         }
       }
 
-      // Filter by job type keywords in title/description
+      // Filter by job type keywords in title/description (safe from null/undefined)
       if (selectedJobType !== "all") {
-        const text = `${j.title} ${j.description}`.toLowerCase();
+        const text = `${j.title || ""} ${j.description || ""}`.toLowerCase();
         if (selectedJobType === "full-time" && !text.includes("full-time") && !text.includes("full time")) return false;
         if (selectedJobType === "part-time" && !text.includes("part-time") && !text.includes("part time")) return false;
         if (selectedJobType === "contract" && !text.includes("contract") && !text.includes("1099") && !text.includes("freelance")) return false;
@@ -1016,6 +1030,16 @@ export default function SearchPage() {
               <div>
                 <p className="font-bold">No active search running</p>
                 <p className="text-sm text-text-muted">Trigger the agent to scan platforms for matches.</p>
+              </div>
+            </div>
+          ) : filteredResults.length === 0 ? (
+            <div className="glass-card py-20 text-center space-y-4 border-dashed border-card-border">
+              <div className="w-16 h-16 bg-black/5 dark:bg-white/5 rounded-full flex items-center justify-center mx-auto">
+                <Filter className="w-8 h-8 text-text-muted" />
+              </div>
+              <div>
+                <p className="font-bold">No matching opportunities found</p>
+                <p className="text-sm text-text-muted">No search results match the selected active filters. Try relaxing your location, job type, or platform site options.</p>
               </div>
             </div>
           ) : (
