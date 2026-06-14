@@ -97,6 +97,7 @@ export default function SearchPage() {
   const [isScanningAllCompanies, setIsScanningAllCompanies] = useState(false);
 
   const [selectedJobType, setSelectedJobType] = useState<string>("all");
+  const [scanningTitles, setScanningTitles] = useState<{ title: string; status: 'pending' | 'scanning' | 'done' | 'failed' }[]>([]);
   const [targetSites, setTargetSites] = useState<string[]>(["linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com", "usajobs.gov", "snagajob.com"]);
   const [selectedSiteFilter, setSelectedSiteFilter] = useState<string>("all");
   const [selectedLocationFilter, setSelectedLocationFilter] = useState<string>("all");
@@ -148,12 +149,9 @@ export default function SearchPage() {
           setStatus(`${agent.status} (Found ${agent.resultsFound || 0} matches so far)`);
         }
 
-        // 3. If present and not already searching -> run the search automatically
+        // 3. Mark profile as loaded without auto-triggering a heavy live crawl on mount
         if (roles.length > 0 && locs.length > 0 && lastSearchedProfileId.current !== activeProfileId) {
-          if (!backgroundSearching) {
-            lastSearchedProfileId.current = activeProfileId;
-            handleSearch(roles, locs);
-          }
+          lastSearchedProfileId.current = activeProfileId;
         }
       }
 
@@ -215,7 +213,16 @@ export default function SearchPage() {
 
       // Filter by location
       if (selectedLocationFilter !== "all") {
-        if (j.location !== selectedLocationFilter) return false;
+        const cleanFilter = selectedLocationFilter.toLowerCase().trim();
+        const jobLocLower = (j.location || "").toLowerCase();
+        if (cleanFilter === "remote") {
+          const isRemote = jobLocLower.includes("remote") || jobLocLower.includes("anywhere") || jobLocLower.includes("worldwide");
+          if (!isRemote) return false;
+        } else {
+          if (!jobLocLower.includes(cleanFilter) && !cleanFilter.includes(jobLocLower)) {
+            return false;
+          }
+        }
       }
 
       // Filter by job type keywords in title/description
@@ -452,49 +459,95 @@ export default function SearchPage() {
 
     setIsSearching(true);
     setStatus("Launching stealth browser...");
+    setScanningTitles(titles.map(t => ({ title: t, status: 'pending' })));
     
     try {
-      let newJobs: Job[] = [];
-      
       if (searchMode === 'deep') {
         setStatus("Precision Mode: Scanning ATS Platforms...");
-        // Use top 3 titles for deep search to avoid noise
+        setScanningTitles(titles.slice(0, 3).map((t, idx) => ({ title: t, status: idx === 0 ? 'scanning' : 'pending' })));
         const precisionTitles = titles.slice(0, 3);
-        newJobs = await runWebDiscovery(precisionTitles, locations.length > 0 ? locations : (profile.location ? [profile.location] : ["USA"]), radius);
+        const newJobs = await runWebDiscovery(precisionTitles, locations.length > 0 ? locations : (profile.location ? [profile.location] : ["USA"]), radius);
+        
+        await addJobs(newJobs, activeProfileId);
+        setResults(prev => {
+          const existingUrls = new Set(prev.map(j => j.url));
+          const uniqueNew = newJobs.filter(j => !existingUrls.has(j.url));
+          const updated = [...uniqueNew, ...prev];
+          autoVetTopResults(updated);
+          return updated;
+        });
+        setScanningTitles(titles.slice(0, 3).map(t => ({ title: t, status: 'done' })));
+        setStatus(`Found ${newJobs.length} new matches via deep search.`);
 
       } else {
-        newJobs = await runJobSearch(
-          titles, 
-          locations, 
-          radius, 
-          profile.resumeText || "",
-          targetSites,
-          activeProfileId,
-          profile.matchStrictness || 'exact'
-        );
-      }
-      
-      await addJobs(newJobs, activeProfileId); 
-      setResults(prev => {
-        const existingUrls = new Set(prev.map(j => j.url));
-        const uniqueNew = newJobs.filter(j => !existingUrls.has(j.url));
-        const updated = [...uniqueNew, ...prev];
-        autoVetTopResults(updated);
-        return updated;
-      });
-      
-      await setAgentStatus({ 
-        isSearching: false, 
-        status: `Found ${newJobs.length} matches via ${searchMode}.`,
-        resultsFound: newJobs.length 
-      });
+        let totalFound = 0;
+        const initialScans = titles.map((t, idx) => ({ title: t, status: (idx === 0 ? 'scanning' : 'pending') as any }));
+        setScanningTitles(initialScans);
 
-      setStatus(`Found ${newJobs.length} new matches via ${searchMode} search.`);
+        for (let i = 0; i < titles.length; i++) {
+          const currentTitle = titles[i];
+          
+          setScanningTitles(prev => prev.map((item, idx) => {
+            if (idx === i) return { ...item, status: 'scanning' };
+            if (idx < i) return { ...item, status: 'done' };
+            return item;
+          }));
+          
+          setStatus(`Scanning for "${currentTitle}"...`);
+          
+          try {
+            const newJobs = await runJobSearch(
+              [currentTitle], 
+              locations, 
+              radius, 
+              profile.resumeText || "",
+              targetSites,
+              activeProfileId,
+              profile.matchStrictness || 'exact'
+            );
+
+            totalFound += newJobs.length;
+
+            if (newJobs.length > 0) {
+              await addJobs(newJobs, activeProfileId);
+              setResults(prev => {
+                const existingUrls = new Set(prev.map(j => j.url));
+                const uniqueNew = newJobs.filter(j => !existingUrls.has(j.url));
+                const updated = [...uniqueNew, ...prev];
+                autoVetTopResults(updated);
+                return updated;
+              });
+            }
+
+            setScanningTitles(prev => prev.map((item, idx) => {
+              if (idx === i) return { ...item, status: 'done' };
+              return item;
+            }));
+
+          } catch (err) {
+            console.error(`Failed title search for ${currentTitle}:`, err);
+            setScanningTitles(prev => prev.map((item, idx) => {
+              if (idx === i) return { ...item, status: 'failed' };
+              return item;
+            }));
+          }
+        }
+        
+        await setAgentStatus({ 
+          isSearching: false, 
+          status: `Found ${totalFound} matches via ${searchMode}.`,
+          resultsFound: totalFound 
+        });
+
+        setStatus(`Found ${totalFound} new matches via search.`);
+      }
     } catch (error) {
       console.error(error);
       setStatus("Search failed. Check console.");
     } finally {
       setIsSearching(false);
+      // Clean up scanning checklist after a delay
+      setTimeout(() => setScanningTitles([]), 10000);
     }
   };
 
@@ -725,12 +778,14 @@ export default function SearchPage() {
                 <button 
                   onClick={selectAll}
                   className="btn-secondary py-1 px-2.5 text-[9px] font-bold uppercase tracking-wider cursor-pointer"
+                  title="Select or deselect all visible jobs on the current tab for bulk actions"
                 >
                   {selectedIds.length === filteredResults.length ? "Deselect All" : "Select All"}
                 </button>
                 <button 
                   onClick={() => setShowHighScoresOnly(!showHighScoresOnly)}
                   className={`btn-secondary py-1 px-2.5 text-[9px] font-bold uppercase tracking-wider cursor-pointer flex items-center gap-1 transition-all ${showHighScoresOnly ? 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border-indigo-500/50 shadow-lg shadow-indigo-500/10' : ''}`}
+                  title="Filter the list to only show jobs with an AI match score of 80% or higher"
                 >
                   <Sparkles className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
                   {showHighScoresOnly ? "Showing 80%+" : "High Fit (80%+)"}
@@ -738,7 +793,7 @@ export default function SearchPage() {
                 <button 
                   onClick={() => setShowStrategyPanel(!showStrategyPanel)}
                   className={`btn-secondary py-1 px-2.5 text-[9px] font-bold uppercase tracking-wider cursor-pointer flex items-center gap-1 transition-all ${showStrategyPanel ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20' : ''}`}
-                  title={showStrategyPanel ? "Hide Strategy Configuration" : "Show Strategy Configuration"}
+                  title={showStrategyPanel ? "Hide the Discovery Strategy sidebar config panel" : "Show the Discovery Strategy sidebar config panel"}
                 >
                   <SlidersHorizontal className="w-3 h-3" />
                   {showStrategyPanel ? "Hide Config" : "Show Config"}
@@ -924,6 +979,35 @@ export default function SearchPage() {
                   ))}
                </div>
             </div>
+          ) : results.length === 0 && isSearching ? (
+            <div className="space-y-4">
+              {scanningTitles.map((scan, i) => (
+                <div key={i} className={`glass-card flex items-center justify-between p-6 transition-all ${scan.status === 'scanning' ? 'border-indigo-500 bg-indigo-500/5 shadow-lg shadow-indigo-500/5' : 'border-card-border/60 opacity-60'}`}>
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-3">
+                      {scan.status === 'scanning' ? (
+                        <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
+                      ) : scan.status === 'done' ? (
+                        <div className="w-5 h-5 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-xs font-bold">✓</div>
+                      ) : scan.status === 'failed' ? (
+                        <div className="w-5 h-5 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center text-xs font-bold">!</div>
+                      ) : (
+                        <div className="w-5 h-5 rounded-full bg-slate-500/10 text-slate-500 flex items-center justify-center text-xs font-bold">•</div>
+                      )}
+                      <div>
+                        <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                          Scanning for &quot;{scan.title}&quot;
+                        </h4>
+                        <p className="text-[10px] text-text-muted font-black uppercase tracking-wider">
+                          {scan.status === 'scanning' ? 'Active Scraping...' : scan.status === 'done' ? 'Completed' : scan.status === 'failed' ? 'Failed' : 'Pending Queue'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="animate-pulse bg-slate-200 dark:bg-white/5 h-8 w-24 rounded-lg" />
+                </div>
+              ))}
+            </div>
           ) : results.length === 0 && !isSearching ? (
             <div className="glass-card py-20 text-center space-y-4">
               <div className="w-16 h-16 bg-black/5 dark:bg-white/5 rounded-full flex items-center justify-center mx-auto">
@@ -999,9 +1083,9 @@ export default function SearchPage() {
                         </div>
                       </div>
                       <h4 className="font-bold text-lg text-foreground">{job.title}</h4>
-                      <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-slate-400 mt-1">
-                        <span className="font-semibold text-slate-900 dark:text-slate-300">{job.company}</span>
-                        <div className="flex items-center gap-1" title={`Matched for location query: ${job.location}`}>
+                      <div className="flex items-center gap-3 text-sm mt-1">
+                        <span className="font-bold card-company-text">{job.company}</span>
+                        <div className="flex items-center gap-1 font-medium card-location-text" title={`Matched for location query: ${job.location}`}>
                           <MapPin className="w-3.5 h-3.5" />
                           Within {radius} miles of {job.location}
                         </div>
@@ -1012,10 +1096,10 @@ export default function SearchPage() {
                     
                     {/* AI Insights / Status Message */}
                     {job.reason && (
-                      <div className="mt-3 p-3 rounded-lg bg-indigo-50/50 dark:bg-indigo-500/5 border border-indigo-500/15 animate-in fade-in slide-in-from-top-1">
+                      <div className="mt-3 p-3 rounded-lg bg-indigo-50/70 dark:bg-indigo-500/5 border border-indigo-500/20 animate-in fade-in slide-in-from-top-1">
                         <div className="flex items-start gap-2">
                           <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 mt-0.5 shrink-0" />
-                          <p className="text-xs text-slate-900 dark:text-slate-300 leading-relaxed italic">{job.reason}</p>
+                          <p className="text-xs card-reason-text leading-relaxed font-medium italic">{job.reason}</p>
                         </div>
                       </div>
                     )}
@@ -1043,6 +1127,7 @@ export default function SearchPage() {
                       <button
                         onClick={() => handleAnalyze(job.id)}
                         className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 text-xs font-bold transition-all border border-indigo-500/20"
+                        title="Trigger AI to scan the job details and score your match fit"
                       >
                         <Sparkles className="w-3.5 h-3.5" />
                         Analyze Match
@@ -1051,19 +1136,21 @@ export default function SearchPage() {
                     <button
                       onClick={() => handleToggleFavourite(job.id)}
                       className={`p-2 rounded-lg transition-all ${job.isFavourite ? 'text-yellow-600 dark:text-yellow-400 bg-yellow-400/10' : 'text-text-muted hover:text-yellow-500'}`}
-                      title={job.isFavourite ? "Remove from Favourites" : "Add to Favourites"}
+                      title={job.isFavourite ? "Remove from Favourites (Removes from Application Workshop list)" : "Add to Favourites (Sends this Discovery job directly to your Application Workshop)"}
                     >
                       <Star className={`w-4 h-4 ${job.isFavourite ? 'fill-current' : ''}`} />
                     </button>
                     <button 
                       onClick={() => toggleSelection(job.id)}
                       className={`p-2 rounded-lg transition-all ${selectedIds.includes(job.id) ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-black/5 dark:bg-white/5 text-text-muted hover:text-foreground'}`}
+                      title={selectedIds.includes(job.id) ? "Deselect this job" : "Select this job for batch operations (Move to Pipeline or Dismiss)"}
                     >
                       <CheckCircle2 className="w-5 h-5" />
                     </button>
                     <button 
                       onClick={() => setReviewingJob(job)}
                       className="btn-primary py-2 px-4 text-xs"
+                      title="Preview job details, AI analysis score, and read full job description"
                     >
                       Quick Review
                     </button>
@@ -1176,7 +1263,7 @@ export default function SearchPage() {
               <label className="text-xs text-text-muted font-bold uppercase tracking-wider mb-2 block">Target Job Sites</label>
               <div className="flex flex-wrap gap-2 mb-2">
                 {targetSites.map((site, i) => (
-                  <span key={i} className="px-2 py-1 bg-amber-100/80 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-900/50 rounded text-[11px] text-amber-800 dark:text-amber-400 flex items-center gap-1.5 font-semibold">
+                  <span key={i} className="px-2 py-1 bg-amber-500/10 border border-amber-500/20 rounded text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-1.5 font-semibold">
                     {site}
                     <button onClick={() => removeArrayItem('targetSites', i)} className="hover:text-amber-950 dark:hover:text-white cursor-pointer">&times;</button>
                   </span>

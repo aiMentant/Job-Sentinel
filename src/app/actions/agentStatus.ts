@@ -61,3 +61,8 @@ export async function setAgentStatus(status: Partial<AgentStatus>) {
 export async function resolveApproval() {
   await setAgentStatus({ needsApproval: false, status: "Approval received. Resuming mission..." });
 }
+
+export async function stopSubmissions() {
+  await setAgentStatus({ isSubmitting: false, needsApproval: false, status: "Submissions aborted by user." });
+}
+

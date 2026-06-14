@@ -3,13 +3,23 @@
 
 // chromium.use(stealth()); // Removed to fix utils.typeOf runtime error in Next.js environment
 
+async function getBrowserInstance(chromium: any) {
+  const browserlessKey = process.env.BROWSERLESS_API_KEY;
+  if (browserlessKey && browserlessKey !== "") {
+    try {
+      console.log("Connecting to Cloud Chromium via Browserless...");
+      return await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`);
+    } catch (wsErr) {
+      console.warn("Browserless connection failed, falling back to local launch:", wsErr);
+    }
+  }
+  console.log("Launching Local Headless Chromium...");
+  return await chromium.launch({ headless: true });
+}
 
 export async function searchLinkedInJobs(query: string, location: string, radius: number = 25) {
   const { chromium } = await import('playwright');
-  const browserlessKey = process.env.BROWSERLESS_API_KEY;
-  const browser = browserlessKey 
-    ? await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`)
-    : await chromium.launch({ headless: true });
+  const browser = await getBrowserInstance(chromium);
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
   });
@@ -33,10 +43,10 @@ export async function searchLinkedInJobs(query: string, location: string, radius
   console.log(`[Scraper] Searching LinkedIn (Radius: ${radius}m): ${searchUrl}`);
   
   try {
-    await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 15000 });
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 8000 });
     
     // Wait for the job cards container
-    await page.waitForSelector('.jobs-search__results-list, .base-card', { timeout: 10000 });
+    await page.waitForSelector('.jobs-search__results-list, .base-card', { timeout: 5000 });
     
     // Scroll a bit to lazy-load images and data
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2));
@@ -74,7 +84,7 @@ export async function searchLinkedInJobs(query: string, location: string, radius
     await browser.close();
     
     // Filter out jobs that failed to parse a title or company
-    return jobs.filter(j => j.title && j.company);
+    return jobs.filter((j: any) => j.title && j.company);
 
   } catch (error: any) {
     console.error('[Scraper] LinkedIn scraping failed:', error.message);
@@ -85,10 +95,7 @@ export async function searchLinkedInJobs(query: string, location: string, radius
 
 export async function scrapeJobDescription(url: string): Promise<string> {
   const { chromium } = await import('playwright');
-  const browserlessKey = process.env.BROWSERLESS_API_KEY;
-  const browser = browserlessKey 
-    ? await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`)
-    : await chromium.launch({ headless: true });
+  const browser = await getBrowserInstance(chromium);
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   });
@@ -96,7 +103,7 @@ export async function scrapeJobDescription(url: string): Promise<string> {
   
   try {
     console.log(`[Scraper] Fetching description from: ${url}`);
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 15000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 8000 });
     
     // LinkedIn Public Job Page selectors
     const description = await page.evaluate(() => {
@@ -124,10 +131,7 @@ export async function scrapeJobDescription(url: string): Promise<string> {
 
 export async function scrapePublicLinkedInProfile(url: string): Promise<string> {
   const { chromium } = await import('playwright');
-  const browserlessKey = process.env.BROWSERLESS_API_KEY;
-  const browser = browserlessKey 
-    ? await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`)
-    : await chromium.launch({ headless: true });
+  const browser = await getBrowserInstance(chromium);
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   });
@@ -135,10 +139,10 @@ export async function scrapePublicLinkedInProfile(url: string): Promise<string> 
   
   try {
     console.log(`[Scraper] Fetching public LinkedIn profile: ${url}`);
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 20000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 10000 });
     
     // Wait for main top card or profile content
-    await page.waitForSelector('.top-card-layout, main, body', { timeout: 10000 });
+    await page.waitForSelector('.top-card-layout, main, body', { timeout: 5000 });
     
     // Extract main texts
     const profileText = await page.evaluate(() => {

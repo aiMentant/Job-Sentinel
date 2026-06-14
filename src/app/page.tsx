@@ -81,14 +81,22 @@ export default function Dashboard() {
 
 
   const handleTriggerSearch = async () => {
-    if (!profile.targetTitles || !profile.targetLocations) return;
+    // Validate target titles and locations (filter out placeholder values)
+    const validTitles = (profile.targetTitles || []).filter(t => t && !t.includes("[") && !t.includes("]") && t.trim() !== "");
+    const validLocations = (profile.targetLocations || []).filter(l => l && !l.includes("[") && !l.includes("]") && !l.toLowerCase().includes("city, state") && !l.toLowerCase().includes("placeholder") && l.trim() !== "");
+
+    if (validTitles.length === 0 || validLocations.length === 0) {
+      setSearchStatus("Search failed: No valid target titles or locations configured. Please update your profile.");
+      return;
+    }
+
     setIsSearching(true);
     setSearchStatus("Initializing Daily Scan...");
     
     try {
       const newJobs = await runJobSearch(
-        profile.targetTitles,
-        profile.targetLocations,
+        validTitles,
+        validLocations,
         radius,
         profile.resumeText || ""
       );
@@ -96,8 +104,9 @@ export default function Dashboard() {
       await refreshTopJobs();
       setSearchStatus(`Found ${newJobs.length} new matches.`);
       setTimeout(() => setSearchStatus(""), 5000);
-    } catch (e) {
-      setSearchStatus("Search failed. Check profile parameters.");
+    } catch (e: any) {
+      console.error(e);
+      setSearchStatus(`Search failed: ${e?.message || "Verify your connection or scraping API keys."}`);
     } finally {
       setIsSearching(false);
     }

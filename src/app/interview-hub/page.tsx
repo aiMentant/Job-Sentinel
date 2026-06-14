@@ -2,7 +2,8 @@
 
 export const dynamic = "force-dynamic";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { 
   Briefcase, 
   Target, 
@@ -19,45 +20,109 @@ import {
   RefreshCw,
   Award,
   BookOpen,
-  DollarSign
+  DollarSign,
+  Check,
+  Save,
+  Trash2
 } from "lucide-react";
 import { fetchJobs, updateJob } from "@/app/actions/jobActions";
 import { generateInterviewPrepMaterial } from "@/app/actions/careerTools";
 import { Job } from "@/lib/db";
 import { useProfile } from "@/components/ProfileContext";
 
-export default function InterviewHubPage() {
+function InterviewHubContent() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<'pitch' | 'behavioral' | 'technical' | 'reverse' | 'salary'>('pitch');
-  const [openBehavioralIndex, setOpenBehavioralIndex] = useState<number | null>(0);
-  const [openTechnicalIndex, setOpenTechnicalIndex] = useState<number | null>(0);
   const [copiedText, setCopiedText] = useState<string | null>(null);
+  
+  // Refine text hook states
+  const [refineInstructions, setRefineInstructions] = useState<Record<string, string>>({});
+  const [isRefining, setIsRefining] = useState<Record<string, boolean>>({});
 
   const { activeProfileId } = useProfile();
+  const searchParams = useSearchParams();
+  const targetJobId = searchParams.get('jobId');
 
   useEffect(() => {
     loadJobs();
   }, [activeProfileId]);
 
+  useEffect(() => {
+    if (targetJobId && jobs.length > 0) {
+      const found = jobs.find((j: Job) => j.id === targetJobId);
+      if (found) {
+        setSelectedJob(found);
+        // Default tab routing based on job status
+        if (found.status === 'Applied' || found.status === 'Ready' || found.status === 'Recruiter Screen') {
+          setActiveTab('pitch');
+        } else if (found.status === 'Technical Round') {
+          setActiveTab('technical');
+        } else if (found.status === 'Portfolio Presentation') {
+          setActiveTab('behavioral');
+        } else if (found.status === '2nd Interview' || found.status === 'Final Round') {
+          setActiveTab('behavioral');
+        } else if (found.status === 'Offer') {
+          setActiveTab('salary');
+        }
+      }
+    }
+  }, [targetJobId, jobs]);
+
+  useEffect(() => {
+    if (selectedJob && !selectedJob.interviewPrepData && !isGenerating) {
+      handleGeneratePrep(selectedJob);
+    }
+  }, [selectedJob, isGenerating]);
+
   const loadJobs = async () => {
     setLoading(true);
     try {
-      const allJobs = await fetchJobs();
-      // Filter to jobs in interview stages
+      const allJobs = await fetchJobs(activeProfileId);
       const interviewStages = [
+        'Ready',
+        'Applied',
         'Recruiter Screen', 
         'Technical Round', 
         'Portfolio Presentation', 
         '2nd Interview', 
-        'Final Round'
+        'Final Round',
+        'Offer'
       ];
       const filtered = allJobs.filter((j: any) => interviewStages.includes(j.status));
       setJobs(filtered);
-      if (filtered.length > 0) {
+      
+      // Select the job passed via query params if available, else default to first
+      const found = filtered.find((j: Job) => j.id === targetJobId);
+      if (found) {
+        setSelectedJob(found);
+        if (found.status === 'Applied' || found.status === 'Ready' || found.status === 'Recruiter Screen') {
+          setActiveTab('pitch');
+        } else if (found.status === 'Technical Round') {
+          setActiveTab('technical');
+        } else if (found.status === 'Portfolio Presentation') {
+          setActiveTab('behavioral');
+        } else if (found.status === '2nd Interview' || found.status === 'Final Round') {
+          setActiveTab('behavioral');
+        } else if (found.status === 'Offer') {
+          setActiveTab('salary');
+        }
+      } else if (filtered.length > 0) {
         setSelectedJob(filtered[0]);
+        if (filtered[0].status === 'Applied' || filtered[0].status === 'Ready' || filtered[0].status === 'Recruiter Screen') {
+          setActiveTab('pitch');
+        } else if (filtered[0].status === 'Technical Round') {
+          setActiveTab('technical');
+        } else if (filtered[0].status === 'Portfolio Presentation') {
+          setActiveTab('behavioral');
+        } else if (filtered[0].status === '2nd Interview' || filtered[0].status === 'Final Round') {
+          setActiveTab('behavioral');
+        } else if (filtered[0].status === 'Offer') {
+          setActiveTab('salary');
+        }
       } else {
         setSelectedJob(null);
       }
@@ -93,6 +158,100 @@ export default function InterviewHubPage() {
     }
   };
 
+  const handleRefinePrep = async (section: 'pitch' | 'behavioral' | 'technical' | 'reverse' | 'salary', index?: number) => {
+    if (!selectedJob || !selectedJob.interviewPrepData) return;
+    const key = index !== undefined ? `${section}-${index}` : section;
+    const instruction = refineInstructions[key];
+    if (!instruction || !instruction.trim()) return;
+
+    setIsRefining(prev => ({ ...prev, [key]: true }));
+    try {
+      const { refineInterviewPrepSection } = await import("@/app/actions/careerTools");
+      
+      let currentText = "";
+      let extraContext = "";
+      if (section === 'pitch') {
+        currentText = selectedJob.interviewPrepData.pitch || "";
+      } else if (section === 'salary') {
+        currentText = selectedJob.interviewPrepData.salaryNegotiation || "";
+      } else if (section === 'behavioral' && index !== undefined && selectedJob.interviewPrepData.behavioralQuestions) {
+        currentText = selectedJob.interviewPrepData.behavioralQuestions[index].a || "";
+        extraContext = selectedJob.interviewPrepData.behavioralQuestions[index].q || "";
+      } else if (section === 'technical' && index !== undefined && selectedJob.interviewPrepData.technicalQuestions) {
+        currentText = selectedJob.interviewPrepData.technicalQuestions[index].a || "";
+        extraContext = selectedJob.interviewPrepData.technicalQuestions[index].q || "";
+      } else if (section === 'reverse') {
+        currentText = (selectedJob.interviewPrepData.reverseQuestions || []).join("\n");
+      }
+
+      const refinedText = await refineInterviewPrepSection(
+        section,
+        currentText,
+        instruction,
+        selectedJob.title,
+        selectedJob.company,
+        extraContext
+      );
+
+      const updatedPrepData = { ...selectedJob.interviewPrepData };
+      if (section === 'pitch') {
+        updatedPrepData.pitch = refinedText;
+      } else if (section === 'salary') {
+        updatedPrepData.salaryNegotiation = refinedText;
+      } else if (section === 'behavioral' && index !== undefined && updatedPrepData.behavioralQuestions) {
+        const list = [...updatedPrepData.behavioralQuestions];
+        list[index] = { ...list[index], a: refinedText };
+        updatedPrepData.behavioralQuestions = list;
+      } else if (section === 'technical' && index !== undefined && updatedPrepData.technicalQuestions) {
+        const list = [...updatedPrepData.technicalQuestions];
+        list[index] = { ...list[index], a: refinedText };
+        updatedPrepData.technicalQuestions = list;
+      } else if (section === 'reverse') {
+        updatedPrepData.reverseQuestions = refinedText.split("\n").map(l => l.replace(/^[•\-\*\s\d\.\)]+/, '').trim()).filter(Boolean);
+      }
+
+      const updatedJob = { ...selectedJob, interviewPrepData: updatedPrepData };
+      setSelectedJob(updatedJob);
+      setJobs(prev => prev.map(j => j.id === selectedJob.id ? updatedJob : j));
+      setRefineInstructions(prev => ({ ...prev, [key]: "" }));
+    } catch (e) {
+      alert("Failed to refine prep content.");
+    } finally {
+      setIsRefining(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const getNextStatus = (currentStatus: string): string => {
+    switch (currentStatus) {
+      case 'Recruiter Screen': return 'Technical Round';
+      case 'Technical Round': return 'Portfolio Presentation';
+      case 'Portfolio Presentation': return '2nd Interview';
+      case '2nd Interview': return 'Final Round';
+      case 'Final Round': return 'Offer';
+      default: return currentStatus;
+    }
+  };
+
+  const handleSavePrep = async () => {
+    if (!selectedJob) return;
+    setIsSaving(true);
+    try {
+      const nextStatus = getNextStatus(selectedJob.status);
+      const updatedJob = {
+        ...selectedJob,
+        status: nextStatus as any
+      };
+      await updateJob(selectedJob.id, updatedJob);
+      setSelectedJob(updatedJob);
+      setJobs(prev => prev.map(j => j.id === selectedJob.id ? updatedJob : j));
+      alert(`Interview Prep Guide successfully saved! Job moved to "${nextStatus}" in the Active Pipeline.`);
+    } catch (e) {
+      alert("Failed to save changes.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const copyToClipboard = (text: string, label: string = "Copied to clipboard!") => {
     navigator.clipboard.writeText(text);
     setCopiedText(label);
@@ -103,9 +262,26 @@ export default function InterviewHubPage() {
     <div className="p-8 space-y-8 max-w-[1600px] mx-auto h-[calc(100vh-80px)] flex flex-col">
       
       {/* Header */}
-      <div>
-        <h2 className="text-3xl font-bold font-outfit text-foreground">Interview Hub</h2>
-        <p className="text-text-muted mt-1">Access AI-generated command centers for your active interview processes.</p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-3xl font-bold font-outfit text-foreground">Interview Hub</h2>
+          <p className="text-text-muted mt-1">Access AI-generated command centers for your active interview processes.</p>
+        </div>
+        
+        {selectedJob && selectedJob.interviewPrepData && (
+          <button
+            onClick={handleSavePrep}
+            disabled={isSaving}
+            className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer shadow-lg flex items-center gap-2"
+          >
+            {isSaving ? (
+              <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
+            Save All Prep Edits
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -136,7 +312,19 @@ export default function InterviewHubPage() {
                   key={job.id}
                   onClick={() => {
                     setSelectedJob(job);
-                    setActiveTab('pitch');
+                    if (job.status === 'Applied' || job.status === 'Ready' || job.status === 'Recruiter Screen') {
+                      setActiveTab('pitch');
+                    } else if (job.status === 'Technical Round') {
+                      setActiveTab('technical');
+                    } else if (job.status === 'Portfolio Presentation') {
+                      setActiveTab('behavioral');
+                    } else if (job.status === '2nd Interview' || job.status === 'Final Round') {
+                      setActiveTab('behavioral');
+                    } else if (job.status === 'Offer') {
+                      setActiveTab('salary');
+                    } else {
+                      setActiveTab('pitch');
+                    }
                   }}
                   className={`w-full text-left p-5 rounded-[2rem] border transition-all flex flex-col gap-2 ${
                     isSelected 
@@ -214,11 +402,11 @@ export default function InterviewHubPage() {
                     {/* Inner Tabs Navigation */}
                     <div className="px-8 py-4 border-b border-card-border flex gap-6 overflow-x-auto scrollbar-hide bg-black/[0.01] dark:bg-white/[0.01]">
                       {[
-                        { id: 'pitch', label: 'Personalized Pitch', icon: Users },
-                        { id: 'behavioral', label: 'STAR Behavioral', icon: Award },
-                        { id: 'technical', label: 'Technical Q&A', icon: BookOpen },
-                        { id: 'reverse', label: 'Reverse Questions', icon: Send },
-                        { id: 'salary', label: 'Compensation Plan', icon: DollarSign }
+                        { id: 'pitch', label: 'Elevator Pitch', icon: Users },
+                        { id: 'behavioral', label: 'Behavioral Prep', icon: Award },
+                        { id: 'technical', label: 'Technical Prep', icon: BookOpen },
+                        { id: 'reverse', label: 'Questions to Ask', icon: Send },
+                        { id: 'salary', label: 'Negotiation Strategy', icon: DollarSign }
                       ].map((tab) => {
                         const isActive = activeTab === tab.id;
                         return (
@@ -256,8 +444,50 @@ export default function InterviewHubPage() {
                               <Copy className="w-3.5 h-3.5" /> Copy Pitch
                             </button>
                           </div>
-                          <div className="p-8 rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border text-sm leading-relaxed text-slate-800 dark:text-slate-300 italic whitespace-pre-wrap">
-                            "{selectedJob.interviewPrepData.pitch}"
+                          
+                          <textarea
+                            value={selectedJob.interviewPrepData?.pitch || ""}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (selectedJob && selectedJob.interviewPrepData) {
+                                setSelectedJob({
+                                  ...selectedJob,
+                                  interviewPrepData: { ...selectedJob.interviewPrepData, pitch: val }
+                                });
+                              }
+                            }}
+                            className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 stepper-textarea focus:border-indigo-500/50 outline-none font-sans resize-none overflow-hidden"
+                            rows={Math.max(5, Math.ceil((selectedJob.interviewPrepData?.pitch || "").length / 85) + (selectedJob.interviewPrepData?.pitch || "").split('\n').length - 1)}
+                            placeholder="Your elevator pitch..."
+                          />
+
+                          {/* Inline AI Refine/Tweak Pitch */}
+                          <div className="flex gap-2 items-center w-full max-w-2xl">
+                            <div className="flex-1 p-2 bg-black/[0.03] dark:bg-white/5 border border-card-border rounded-xl flex items-center gap-2">
+                              <input 
+                                type="text" 
+                                value={refineInstructions['pitch'] || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setRefineInstructions(prev => ({ ...prev, pitch: val }));
+                                }}
+                                placeholder="Tweak pitch (e.g. 'emphasize my leadership style', 'keep it under 120 words')..."
+                                className="flex-1 bg-transparent border-none focus:ring-0 text-xs text-foreground outline-none"
+                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRefinePrep('pitch'); } }}
+                              />
+                            </div>
+                            <button 
+                              onClick={() => handleRefinePrep('pitch')}
+                              disabled={isRefining['pitch'] || !(refineInstructions['pitch'] || "").trim()}
+                              className="px-4 py-2 bg-indigo-950 dark:bg-indigo-300 hover:bg-indigo-900 dark:hover:bg-indigo-200 disabled:opacity-30 text-white dark:text-slate-950 rounded-xl text-xs font-bold dark:font-black transition-all shrink-0 flex items-center gap-1.5 cursor-pointer shadow-sm"
+                            >
+                              {isRefining['pitch'] ? (
+                                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white dark:border-slate-950/30 dark:border-t-slate-950 rounded-full animate-spin" />
+                              ) : (
+                                <Sparkles className="w-3.5 h-3.5 text-white dark:text-slate-950" />
+                              )}
+                              Refine Pitch
+                            </button>
                           </div>
                         </div>
                       )}
@@ -270,32 +500,85 @@ export default function InterviewHubPage() {
                             <p className="text-xs text-text-muted">Expected questions paired with guidelines to frame your answers using the STAR method.</p>
                           </div>
                           
-                          <div className="space-y-4">
-                            {selectedJob.interviewPrepData.behavioralQuestions?.map((item, idx) => {
-                              const isOpen = openBehavioralIndex === idx;
+                          <div className="space-y-8">
+                            {selectedJob.interviewPrepData?.behavioralQuestions?.map((item, idx) => {
+                              const linesCount = item.a.split('\n').length;
+                              const computedRows = Math.max(3, Math.ceil(item.a.length / 85) + linesCount - 1);
+                              const key = `behavioral-${idx}`;
                               return (
-                                <div key={idx} className="border border-card-border rounded-2xl overflow-hidden bg-black/[0.01] dark:bg-white/[0.01]">
-                                  <button
-                                    onClick={() => setOpenBehavioralIndex(isOpen ? null : idx)}
-                                    className="w-full text-left p-5 flex justify-between items-center hover:bg-foreground/[0.02] transition-colors"
-                                  >
-                                    <span className="font-bold text-xs text-foreground flex items-center gap-3">
-                                      <span className="text-amber-500">{idx + 1}.</span> {item.q}
-                                    </span>
-                                    {isOpen ? <ChevronUp className="w-4 h-4 text-text-muted" /> : <ChevronDown className="w-4 h-4 text-text-muted" />}
-                                  </button>
-                                  {isOpen && (
-                                    <div className="p-6 border-t border-card-border bg-card text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap relative">
-                                      <button 
-                                        onClick={() => copyToClipboard(`Q: ${item.q}\n\nAnswer Guide:\n${item.a}`, "Copied Question & Answer guide!")}
-                                        className="absolute right-4 top-4 text-text-muted hover:text-foreground"
-                                        title="Copy Guide"
-                                      >
-                                        <Copy className="w-3.5 h-3.5" />
-                                      </button>
-                                      {item.a}
+                                <div key={idx} className="space-y-3 relative group/qa pb-8 border-b border-card-border/30 last:border-b-0 last:pb-0">
+                                  <div className="flex justify-between items-center gap-3">
+                                    <input 
+                                      type="text"
+                                      value={item.q}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        const prep = selectedJob?.interviewPrepData;
+                                        if (!prep?.behavioralQuestions) return;
+                                        const list = [...prep.behavioralQuestions];
+                                        list[idx] = { ...list[idx], q: val };
+                                        setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, behavioralQuestions: list } });
+                                      }}
+                                      className="flex-1 bg-transparent border-none font-bold text-sm text-purple-600 dark:text-purple-400 focus:ring-0 outline-none p-0"
+                                      placeholder="Behavioral Question"
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        const prep = selectedJob?.interviewPrepData;
+                                        if (!prep?.behavioralQuestions) return;
+                                        const list = prep.behavioralQuestions.filter((_, i) => i !== idx);
+                                        setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, behavioralQuestions: list } });
+                                      }}
+                                      className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded-lg opacity-0 group-hover/qa:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                                      title="Delete Question"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                  
+                                  <textarea
+                                    value={item.a}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      const prep = selectedJob?.interviewPrepData;
+                                      if (!prep?.behavioralQuestions) return;
+                                      const list = [...prep.behavioralQuestions];
+                                      list[idx] = { ...list[idx], a: val };
+                                      setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, behavioralQuestions: list } });
+                                    }}
+                                    className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-xl p-3 stepper-textarea focus:border-indigo-500/50 outline-none font-sans resize-none overflow-hidden"
+                                    placeholder="STAR Method Answer Guide"
+                                    rows={computedRows}
+                                  />
+
+                                  {/* Inline AI Tweak */}
+                                  <div className="flex gap-2 items-center w-full max-w-2xl">
+                                    <div className="flex-1 p-2 bg-black/[0.03] dark:bg-white/5 border border-card-border rounded-xl flex items-center gap-2">
+                                      <input 
+                                        type="text" 
+                                        value={refineInstructions[key] || ""}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setRefineInstructions(prev => ({ ...prev, [key]: val }));
+                                        }}
+                                        placeholder="Tweak response (e.g. 'emphasize my scale metrics', 'make it sound more leadership-focused')..."
+                                        className="flex-1 bg-transparent border-none focus:ring-0 text-xs text-foreground outline-none"
+                                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRefinePrep('behavioral', idx); } }}
+                                      />
                                     </div>
-                                  )}
+                                    <button 
+                                      onClick={() => handleRefinePrep('behavioral', idx)}
+                                      disabled={isRefining[key] || !(refineInstructions[key] || "").trim()}
+                                      className="px-4 py-2 bg-indigo-950 dark:bg-indigo-300 hover:bg-indigo-900 dark:hover:bg-indigo-200 disabled:opacity-30 text-white dark:text-slate-950 rounded-xl text-xs font-bold dark:font-black transition-all shrink-0 flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                    >
+                                      {isRefining[key] ? (
+                                        <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white dark:border-slate-950/30 dark:border-t-slate-950 rounded-full animate-spin" />
+                                      ) : (
+                                        <Sparkles className="w-3.5 h-3.5 text-white dark:text-slate-950" />
+                                      )}
+                                      Refine Answer
+                                    </button>
+                                  </div>
                                 </div>
                               );
                             })}
@@ -311,32 +594,85 @@ export default function InterviewHubPage() {
                             <p className="text-xs text-text-muted">Predictive technical questions derived from the job's core skill requirements.</p>
                           </div>
 
-                          <div className="space-y-4">
-                            {selectedJob.interviewPrepData.technicalQuestions?.map((item, idx) => {
-                              const isOpen = openTechnicalIndex === idx;
+                          <div className="space-y-8">
+                            {selectedJob.interviewPrepData?.technicalQuestions?.map((item, idx) => {
+                              const linesCount = item.a.split('\n').length;
+                              const computedRows = Math.max(3, Math.ceil(item.a.length / 85) + linesCount - 1);
+                              const key = `technical-${idx}`;
                               return (
-                                <div key={idx} className="border border-card-border rounded-2xl overflow-hidden bg-black/[0.01] dark:bg-white/[0.01]">
-                                  <button
-                                    onClick={() => setOpenTechnicalIndex(isOpen ? null : idx)}
-                                    className="w-full text-left p-5 flex justify-between items-center hover:bg-foreground/[0.02] transition-colors"
-                                  >
-                                    <span className="font-bold text-xs text-foreground flex items-center gap-3">
-                                      <span className="text-amber-500">{idx + 1}.</span> {item.q}
-                                    </span>
-                                    {isOpen ? <ChevronUp className="w-4 h-4 text-text-muted" /> : <ChevronDown className="w-4 h-4 text-text-muted" />}
-                                  </button>
-                                  {isOpen && (
-                                    <div className="p-6 border-t border-card-border bg-card text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap relative">
-                                      <button 
-                                        onClick={() => copyToClipboard(`Q: ${item.q}\n\nAnswer Guide:\n${item.a}`, "Copied Question & Answer guide!")}
-                                        className="absolute right-4 top-4 text-text-muted hover:text-foreground"
-                                        title="Copy Guide"
-                                      >
-                                        <Copy className="w-3.5 h-3.5" />
-                                      </button>
-                                      {item.a}
+                                <div key={idx} className="space-y-3 relative group/qa pb-8 border-b border-card-border/30 last:border-b-0 last:pb-0">
+                                  <div className="flex justify-between items-center gap-3">
+                                    <input 
+                                      type="text"
+                                      value={item.q}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        const prep = selectedJob?.interviewPrepData;
+                                        if (!prep?.technicalQuestions) return;
+                                        const list = [...prep.technicalQuestions];
+                                        list[idx] = { ...list[idx], q: val };
+                                        setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, technicalQuestions: list } });
+                                      }}
+                                      className="flex-1 bg-transparent border-none font-bold text-sm text-purple-600 dark:text-purple-400 focus:ring-0 outline-none p-0"
+                                      placeholder="Technical Question"
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        const prep = selectedJob?.interviewPrepData;
+                                        if (!prep?.technicalQuestions) return;
+                                        const list = prep.technicalQuestions.filter((_, i) => i !== idx);
+                                        setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, technicalQuestions: list } });
+                                      }}
+                                      className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded-lg opacity-0 group-hover/qa:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                                      title="Delete Question"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                  
+                                  <textarea
+                                    value={item.a}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      const prep = selectedJob?.interviewPrepData;
+                                      if (!prep?.technicalQuestions) return;
+                                      const list = [...prep.technicalQuestions];
+                                      list[idx] = { ...list[idx], a: val };
+                                      setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, technicalQuestions: list } });
+                                    }}
+                                    className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-xl p-3 stepper-textarea focus:border-indigo-500/50 outline-none font-sans resize-none overflow-hidden"
+                                    placeholder="Technical Guidelines"
+                                    rows={computedRows}
+                                  />
+
+                                  {/* Inline AI Tweak */}
+                                  <div className="flex gap-2 items-center w-full max-w-2xl">
+                                    <div className="flex-1 p-2 bg-black/[0.03] dark:bg-white/5 border border-card-border rounded-xl flex items-center gap-2">
+                                      <input 
+                                        type="text" 
+                                        value={refineInstructions[key] || ""}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setRefineInstructions(prev => ({ ...prev, [key]: val }));
+                                        }}
+                                        placeholder="Tweak response (e.g. 'sound more senior', 'include security details')..."
+                                        className="flex-1 bg-transparent border-none focus:ring-0 text-xs text-foreground outline-none"
+                                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRefinePrep('technical', idx); } }}
+                                      />
                                     </div>
-                                  )}
+                                    <button 
+                                      onClick={() => handleRefinePrep('technical', idx)}
+                                      disabled={isRefining[key] || !(refineInstructions[key] || "").trim()}
+                                      className="px-4 py-2 bg-indigo-950 dark:bg-indigo-300 hover:bg-indigo-900 dark:hover:bg-indigo-200 disabled:opacity-30 text-white dark:text-slate-950 rounded-xl text-xs font-bold dark:font-black transition-all shrink-0 flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                    >
+                                      {isRefining[key] ? (
+                                        <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white dark:border-slate-950/30 dark:border-t-slate-950 rounded-full animate-spin" />
+                                      ) : (
+                                        <Sparkles className="w-3.5 h-3.5 text-white dark:text-slate-950" />
+                                      )}
+                                      Refine Answer
+                                    </button>
+                                  </div>
                                 </div>
                               );
                             })}
@@ -360,15 +696,68 @@ export default function InterviewHubPage() {
                             </button>
                           </div>
                           
-                          <div className="grid grid-cols-1 gap-4">
-                            {selectedJob.interviewPrepData.reverseQuestions?.map((q, idx) => (
-                              <div key={idx} className="p-5 rounded-2xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border flex gap-4 items-start">
+                          <div className="space-y-4">
+                            {selectedJob.interviewPrepData?.reverseQuestions?.map((q, idx) => (
+                              <div key={idx} className="flex gap-3 items-center group/qta">
                                 <span className="w-6 h-6 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/25 flex items-center justify-center text-xs font-bold flex-shrink-0">
                                   {idx + 1}
                                 </span>
-                                <p className="text-xs text-foreground font-semibold leading-relaxed pt-0.5">{q}</p>
+                                <input
+                                  type="text"
+                                  value={q}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const prep = selectedJob?.interviewPrepData;
+                                    if (!prep?.reverseQuestions) return;
+                                    const list = [...prep.reverseQuestions];
+                                    list[idx] = val;
+                                    setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, reverseQuestions: list } });
+                                  }}
+                                  className="flex-1 input-field stepper-textarea text-xs py-2 bg-card border-card-border"
+                                />
+                                <button
+                                  onClick={() => {
+                                    const prep = selectedJob?.interviewPrepData;
+                                    if (!prep?.reverseQuestions) return;
+                                    const list = prep.reverseQuestions.filter((_, i) => i !== idx);
+                                    setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, reverseQuestions: list } });
+                                  }}
+                                  className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded-lg opacity-0 group-hover/qta:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                                  title="Delete Question"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
                               </div>
                             ))}
+                            
+                            {/* Inline AI Tweak for Reverse Questions */}
+                            <div className="flex gap-2 items-center w-full max-w-2xl pt-4 border-t border-card-border/30">
+                              <div className="flex-1 p-2 bg-black/[0.03] dark:bg-white/5 border border-card-border rounded-xl flex items-center gap-2">
+                                <input 
+                                  type="text" 
+                                  value={refineInstructions['reverse'] || ""}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setRefineInstructions(prev => ({ ...prev, reverse: val }));
+                                  }}
+                                  placeholder="Tweak questions (e.g. 'focus on design systems', 'make them shorter')..."
+                                  className="flex-1 bg-transparent border-none focus:ring-0 text-xs text-foreground outline-none"
+                                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRefinePrep('reverse'); } }}
+                                />
+                              </div>
+                              <button 
+                                onClick={() => handleRefinePrep('reverse')}
+                                disabled={isRefining['reverse'] || !(refineInstructions['reverse'] || "").trim()}
+                                className="px-4 py-2 bg-indigo-950 dark:bg-indigo-300 hover:bg-indigo-900 dark:hover:bg-indigo-200 disabled:opacity-30 text-white dark:text-slate-950 rounded-xl text-xs font-bold dark:font-black transition-all shrink-0 flex items-center gap-1.5 cursor-pointer shadow-sm"
+                              >
+                                {isRefining['reverse'] ? (
+                                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white dark:border-slate-950/30 dark:border-t-slate-950 rounded-full animate-spin" />
+                                ) : (
+                                  <Sparkles className="w-3.5 h-3.5 text-white dark:text-slate-950" />
+                                )}
+                                Refine Questions
+                              </button>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -389,8 +778,49 @@ export default function InterviewHubPage() {
                             </button>
                           </div>
                           
-                          <div className="p-8 rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border text-xs leading-relaxed text-slate-800 dark:text-slate-300 whitespace-pre-wrap font-medium">
-                            {selectedJob.interviewPrepData.salaryNegotiation}
+                          <textarea
+                            value={selectedJob.interviewPrepData?.salaryNegotiation || ""}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (selectedJob && selectedJob.interviewPrepData) {
+                                setSelectedJob({
+                                  ...selectedJob,
+                                  interviewPrepData: { ...selectedJob.interviewPrepData, salaryNegotiation: val }
+                                });
+                              }
+                            }}
+                            className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 stepper-textarea focus:border-indigo-500/50 outline-none font-sans resize-none overflow-hidden"
+                            rows={Math.max(8, Math.ceil((selectedJob.interviewPrepData?.salaryNegotiation || "").length / 85) + (selectedJob.interviewPrepData?.salaryNegotiation || "").split('\n').length - 1)}
+                            placeholder="Salary strategy talking points..."
+                          />
+
+                          {/* Inline AI Refine/Tweak Salary */}
+                          <div className="flex gap-2 items-center w-full max-w-2xl">
+                            <div className="flex-1 p-2 bg-black/[0.03] dark:bg-white/5 border border-card-border rounded-xl flex items-center gap-2">
+                              <input 
+                                type="text" 
+                                value={refineInstructions['salary'] || ""}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setRefineInstructions(prev => ({ ...prev, salary: val }));
+                                }}
+                                placeholder="Tweak salary talks (e.g. 'tailor for London market', 'be more aggressive')..."
+                                className="flex-1 bg-transparent border-none focus:ring-0 text-xs text-foreground outline-none"
+                                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRefinePrep('salary'); } }}
+                              />
+                            </div>
+                            <button 
+                              onClick={() => handleRefinePrep('salary')}
+                              disabled={isRefining['salary'] || !(refineInstructions['salary'] || "").trim()}
+                              className="px-4 py-2 bg-indigo-950 dark:bg-indigo-300 hover:bg-indigo-900 dark:hover:bg-indigo-200 disabled:opacity-30 text-white dark:text-slate-950 rounded-xl text-xs font-bold dark:font-black transition-all shrink-0 flex items-center gap-1.5 cursor-pointer shadow-sm"
+                            >
+                              {isRefining['salary'] ? (
+                                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white dark:border-slate-950/30 dark:border-t-slate-950 rounded-full animate-spin" />
+                              ) : (
+                                <Sparkles className="w-3.5 h-3.5 text-white dark:text-slate-950" />
+                              )}
+                              Refine Strategy
+                            </button>
                           </div>
                         </div>
                       )}
@@ -410,5 +840,20 @@ export default function InterviewHubPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function InterviewHubPage() {
+  return (
+    <Suspense fallback={
+      <div className="p-8 text-center text-text-muted flex items-center justify-center min-h-[400px]">
+        <div className="space-y-4">
+          <Sparkles className="w-8 h-8 text-amber-500 animate-pulse mx-auto" />
+          <p className="font-bold text-sm">Loading Interview Hub...</p>
+        </div>
+      </div>
+    }>
+      <InterviewHubContent />
+    </Suspense>
   );
 }

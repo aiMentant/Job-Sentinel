@@ -273,6 +273,11 @@ CRITICAL ANTI-HALLUCINATION GUARDRAILS:
 - If a skill is missing, focus on adjacent transferable skills found in the background rather than inventing it.
 - Do NOT invent any numbers or metrics if they do not exist in the background.
 
+CRITICAL FORMATTING & HUMAN CADENCE GUARDRAILS:
+- NO BRACKETED PLACEHOLDERS: Do NOT output any bracketed placeholder text like "[hiring manager]", "[Hiring Manager Name]", "[Company Name]", "[Phone Number]", "[Email Address]", "[LinkedIn Profile URL]", "[Recruiter Name]", etc. If a piece of information is missing, do NOT put brackets around it; instead, substitute it cleanly or omit the line entirely. For phone, email, and LinkedIn, if you don't have them, do not output placeholder text lines.
+- BULLET STYLE: Use the standard bullet character "•" instead of markdown asterisks ("*") for all bulleted lists in the resume and cover letter.
+- HUMAN CADENCE / MULTI-LLM SYNERGY: Rewrite with a natural human conversational cadence. Vary sentence lengths (mix short, medium, and long sentences). Do not use formulaic AI transition phrases (e.g., "hope this message finds you well", "as a testament to", "passion for", "excited to bring my unique mix"). Make it read like a polished human professional who is technically expert and direct.
+
 1. Match Score (0-100).
 2. Missing Keywords: Identify critical terms from the JD missing from my profile.
 3. Tailored Resume: Rewrite my entire resume to match this role. 
@@ -303,6 +308,46 @@ Return ONLY a JSON object (no markdown):
     return await generateWithAI(prompt, { jsonMode: true });
   } catch (e) {
     throw new Error("AI failed to generate a valid application package.");
+  }
+}
+
+export async function refineTailoredMaterial(
+  type: 'resume' | 'coverLetter' | 'outreach',
+  currentText: string,
+  instruction: string,
+  jobTitle: string,
+  company: string
+): Promise<string> {
+  const context = await getProfileContext();
+  const prompt = `
+Job Context: ${jobTitle} at ${company}
+Current tailored ${type} text:
+"""
+${currentText}
+"""
+
+User instruction for refinement:
+"${instruction}"
+
+TASK: Refine the current tailored ${type} text based on the user's instructions.
+
+CRITICAL INSTRUCTIONS:
+1. Maintain strict factual honesty based on the user's background:
+"""
+${context}
+"""
+Do NOT invent or exaggerate credentials, metrics, or experiences.
+2. Remove any bracketed placeholder text like "[hiring manager]", "[phone number]", etc. If missing, leave a clean space or omit the line entirely.
+3. Use the standard bullet character "•" instead of markdown asterisks ("*") for lists.
+4. Human Cadence & Multi-LLM Synergy: Emulate a natural human tone (varied sentence lengths, active voice, conversational yet professional, avoiding buzzwords like "hope this message finds you well", "testament to", "delighted to").
+5. Return ONLY the final refined text. Do NOT include any preamble, conversational replies, or markdown blocks (like \`\`\`).
+`;
+
+  try {
+    const result: any = await generateWithAI(prompt);
+    return result;
+  } catch (e) {
+    throw new Error("AI failed to refine the draft.");
   }
 }
 // ────────────────────────────────────────────────────────
@@ -415,14 +460,38 @@ export async function generateInterviewPrepMaterial(
   Candidate Profile:
   ${context}
   
-  TASK: Generate comprehensive, highly tailored interview preparation materials for this candidate.
+  TASK: Generate scannable, highly tailored interview preparation materials for this candidate. Do NOT write long paragraphs. Write short, high-contrast, structured snapshot reference points.
   
   Please provide:
-  1. Pitch: A custom, persuasive "Tell me about yourself" elevator pitch script (approx. 150-200 words) connecting their experiences to the company's mission and job requirements.
-  2. Behavioral Questions: 5 behavioral questions they are likely to be asked based on the job requirements, with tailored guideline answers showing how they can use the STAR method from their experience.
-  3. Technical Questions: 5 technical/role-specific questions based on the required skill set in the job description, with precise guideline answers.
+  1. Pitch: A custom, persuasive "Tell me about yourself" script structured strictly as 3 bullet points starting with bold markdown labels:
+     • **Hook**: [1 sentence hook about their superpower & current role]
+     • **Value Add**: [1-2 sentences summarizing their biggest relevant metric/achievement]
+     • **Alignment**: [1 sentence explaining why this specific company/role is the perfect pivot]
+  
+  2. Behavioral Questions: 5 behavioral questions they are likely to be asked based on the job requirements. Each guideline answer ("a") MUST be structured strictly in a segmented STAR format:
+     **Situation/Task**: [1 sentence challenge context]
+     **Actions**:
+     • [Action 1: key initial step you took]
+     • [Action 2: how you solved it / technical detail]
+     • [Action 3: impact-oriented action/leadership]
+     **Result**:
+     • [1 concrete outcome or metric]
+  
+  3. Technical Questions: 5 technical/role-specific questions based on the required skill set. Each guideline answer ("a") MUST be structured strictly as:
+     **Core Concept**: [1 sentence definition/concept]
+     **Key Talk Track**:
+     • [Talking point to mention / drop during the answer]
+     • [Technical architecture or best practice details]
+     • [An optimization or trade-off consideration]
+  
   4. Reverse Questions: 5 strategic, insightful questions the candidate should ask the interviewer to display deep interest and business acumen.
-  5. Salary Negotiation: Compensation advice with a realistic range and a mini-script/strategy for discussing target compensation.
+  
+  5. Salary Negotiation: Compensation advice structured strictly as:
+     **Market Benchmark**: [Realistic local market range, e.g. £110k - £130k]
+     **Talking Points**:
+     • [Deflection script: how to redirect if asked for expectations first]
+     • [Target script: how to strategically state expectations]
+     • [Leverage point: key value or experience to anchor the number]
   
   CRITICAL ANTI-HALLUCINATION GUARDRAILS:
   - Rely strictly on the provided Candidate Profile for their accomplishments and credentials.
@@ -431,18 +500,18 @@ export async function generateInterviewPrepMaterial(
   
   Return ONLY a JSON object (no markdown):
   {
-    "pitch": "Elevator pitch script text here...",
+    "pitch": "• **Hook**: ...\n• **Value Add**: ...\n• **Alignment**: ...",
     "behavioralQuestions": [
-      { "q": "Behavioral Question 1", "a": "Guideline answer using STAR method based on their profile..." }
+      { "q": "Behavioral Question 1", "a": "**Situation/Task**:\n...\n\n**Actions**:\n• ...\n• ...\n• ...\n\n**Result**:\n• ..." }
     ],
     "technicalQuestions": [
-      { "q": "Technical/Role Question 1", "a": "Guideline answer based on their profile..." }
+      { "q": "Technical/Role Question 1", "a": "**Core Concept**:\n...\n\n**Key Talk Track**:\n• ...\n• ...\n• ..." }
     ],
     "reverseQuestions": [
       "Question 1",
       "Question 2"
     ],
-    "salaryNegotiation": "Comp advice, range and talking points..."
+    "salaryNegotiation": "**Market Benchmark**:\n...\n\n**Talking Points**:\n• ...\n• ...\n• ..."
   }
   `;
 
@@ -468,5 +537,264 @@ export async function generateInterviewPrepMaterial(
     return fallback;
   }
 }
+
+// ────────────────────────────────────────────────────────
+// 12. Resume Structurer
+// Clean up a raw parser-extracted ATS resume text into clean, structured paragraphs and bullet points.
+// ────────────────────────────────────────────────────────
+export async function structureRawResume(resumeText: string): Promise<string> {
+  if (!resumeText || !resumeText.trim()) return "";
+
+  const prompt = `
+You are an expert ATS layout optimizer.
+Your task is to take this raw, messy, parser-extracted ATS resume text and clean up its structure.
+
+INPUT RAW TEXT:
+"""
+${resumeText}
+"""
+
+INSTRUCTIONS:
+1. Reconstruct clean paragraphs, logical section headers (e.g. PROFESSIONAL EXPERIENCE, EDUCATION, SKILLS), and bullet breaks.
+2. Standardize all list items/bullets to use the standard bullet character "•" instead of asterisks ("*"), hyphens ("-"), or odd symbols.
+3. CRITICAL: Do NOT alter, omit, summarize, edit, add, or exaggerate any factual information, accomplishments, tools, dates, names, or metrics. Keep all original wording/content exactly as is, only fixing the spacing, broken layout lines, headers, and bullet formatting.
+4. Return ONLY the formatted structured text. Do NOT include any intro, outro, markdown code blocks (like \`\`\`), or commentary.
+`;
+
+  try {
+    const result: any = await generateWithAI(prompt);
+    return result || resumeText;
+  } catch (e) {
+    console.error("Failed to structure raw resume:", e);
+    return resumeText;
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// 13. Application Question Answerer
+// Generate a concise, professional answer to a job application question based on the user's resume.
+// ────────────────────────────────────────────────────────
+export async function generateQuestionAnswer(
+  question: string,
+  wordLimit: number,
+  jobTitle: string,
+  company: string,
+  jobDescription: string
+): Promise<string> {
+  const context = await getProfileContext();
+  const prompt = `
+Job Context: ${jobTitle} at ${company}
+Job Description:
+${jobDescription}
+
+My Background:
+${context}
+
+Application Question:
+"${question}"
+
+TASK: Write a professional, concise answer to this application question. 
+Word Limit: Approximately ${wordLimit} words.
+
+CRITICAL INSTRUCTIONS:
+1. Rely ONLY on the provided Background as the absolute source of truth. Do NOT invent, fabricate, or exaggerate achievements, credentials, job roles, projects, technologies, KPIs, metrics, or years of experience.
+2. Style: Write with a natural human conversational cadence (varied sentence lengths, active voice, technically direct, avoiding clichés like "delighted to", "testament to", "excited to bring my unique mix") rather than generic AI phrasing.
+3. Word count: Respect the limit of ${wordLimit} words.
+4. Return ONLY the final answer text. Do NOT include any intro, outro, markdown block ticks, or comments.
+`;
+
+  try {
+    const result: any = await generateWithAI(prompt);
+    return result;
+  } catch (e) {
+    throw new Error("AI failed to generate answer.");
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// 14. Recruiter Screen Cheat Sheet Generator
+// ────────────────────────────────────────────────────────
+export async function generateRecruiterCheatSheet(
+  jobTitle: string,
+  company: string,
+  jobDescription: string
+): Promise<{
+  introduction: string;
+  qaPairs: Array<{ question: string; answer: string }>;
+  questionsToAsk: string[];
+}> {
+  const context = await getProfileContext();
+  const prompt = `
+Job Context: ${jobTitle} at ${company}
+Job Description:
+${jobDescription}
+
+My Background:
+${context}
+
+TASK: Generate a highly structured Recruiter Interview Screen Cheat Sheet.
+Return the output ONLY as a JSON object (no markdown formatting, no code block backticks):
+{
+  "introduction": "A short, professional introduction/elevator pitch (approx 100 words) tailored to this company and job context that the user can use to introduce themselves at the start of the call.",
+  "qaPairs": [
+    {
+      "question": "Most commonly asked interview question for this role based on the JD (e.g. Tell me about your experience with X, why do you want this role)",
+      "answer": "A crisp, metrics-driven answer (under 120 words) matching the candidate's actual background without exaggerating or fabricating achievements."
+    },
+    {
+      "question": "Standard screening question 2",
+      "answer": "Answer 2 matching the candidate's background."
+    },
+    {
+      "question": "Standard screening question 3",
+      "answer": "Answer 3 matching the candidate's background."
+    }
+  ],
+  "questionsToAsk": [
+    "Smart question 1 to ask the recruiter (e.g. about the team structure, success metrics, or design systems if relevant)",
+    "Smart question 2 to ask",
+    "Smart question 3 to ask"
+  ]
+}
+
+CRITICAL ANTI-HALLUCINATION GUARDRAIL:
+- Rely ONLY on the provided Background as the absolute source of truth. Do NOT invent, fabricate, or exaggerate any metrics, tools, certifications, projects, or credentials.
+`;
+
+  try {
+    return await generateWithAI(prompt, { jsonMode: true });
+  } catch (e) {
+    return {
+      introduction: "Elevator pitch draft.",
+      qaPairs: [
+        { question: "Tell me about your experience.", answer: "Experience summary." }
+      ],
+      questionsToAsk: ["What does success look like in the first 90 days?"]
+    };
+  }
+}
+
+export async function askRecruiterCheatSheet(
+  currentData: any,
+  query: string,
+  jobTitle: string,
+  company: string,
+  jobDescription: string
+): Promise<string> {
+  const context = await getProfileContext();
+  const prompt = `
+Job: ${jobTitle} at ${company}
+Job Description:
+${jobDescription}
+
+My Background:
+${context}
+
+Current Cheat Sheet Details:
+${JSON.stringify(currentData, null, 2)}
+
+User Question/Prompt:
+"${query}"
+
+TASK: Provide a helpful, direct, and factual answer to the user's question or prompt in the context of this job and candidate profile.
+If they are asking for granular company details (like company size, tools, or design systems), use your background knowledge of ${company} to answer accurately. If uncertain, provide a reasonable industry estimate based on the company's profile.
+Return ONLY the markdown formatted response text. Do NOT include any JSON, intro, or outro text.
+`;
+
+  try {
+    const result: any = await generateWithAI(prompt);
+    return result;
+  } catch (e) {
+    return "Failed to query the AI assistant. Please check your connection.";
+  }
+}
+
+export async function refineCheatSheetQuestion(
+  question: string,
+  currentAnswer: string,
+  instruction: string,
+  jobTitle: string,
+  company: string
+): Promise<string> {
+  const context = await getProfileContext();
+  const prompt = `
+Job Context: ${jobTitle} at ${company}
+Interview Question: ${question}
+Current AI-crafted response:
+"""
+${currentAnswer}
+"""
+
+User instruction to refine/tweak the answer:
+"${instruction}"
+
+TASK: Rewrite or refine the answer to the interview question based on the user's instructions.
+
+CRITICAL INSTRUCTIONS:
+1. Maintain strict factual honesty based on the user's background:
+"""
+${context}
+"""
+Do NOT invent or exaggerate credentials, metrics, or experiences.
+2. Rely ONLY on the provided Background as the absolute source of truth.
+3. Keep the response crisp and concise (under 120 words), direct, and written in a natural human tone.
+4. Return ONLY the final refined text. Do NOT include any preamble, conversational replies, or markdown blocks (like \`\`\`).
+`;
+
+  try {
+    const result: any = await generateWithAI(prompt);
+    return result.trim();
+  } catch (e) {
+    throw new Error("AI failed to refine the answer.");
+  }
+}
+
+export async function refineInterviewPrepSection(
+  contextType: 'pitch' | 'behavioral' | 'technical' | 'reverse' | 'salary',
+  currentText: string,
+  instruction: string,
+  jobTitle: string,
+  company: string,
+  extraContext?: string
+): Promise<string> {
+  const context = await getProfileContext();
+  const prompt = `
+Job Context: ${jobTitle} at ${company}
+Section: ${contextType}
+${extraContext ? `Question/Topic Context: ${extraContext}` : ""}
+
+Current AI-crafted text:
+"""
+${currentText}
+"""
+
+User instruction to refine/tweak:
+"${instruction}"
+
+TASK: Refine the text according to the user's instructions.
+
+CRITICAL INSTRUCTIONS:
+1. Maintain strict factual honesty based on the user's background:
+"""
+${context}
+"""
+Do NOT invent or exaggerate credentials, metrics, or experiences.
+2. Rely ONLY on the provided Background as the absolute source of truth.
+3. Keep the response natural, highly professional, clean of placeholders, and written in a crisp human tone.
+4. Return ONLY the final refined text. Do NOT include any preamble, conversational replies, or markdown blocks (like \`\`\`).
+`;
+
+  try {
+    const result: any = await generateWithAI(prompt);
+    return result.trim();
+  } catch (e) {
+    throw new Error("AI failed to refine the text.");
+  }
+}
+
+
+
+
+
 
 

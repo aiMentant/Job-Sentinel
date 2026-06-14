@@ -3,6 +3,7 @@
 export const dynamic = "force-dynamic";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { 
   Briefcase, 
   Target, 
@@ -26,12 +27,16 @@ import {
   CheckCircle,
   Share2,
   Copy,
+  RotateCcw,
+  Check,
+  Edit2,
+  AlertCircle,
 } from "lucide-react";
 import { fetchJobs, updateJobStatus, deleteJob, generateCoverLetter, updateJob, saveApplicationDraft, markApplicationReady, fetchFullJobDescription } from "@/app/actions/jobActions";
 
 import { resolveApproval } from "@/app/actions/agentStatus";
 
-import { personalizeCoverLetter, generateRecruiterMessage, matchToJobDescription, optimizeApplicationPackage } from "@/app/actions/careerTools";
+import { personalizeCoverLetter, generateRecruiterMessage, matchToJobDescription, optimizeApplicationPackage, refineTailoredMaterial } from "@/app/actions/careerTools";
 import { Job } from "@/lib/db";
 import { useProfile } from "@/components/ProfileContext";
 
@@ -52,6 +57,7 @@ const statuses = [
 ] as const;
 
 export default function TrackerPage() {
+  const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -83,6 +89,54 @@ export default function TrackerPage() {
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const { activeProfileId } = useProfile();
   const [contextMenu, setContextMenu] = useState<{ job: Job; top: number; right: number } | null>(null);
+  const [reviewingJob, setReviewingJob] = useState<Job | null>(null);
+  const [refineInstruction, setRefineInstruction] = useState("");
+  const [isRefining, setIsRefining] = useState(false);
+  const [qaRefineInstructions, setQaRefineInstructions] = useState<Record<number, string>>({});
+  const [qaRefiningIndex, setQaRefiningIndex] = useState<Record<number, boolean>>({});
+  const [showCompare, setShowCompare] = useState(false);
+  const [showUpdates, setShowUpdates] = useState(false);
+  const [structuredResume, setStructuredResume] = useState("");
+  const [isStructuringResume, setIsStructuringResume] = useState(false);
+
+  const [showCopilot, setShowCopilot] = useState(false);
+  const [copilotTab, setCopilotTab] = useState<'qa' | 'docs'>('qa');
+  const [copilotQuestion, setCopilotQuestion] = useState("");
+  const [copilotWordLimit, setCopilotWordLimit] = useState(150);
+  const [isGeneratingCopilotAnswer, setIsGeneratingCopilotAnswer] = useState(false);
+  const [copilotAnswers, setCopilotAnswers] = useState<Array<{ q: string; a: string }>>([]);
+  const [approvedLines, setApprovedLines] = useState<string[]>([]);
+
+  useEffect(() => {
+    setCopilotQuestion("");
+    setCopilotAnswers([]);
+    setShowCopilot(false);
+    setApprovedLines([]);
+  }, [optimizeModal?.job?.id]);
+
+
+  useEffect(() => {
+    if (showCompare && !structuredResume && profile?.resumeText) {
+      const runStructure = async () => {
+        setIsStructuringResume(true);
+        try {
+          const { structureRawResume } = await import("@/app/actions/careerTools");
+          const res = await structureRawResume(profile.resumeText);
+          setStructuredResume(res);
+        } catch (err) {
+          console.error(err);
+        } finally {
+          setIsStructuringResume(false);
+        }
+      };
+      runStructure();
+    }
+  }, [showCompare, structuredResume, profile?.resumeText]);
+
+  useEffect(() => {
+    setStructuredResume("");
+    setShowUpdates(false);
+  }, [activeProfileId, profile?.resumeText]);
 
   useEffect(() => {
     loadJobs();
@@ -294,6 +348,12 @@ export default function TrackerPage() {
     setIsGeneratingRecruiter(false);
   };
 
+  const handleStartRecruiterCheatSheet = async (job: Job) => {
+    router.push(`/interview-hub?jobId=${job.id}`);
+  };
+
+
+
   const handleJdMatch = async () => {
     if (!jdMatchModal?.job || !jdMatchInput.trim()) return;
     setIsMatching(true);
@@ -393,6 +453,129 @@ export default function TrackerPage() {
     loadJobs();
   };
 
+  const handleSaveApplied = async () => {
+    if (!optimizeModal || !optimizeModal.result) return;
+    const { job, result } = optimizeModal;
+    
+    await saveApplicationDraft(job.id, {
+      tailoredResumeText: result.tailoredResumeText,
+      coverLetterText: result.tailoredCoverLetter || result.coverLetterText,
+      applicationNotes: result.applicationStrategy || result.applicationNotes,
+      recruiterHookLinkedin: result.linkedinHook || result.recruiterHookLinkedin,
+      recruiterHookEmail: result.emailHook || result.recruiterHookEmail
+    });
+    
+    await updateJobStatus(job.id, 'Applied' as any);
+    setOptimizeModal(null);
+    setStepperStep(0);
+    loadJobs();
+  };
+
+  const handleGenerateCopilotAnswer = async () => {
+    if (!optimizeModal || !copilotQuestion.trim()) return;
+    setIsGeneratingCopilotAnswer(true);
+    try {
+      const { generateQuestionAnswer } = await import("@/app/actions/careerTools");
+      const answer = await generateQuestionAnswer(
+        copilotQuestion,
+        copilotWordLimit,
+        optimizeModal.job.title,
+        optimizeModal.job.company,
+        optimizeModal.jd || optimizeModal.job.description || ""
+      );
+      setCopilotAnswers(prev => [{ q: copilotQuestion, a: answer }, ...prev]);
+      setCopilotQuestion("");
+    } catch (e) {
+      alert("Failed to generate answer. Please check your AI API key quota.");
+    } finally {
+      setIsGeneratingCopilotAnswer(false);
+    }
+  };
+
+  const handleRevertLine = (lineIdx: number, lineText: string) => {
+    if (!profile?.resumeText || !optimizeModal?.result) return;
+    const originalLines = profile.resumeText.split('\n').map((l: string) => l.trim()).filter(Boolean);
+    const cleanCurrent = lineText.trim().replace(/^[•\-\*\s\d\.\)]+/, '').toLowerCase();
+    
+    let bestMatch = "";
+    let bestScore = 0;
+    for (const orig of originalLines) {
+      const cleanOrig = orig.replace(/^[•\-\*\s\d\.\)]+/, '').toLowerCase();
+      if (cleanOrig.length < 5) continue;
+      
+      const words1 = new Set(cleanCurrent.split(/\s+/));
+      const words2 = new Set(cleanOrig.split(/\s+/));
+      const intersection = new Set([...words1].filter(w => words2.has(w)));
+      const score = intersection.size / Math.max(1, Math.min(words1.size, words2.size));
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = orig;
+      }
+    }
+    
+    if (bestMatch) {
+      const tailoredLines = (optimizeModal.result.tailoredResumeText || "").split('\n');
+      const matchBullet = tailoredLines[lineIdx].match(/^([•\-\*\s]*)/);
+      const prefix = matchBullet ? matchBullet[1] : "";
+      tailoredLines[lineIdx] = prefix + bestMatch;
+      
+      setOptimizeModal(prev => prev ? {
+        ...prev,
+        result: {
+          ...prev.result,
+          tailoredResumeText: tailoredLines.join('\n')
+        }
+      } : null);
+    }
+  };
+
+
+
+
+  const handleRefine = async (type: 'resume' | 'coverLetter' | 'outreach') => {
+    if (!optimizeModal || !refineInstruction.trim() || !optimizeModal.result) return;
+    setIsRefining(true);
+    try {
+      const currentText = type === 'resume' 
+        ? (optimizeModal.result.tailoredResumeText || "")
+        : type === 'coverLetter'
+        ? (optimizeModal.result.tailoredCoverLetter || optimizeModal.result.coverLetterText || "")
+        : refineInstruction.toLowerCase().includes("email") 
+        ? (optimizeModal.result.emailHook || "")
+        : (optimizeModal.result.linkedinHook || "");
+
+      const refined = await refineTailoredMaterial(
+        type,
+        currentText,
+        refineInstruction,
+        optimizeModal.job.title,
+        optimizeModal.job.company
+      );
+
+      setOptimizeModal(prev => {
+        if (!prev || !prev.result) return prev;
+        const updatedResult = { ...prev.result };
+        if (type === 'resume') updatedResult.tailoredResumeText = refined;
+        else if (type === 'coverLetter') updatedResult.tailoredCoverLetter = refined;
+        else {
+          if (refineInstruction.toLowerCase().includes("email")) {
+            updatedResult.emailHook = refined;
+          } else {
+            updatedResult.linkedinHook = refined;
+          }
+        }
+        return { ...prev, result: updatedResult };
+      });
+      setRefineInstruction("");
+      setCopiedText("Refined by AI!");
+      setTimeout(() => setCopiedText(null), 2000);
+    } catch (e) {
+      alert("Failed to refine text. Please try again.");
+    } finally {
+      setIsRefining(false);
+    }
+  };
+
   const stats = [
     { label: "Total Applications", value: jobs.length.toString(), icon: Briefcase, color: "text-blue-400" },
     { label: "AI Matches (>80%)", value: jobs.filter(j => j.score >= 80).length.toString(), icon: Target, color: "text-emerald-400" },
@@ -404,6 +587,98 @@ export default function TrackerPage() {
     navigator.clipboard.writeText(text);
     setCopiedText(label);
     setTimeout(() => setCopiedText(null), 2000);
+  };
+
+  const downloadAsDoc = (filename: string, title: string, content: string) => {
+    const html = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <title>${title}</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            font-size: 11pt;
+            line-height: 1.5;
+            margin: 1in;
+            color: #333333;
+          }
+          h1 {
+            font-size: 18pt;
+            font-family: 'Arial Black', sans-serif;
+            color: #111111;
+            margin-bottom: 6pt;
+          }
+          h2 {
+            font-size: 14pt;
+            color: #222222;
+            margin-top: 18pt;
+            margin-bottom: 6pt;
+            border-bottom: 1px solid #cccccc;
+            padding-bottom: 3pt;
+          }
+          p {
+            margin-bottom: 6pt;
+          }
+          ul {
+            margin-top: 0;
+            margin-bottom: 6pt;
+            padding-left: 20px;
+          }
+          li {
+            margin-bottom: 3pt;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>${title}</h1>
+        ${(() => {
+          const linesHtml = content.split('\n').map(line => {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('•') || trimmed.startsWith('*')) {
+              const listContent = trimmed.substring(1).trim();
+              return '<li>' + listContent + '</li>';
+            }
+            if (trimmed.startsWith('# ')) return '<h1>' + trimmed.substring(2) + '</h1>';
+            if (trimmed.startsWith('## ')) return '<h2>' + trimmed.substring(3) + '</h2>';
+            if (trimmed.startsWith('### ')) return '<h3>' + trimmed.substring(4) + '</h3>';
+            if (trimmed === '') return '<p>&nbsp;</p>';
+            return '<p>' + trimmed + '</p>';
+          });
+
+          let finalHtml = '';
+          let inList = false;
+          for (const lineHtml of linesHtml) {
+            if (lineHtml.startsWith('<li>')) {
+              if (!inList) {
+                finalHtml += '<ul>';
+                inList = true;
+              }
+              finalHtml += lineHtml;
+            } else {
+              if (inList) {
+                finalHtml += '</ul>';
+                inList = false;
+              }
+              finalHtml += lineHtml;
+            }
+          }
+          if (inList) {
+            finalHtml += '</ul>';
+          }
+          return finalHtml;
+        })()}
+      </body>
+      </html>
+    `;
+    const blob = new Blob(['\ufeff' + html], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -456,18 +731,29 @@ export default function TrackerPage() {
           </div>
           <p className="text-[10px] text-indigo-100 mt-2 font-medium italic opacity-80">{agent.status}</p>
           
-          {(agent as any).needsApproval && (
+          <div className="flex gap-3 mt-3">
+            {(agent as any).needsApproval && (
+              <button 
+                onClick={async () => {
+                  const { resolveApproval } = await import("@/app/actions/agentStatus");
+                  await resolveApproval();
+                }}
+                className="flex-1 py-2 bg-white text-indigo-600 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 animate-bounce shadow-lg cursor-pointer"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Resume Mission
+              </button>
+            )}
             <button 
               onClick={async () => {
-                const { resolveApproval } = await import("@/app/actions/agentStatus");
-                await resolveApproval();
+                const { stopSubmissions } = await import("@/app/actions/agentStatus");
+                await stopSubmissions();
               }}
-              className="mt-3 w-full py-2 bg-white text-indigo-600 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 animate-bounce shadow-lg"
+              className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-white/20"
             >
-              <CheckCircle className="w-4 h-4" />
-              Resume Mission (Action Complete)
+              Abort Submissions
             </button>
-          )}
+          </div>
         </div>
 
       )}
@@ -579,8 +865,14 @@ export default function TrackerPage() {
                             />
                           </td>
                           <td className="py-4 px-4">
-                            <div className="font-bold text-sm text-foreground leading-tight">{job.company}</div>
-                            <div className="text-xs text-text-muted mt-1 font-medium">{job.title}</div>
+                            <button 
+                              onClick={() => setReviewingJob(job)}
+                              className="text-left focus:outline-none group/row"
+                              title="Click to quick review Job Description & match details"
+                            >
+                              <div className="font-bold text-sm text-foreground leading-tight group-hover/row:underline">{job.company}</div>
+                              <div className="text-xs text-text-muted mt-1 font-medium group-hover/row:text-foreground/85">{job.title}</div>
+                            </button>
                           </td>
                           <td className="py-4 px-4">
                             <span className="text-[9px] font-black uppercase tracking-wider text-text-muted">{job.source}</span>
@@ -609,28 +901,37 @@ export default function TrackerPage() {
                           <td className="py-4 px-4 text-right">
                             <div className="flex gap-2 justify-end items-center">
                               {/* Quick Actions (Hover/Inline) */}
-                              {isOptimized && (
-                                <div className="flex gap-1.5 mr-2">
-                                  {job.coverLetterText && (
-                                    <button 
-                                      onClick={() => copyToClipboard(job.coverLetterText || "", "Cover letter copied!")}
-                                      title="Copy Cover Letter"
-                                      className="p-1.5 rounded-lg bg-emerald-500/5 hover:bg-emerald-500/20 border border-emerald-500/10 text-emerald-600 dark:text-emerald-400 transition-all"
-                                    >
-                                      <Copy className="w-3 h-3" />
-                                    </button>
-                                  )}
-                                  {job.recruiterHookLinkedin && (
-                                    <button 
-                                      onClick={() => copyToClipboard(job.recruiterHookLinkedin || "", "LinkedIn Hook copied!")}
-                                      title="Copy LinkedIn Outreach message"
-                                      className="p-1.5 rounded-lg bg-blue-500/5 hover:bg-blue-500/20 border border-blue-500/10 text-blue-600 dark:text-blue-400 transition-all"
-                                    >
-                                      <Mail className="w-3 h-3" />
-                                    </button>
-                                  )}
-                                </div>
-                              )}
+                              <div className="flex gap-1.5 mr-2">
+                                <button 
+                                  onClick={() => setReviewingJob(job)}
+                                  title="Quick Review (Read Job Description & Match details)"
+                                  className="p-1.5 rounded-lg bg-indigo-500/5 hover:bg-indigo-500/20 border border-indigo-500/10 text-indigo-600 dark:text-indigo-400 transition-all"
+                                >
+                                  <FileText className="w-3 h-3" />
+                                </button>
+                                {isOptimized && (
+                                  <>
+                                    {job.coverLetterText && (
+                                      <button 
+                                        onClick={() => copyToClipboard(job.coverLetterText || "", "Cover letter copied!")}
+                                        title="Copy Cover Letter"
+                                        className="p-1.5 rounded-lg bg-emerald-500/5 hover:bg-emerald-500/20 border border-emerald-500/10 text-emerald-600 dark:text-emerald-400 transition-all"
+                                      >
+                                        <Copy className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                    {job.recruiterHookLinkedin && (
+                                      <button 
+                                        onClick={() => copyToClipboard(job.recruiterHookLinkedin || "", "LinkedIn Hook copied!")}
+                                        title="Copy LinkedIn Outreach message"
+                                        className="p-1.5 rounded-lg bg-blue-500/5 hover:bg-blue-500/20 border border-blue-500/10 text-blue-600 dark:text-blue-400 transition-all"
+                                      >
+                                        <Mail className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
                               <button
                                 onClick={() => handleStartOptimize(job)}
                                 className={`px-4.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
@@ -640,6 +941,20 @@ export default function TrackerPage() {
                                 }`}
                               >
                                 {isOptimized ? 'Review & Edit' : 'Tailor'}
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setContextMenu({
+                                    job,
+                                    top: rect.bottom + window.scrollY,
+                                    right: window.innerWidth - rect.right
+                                  });
+                                }}
+                                className="p-1.5 rounded-lg bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-text-muted hover:text-foreground border border-card-border/40 transition-all cursor-pointer"
+                                title="Change Status or Options"
+                              >
+                                <MoreVertical className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </td>
@@ -778,10 +1093,18 @@ export default function TrackerPage() {
 
                         <div className="flex flex-col gap-2">
                           <button 
-                            onClick={() => handleStartOptimize(job)}
-                            className="w-full py-1.5 rounded text-[10px] font-black tracking-tighter transition-all border uppercase bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/20"
+                            onClick={() => {
+                              if (['Discovery', 'Triage', 'Drafting'].includes(job.status)) {
+                                handleStartOptimize(job);
+                              } else {
+                                handleStartRecruiterCheatSheet(job);
+                              }
+                            }}
+                            className="w-full py-1.5 rounded text-[10px] font-black tracking-tighter transition-all border uppercase bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20 hover:bg-indigo-500/20 cursor-pointer"
                           >
-                            Review Prep
+                            {['Discovery', 'Triage', 'Drafting'].includes(job.status) 
+                              ? 'Tailor Assets' 
+                              : 'Interview Prep & Q&A'}
                           </button>
                         </div>
                       </div>
@@ -811,6 +1134,19 @@ export default function TrackerPage() {
                 Move to {s.label}
               </button>
             ))}
+            <div className="h-px bg-card-border my-1" />
+            <button
+              onClick={() => { handleUpdateStatus(contextMenu.job.id, 'Rejected' as any); setContextMenu(null); }}
+              className="w-full text-left px-3 py-2 text-[11px] font-semibold text-rose-500 hover:bg-rose-500/10 rounded transition-colors flex items-center gap-2"
+            >
+              <AlertCircle className="w-3.5 h-3.5" /> Mark Denied/Rejected
+            </button>
+            <button
+              onClick={() => { handleUpdateStatus(contextMenu.job.id, 'Cancelled' as any); setContextMenu(null); }}
+              className="w-full text-left px-3 py-2 text-[11px] font-semibold text-slate-500 hover:bg-slate-500/10 rounded transition-colors flex items-center gap-2"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Withdraw Application
+            </button>
             <div className="h-px bg-card-border my-1" />
             <button
               onClick={() => { handleRecruiterMessage(contextMenu.job); setContextMenu(null); }}
@@ -983,8 +1319,6 @@ export default function TrackerPage() {
       )}
 
 
-
-
       {/* Recruiter Outreach Modal */}
       {recruiterModal && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
@@ -1016,7 +1350,7 @@ export default function TrackerPage() {
                       <button onClick={() => copyToClipboard(recruiterModal.messages!.linkedin)} className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 transition-colors uppercase tracking-widest">Copy</button>
                     </div>
                     <div className="p-5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.03] border border-card-border text-sm leading-relaxed text-slate-800 dark:text-slate-300 italic">
-                      "{recruiterModal.messages.linkedin}"
+                      &quot;{recruiterModal.messages.linkedin}&quot;
                     </div>
                   </div>
                   <div className="space-y-4">
@@ -1030,7 +1364,7 @@ export default function TrackerPage() {
                   </div>
                 </div>
               ) : (
-                <p className="text-center text-text-muted py-12">Click "Generate" to create outreach hooks.</p>
+                <p className="text-center text-text-muted py-12">Click &quot;Generate&quot; to create outreach hooks.</p>
               )}
             </div>
           </div>
@@ -1051,12 +1385,24 @@ export default function TrackerPage() {
                   <p className="text-xs text-text-muted uppercase font-black tracking-widest">{optimizeModal.job.company} • {optimizeModal.job.title}</p>
                 </div>
               </div>
-              <button 
-                onClick={() => { setOptimizeModal(null); setStepperStep(0); }} 
-                className="p-2 hover:bg-foreground/10 rounded-full text-text-muted transition-all"
-              >
-                <XCircle className="w-8 h-8" />
-              </button>
+              <div className="flex items-center gap-3">
+                {optimizeModal.result && (
+                  <button 
+                    onClick={() => setShowCopilot(!showCopilot)}
+                    className={`p-2.5 rounded-2xl transition-all flex items-center gap-1.5 text-xs font-black uppercase tracking-wider cursor-pointer border ${showCopilot ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' : 'bg-black/5 dark:bg-white/5 border-card-border text-text-muted hover:text-foreground'}`}
+                    title="Toggle AI Copilot & Application Q&A Assistant"
+                  >
+                    <Sparkles className={`w-4 h-4 ${showCopilot ? 'animate-spin-slow text-amber-500' : ''}`} />
+                    <span>AI Copilot</span>
+                  </button>
+                )}
+                <button 
+                  onClick={() => { setOptimizeModal(null); setStepperStep(0); }} 
+                  className="p-2 hover:bg-foreground/10 rounded-full text-text-muted transition-all cursor-pointer"
+                >
+                  <XCircle className="w-8 h-8" />
+                </button>
+              </div>
             </div>
 
             {/* Stepper Timeline Nav */}
@@ -1084,18 +1430,18 @@ export default function TrackerPage() {
 
             {/* Steps Container */}
             <div className="flex-1 overflow-hidden flex">
-              
-              {/* STEP 0: CALIBRATE */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {/* STEP 0: CALIBRATE */}
               {stepperStep === 0 && (
                 <div className="flex-1 flex overflow-hidden">
                   {/* Left Column: Input & Context */}
                   <div className="w-1/3 border-r border-card-border p-8 overflow-y-auto space-y-8">
                     <div>
-                      <label className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-3 block">Job Description Source</label>
+                      <label className="stepper-label uppercase block mb-3">Job Description Source</label>
                       <textarea 
                         value={optimizeModal.jd}
                         onChange={(e) => setOptimizeModal(prev => prev ? { ...prev, jd: e.target.value } : null)}
-                        className="w-full h-80 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-4 text-xs font-mono text-slate-700 dark:text-slate-400 focus:border-amber-500/50 outline-none transition-all scrollbar-hide"
+                        className="w-full h-80 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-4 stepper-textarea focus:border-amber-500/50 outline-none transition-all scrollbar-hide"
                         placeholder="Paste job details here..."
                       />
                     </div>
@@ -1155,17 +1501,17 @@ export default function TrackerPage() {
                       <div className="space-y-12">
                         <div className="grid grid-cols-3 gap-6">
                           <div className="p-6 rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border">
-                            <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-1">Match Score</p>
+                            <p className="stepper-label uppercase mb-1">Match Score</p>
                             <p className={`text-4xl font-black ${optimizeModal.result.matchScore >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>{optimizeModal.result.matchScore}%</p>
                           </div>
                           <div className="col-span-2 p-6 rounded-3xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border">
-                            <p className="text-[10px] font-black text-text-muted uppercase tracking-widest mb-1">Strategic Advice</p>
-                            <p className="text-xs text-slate-800 dark:text-slate-300 font-bold leading-relaxed">{optimizeModal.result.applicationStrategy || optimizeModal.result.applicationNotes}</p>
+                            <p className="stepper-label uppercase mb-1">Strategic Advice</p>
+                            <p className="stepper-body-text font-bold leading-relaxed">{optimizeModal.result.applicationStrategy || optimizeModal.result.applicationNotes}</p>
                           </div>
                         </div>
                         <div className="p-6 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-3">
                           <CheckCircle className="w-5 h-5 flex-shrink-0" />
-                          <span>AI transformation completed. Click "Next Step" or select steps above to review and edit custom documents.</span>
+                          <span>AI transformation completed. Click &quot;Next Step&quot; or select steps above to review and edit custom documents.</span>
                         </div>
                       </div>
                     )}
@@ -1184,25 +1530,108 @@ export default function TrackerPage() {
                       </h4>
                       <p className="text-xs text-text-muted">Edit or polish the tailored bullet points. These will be mapped to your resume.</p>
                     </div>
+                    <div className="flex gap-3 items-center">
+                      <button 
+                        onClick={() => setShowCompare(!showCompare)}
+                        className={`btn-secondary py-2 px-4 text-xs font-bold gap-2 flex items-center ${showCompare ? 'bg-amber-500 text-black border-amber-500 hover:bg-amber-400' : ''}`}
+                        title="Toggle side-by-side comparison with original resume"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${showCompare ? 'animate-spin-slow' : ''}`} /> {showCompare ? "Hide Original" : "Compare Original"}
+                      </button>
+
+                      {showCompare && (
+                        <button 
+                          onClick={() => setShowUpdates(!showUpdates)}
+                          className={`btn-secondary py-2 px-4 text-xs font-bold gap-2 flex items-center ${showUpdates ? 'bg-amber-500 text-black border-amber-500 hover:bg-amber-400' : ''}`}
+                          title="Highlight sections that have been optimized by AI"
+                        >
+                          <Sparkles className="w-3.5 h-3.5" /> {showUpdates ? "Hide Updates" : "Show AI Updates"}
+                        </button>
+                      )}
+                      
+                      <button 
+                        onClick={() => downloadAsDoc(`${optimizeModal.job.company.replace(/\s+/g, '_')}_Resume_Highlights.doc`, `${optimizeModal.job.company} - Resume Tailoring`, optimizeModal.result!.tailoredResumeText || "")} 
+                        className="btn-secondary py-2 px-4 text-xs font-bold gap-2 flex items-center"
+                        title="Download tailored resume highlights as clean ATS-optimized MS Word Document"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Download DOC
+                      </button>
+                      <button 
+                        onClick={() => copyToClipboard(optimizeModal.result!.tailoredResumeText || "", "Resume copied!")} 
+                        className="btn-secondary py-2 px-4 text-xs font-bold gap-2"
+                      >
+                        <Copy className="w-3.5 h-3.5" /> Copy Highlights
+                      </button>
+                    </div>
+                  </div>
+
+                  {showCompare ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Left Column: Original Resume */}
+                      <div className="w-full h-[45vh] overflow-y-auto bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 resume-pane-text leading-relaxed font-sans">
+                        <h5 className="font-bold text-slate-900 dark:text-slate-200 mb-3 uppercase tracking-wider text-[10px] sticky top-0 bg-card/95 py-1">Original Resume</h5>
+                        {isStructuringResume ? (
+                          <div className="flex flex-col items-center justify-center py-20 gap-2">
+                            <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                            <p className="text-[10px] text-text-muted animate-pulse">Structuring raw ATS resume...</p>
+                          </div>
+                        ) : (
+                          renderOriginalWithMatchingStyles(structuredResume || profile?.resumeText || "")
+                        )}
+                      </div>
+                      
+                      {/* Right Column: Standard Tailored Editor / Highlights Preview */}
+                      <div className="w-full h-[45vh] flex flex-col gap-2">
+                        <h5 className="font-bold text-slate-900 dark:text-slate-200 uppercase tracking-wider text-[10px] py-1">Tailored Resume Highlights</h5>
+                        {showUpdates ? (
+                          <div className="w-full flex-1 overflow-y-auto bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 resume-pane-text whitespace-pre-wrap leading-relaxed">
+                            {renderTailoredWithHighlights(
+                              profile?.resumeText || "", 
+                              optimizeModal.result.tailoredResumeText || "",
+                              approvedLines,
+                              handleRevertLine,
+                              () => setShowUpdates(false),
+                              (lineText) => setApprovedLines(prev => [...prev, lineText])
+                            )}
+                          </div>
+                        ) : (
+                          <textarea 
+                            value={optimizeModal.result.tailoredResumeText || ""}
+                            onChange={(e) => setOptimizeModal(prev => prev ? { ...prev, result: { ...prev.result, tailoredResumeText: e.target.value } } : null)}
+                            className="w-full flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none"
+                            placeholder="Tailored resume bullets..."
+                          />
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <textarea 
+                      value={optimizeModal.result.tailoredResumeText || ""}
+                      onChange={(e) => setOptimizeModal(prev => prev ? { ...prev, result: { ...prev.result, tailoredResumeText: e.target.value } } : null)}
+                      className="w-full h-[45vh] bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none"
+                      placeholder="Tailored resume bullets..."
+                    />
+                  )}
+
+                  {/* AI Refine Panel */}
+                  <div className="p-3 bg-black/10 dark:bg-white/5 border border-card-border rounded-2xl flex items-center gap-3">
+                    <input 
+                      type="text" 
+                      value={refineInstruction}
+                      onChange={(e) => setRefineInstruction(e.target.value)}
+                      placeholder="Ask AI to refine this resume (e.g. 'incorporate more react design experience', 'shorten bullet points')..."
+                      className="flex-1 bg-transparent border-none focus:ring-0 text-xs text-foreground outline-none"
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleRefine('resume'); }}
+                    />
                     <button 
-                      onClick={() => copyToClipboard(optimizeModal.result!.tailoredResumeText || "", "Resume copied!")} 
-                      className="btn-secondary py-2 px-4 text-xs font-bold gap-2"
+                      onClick={() => handleRefine('resume')}
+                      disabled={isRefining || !refineInstruction.trim()}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 text-white rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 cursor-pointer"
                     >
-                      <Copy className="w-3.5 h-3.5" /> Copy Highlights
+                      {isRefining ? <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                      AI Refine
                     </button>
                   </div>
-                  <textarea 
-                    value={optimizeModal.result.tailoredResumeText || ""}
-                    onChange={(e) => setOptimizeModal(prev => {
-                      if (!prev || !prev.result) return prev;
-                      return {
-                        ...prev,
-                        result: { ...prev.result, tailoredResumeText: e.target.value }
-                      };
-                    })}
-                    className="w-full h-[52vh] bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 text-xs font-mono text-slate-700 dark:text-slate-400 focus:border-amber-500/50 outline-none transition-all resize-none"
-                    placeholder="Tailored resume bullets..."
-                  />
                 </div>
               )}
 
@@ -1217,12 +1646,21 @@ export default function TrackerPage() {
                       </h4>
                       <p className="text-xs text-text-muted">Review and refine the cover letter drafted for this role.</p>
                     </div>
-                    <button 
-                      onClick={() => copyToClipboard(optimizeModal.result!.tailoredCoverLetter || optimizeModal.result!.coverLetterText || "", "Cover letter copied!")} 
-                      className="btn-secondary py-2 px-4 text-xs font-bold gap-2"
-                    >
-                      <Copy className="w-3.5 h-3.5" /> Copy Cover Letter
-                    </button>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => downloadAsDoc(`${optimizeModal.job.company.replace(/\s+/g, '_')}_Cover_Letter.doc`, `${optimizeModal.job.company} - Cover Letter`, optimizeModal.result!.tailoredCoverLetter || optimizeModal.result!.coverLetterText || "")} 
+                        className="btn-secondary py-2 px-4 text-xs font-bold gap-2 flex items-center"
+                        title="Download cover letter as clean ATS-optimized MS Word Document"
+                      >
+                        <Download className="w-3.5 h-3.5" /> Download DOC
+                      </button>
+                      <button 
+                        onClick={() => copyToClipboard(optimizeModal.result!.tailoredCoverLetter || optimizeModal.result!.coverLetterText || "", "Cover letter copied!")} 
+                        className="btn-secondary py-2 px-4 text-xs font-bold gap-2"
+                      >
+                        <Copy className="w-3.5 h-3.5" /> Copy Cover Letter
+                      </button>
+                    </div>
                   </div>
                   <textarea 
                     value={optimizeModal.result.tailoredCoverLetter || optimizeModal.result.coverLetterText || ""}
@@ -1233,9 +1671,28 @@ export default function TrackerPage() {
                         result: { ...prev.result, tailoredCoverLetter: e.target.value }
                       };
                     })}
-                    className="w-full h-[52vh] bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 text-xs font-mono text-slate-700 dark:text-slate-400 focus:border-amber-500/50 outline-none transition-all resize-none italic"
+                    className="w-full h-[45vh] bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none italic"
                     placeholder="Custom cover letter..."
                   />
+                  {/* AI Refine Panel */}
+                  <div className="p-3 bg-black/10 dark:bg-white/5 border border-card-border rounded-2xl flex items-center gap-3">
+                    <input 
+                      type="text" 
+                      value={refineInstruction}
+                      onChange={(e) => setRefineInstruction(e.target.value)}
+                      placeholder="Ask AI to refine this cover letter (e.g. 'sound more enthusiastic', 'emphasize leadership skills')..."
+                      className="flex-1 bg-transparent border-none focus:ring-0 text-xs text-foreground outline-none"
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleRefine('coverLetter'); }}
+                    />
+                    <button 
+                      onClick={() => handleRefine('coverLetter')}
+                      disabled={isRefining || !refineInstruction.trim()}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 text-white rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5"
+                    >
+                      {isRefining ? <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                      AI Refine
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -1250,10 +1707,10 @@ export default function TrackerPage() {
                     <p className="text-xs text-text-muted font-medium">Outreach follow-ups created automatically for this job. Copy hooks directly from here.</p>
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 overflow-hidden">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 h-[40vh] overflow-hidden">
                     <div className="flex flex-col gap-3">
                       <div className="flex justify-between items-center">
-                        <label className="text-[10px] font-black text-text-muted uppercase tracking-widest flex items-center gap-1.5"><Share2 className="w-3 h-3 text-blue-500" /> LinkedIn Outreach (300 chars limit)</label>
+                        <label className="stepper-label uppercase flex items-center gap-1.5"><Share2 className="w-3 h-3 text-blue-500" /> LinkedIn Outreach (300 chars limit)</label>
                         <button 
                           onClick={() => copyToClipboard(optimizeModal.result!.linkedinHook || optimizeModal.result!.recruiterHookLinkedin || "", "LinkedIn hook copied!")} 
                           className="text-[10px] font-bold text-amber-500 hover:underline"
@@ -1270,14 +1727,14 @@ export default function TrackerPage() {
                             result: { ...prev.result, linkedinHook: e.target.value }
                           };
                         })}
-                        className="w-full flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-5 text-xs font-mono text-slate-700 dark:text-slate-400 focus:border-amber-500/50 outline-none transition-all resize-none italic"
+                        className="w-full flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-5 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none italic"
                         placeholder="LinkedIn outreach text..."
                       />
                     </div>
 
                     <div className="flex flex-col gap-3">
                       <div className="flex justify-between items-center">
-                        <label className="text-[10px] font-black text-text-muted uppercase tracking-widest flex items-center gap-1.5"><Mail className="w-3 h-3 text-indigo-500" /> Cold Email Follow-up</label>
+                        <label className="stepper-label uppercase flex items-center gap-1.5"><Mail className="w-3 h-3 text-indigo-500" /> Cold Email Follow-up</label>
                         <button 
                           onClick={() => copyToClipboard(optimizeModal.result!.emailHook || optimizeModal.result!.recruiterHookEmail || "", "Email hook copied!")} 
                           className="text-[10px] font-bold text-amber-500 hover:underline"
@@ -1294,10 +1751,30 @@ export default function TrackerPage() {
                             result: { ...prev.result, emailHook: e.target.value }
                           };
                         })}
-                        className="w-full flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-5 text-xs font-mono text-slate-700 dark:text-slate-400 focus:border-amber-500/50 outline-none transition-all resize-none italic"
+                        className="w-full flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-5 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none italic"
                         placeholder="Email follow-up text..."
                       />
                     </div>
+                  </div>
+
+                  {/* AI Refine Panel */}
+                  <div className="p-3 bg-black/10 dark:bg-white/5 border border-card-border rounded-2xl flex items-center gap-3">
+                    <input 
+                      type="text" 
+                      value={refineInstruction}
+                      onChange={(e) => setRefineInstruction(e.target.value)}
+                      placeholder="Ask AI to refine outreach (include 'email' to refine cold email, otherwise it refines LinkedIn)..."
+                      className="flex-1 bg-transparent border-none focus:ring-0 text-xs text-foreground outline-none"
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleRefine('outreach'); }}
+                    />
+                    <button 
+                      onClick={() => handleRefine('outreach')}
+                      disabled={isRefining || !refineInstruction.trim()}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 text-white rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1.5"
+                    >
+                      {isRefining ? <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                      AI Refine
+                    </button>
                   </div>
                 </div>
               )}
@@ -1332,12 +1809,153 @@ export default function TrackerPage() {
                     </div>
                   </div>
 
-                  <button 
-                    onClick={handleSaveReady}
-                    className="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-black rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-emerald-500/20"
-                  >
-                    APPROVE & MOVE TO "READY FOR BOT"
-                  </button>
+                  <div className="w-full flex flex-col sm:flex-row gap-4">
+                    <button 
+                      onClick={handleSaveReady}
+                      className="flex-1 py-4 bg-emerald-500 hover:bg-emerald-400 text-black rounded-2xl font-black text-sm uppercase tracking-widest transition-all shadow-xl shadow-emerald-500/20 cursor-pointer"
+                    >
+                      APPROVE &amp; QUEUE FOR BOT
+                    </button>
+                    <button 
+                      onClick={handleSaveApplied}
+                      className="flex-1 py-4 bg-slate-700 hover:bg-slate-600 text-white border border-card-border rounded-2xl font-black text-sm uppercase tracking-widest transition-all cursor-pointer"
+                    >
+                      MANUALLY APPLIED - SKIP BOT
+                    </button>
+                  </div>
+                </div>
+              )}
+              </div>
+
+              {/* AI COPILOT DRAWER */}
+              {showCopilot && optimizeModal.result && (
+                <div className="w-96 border-l border-card-border bg-black/[0.01] dark:bg-white/[0.01] flex flex-col h-full overflow-hidden animate-in slide-in-from-right duration-300">
+                  {/* Drawer Header Tabs */}
+                  <div className="p-4 border-b border-card-border flex gap-2 bg-black/[0.02] dark:bg-white/[0.02]">
+                    <button 
+                      onClick={() => setCopilotTab('qa')}
+                      className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer ${copilotTab === 'qa' ? 'bg-amber-500 text-black shadow-sm' : 'text-text-muted hover:text-foreground'}`}
+                    >
+                      Q&A Assistant
+                    </button>
+                    <button 
+                      onClick={() => setCopilotTab('docs')}
+                      className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer ${copilotTab === 'docs' ? 'bg-amber-500 text-black shadow-sm' : 'text-text-muted hover:text-foreground'}`}
+                    >
+                      Quick Ref
+                    </button>
+                  </div>
+
+                  {/* Drawer Content */}
+                  <div className="flex-1 overflow-y-auto p-5 space-y-6 scrollbar-thin">
+                    {copilotTab === 'qa' ? (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="stepper-label uppercase mb-1.5 block">Paste Application Question</label>
+                          <textarea 
+                            value={copilotQuestion}
+                            onChange={(e) => setCopilotQuestion(e.target.value)}
+                            placeholder="e.g. 'Why do you want to join our engineering team?' or 'Describe a time you overcame a technical challenge...'"
+                            className="w-full h-24 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-xl p-3 text-xs font-sans text-foreground focus:border-amber-500/50 outline-none transition-all resize-none"
+                          />
+                        </div>
+
+                        {/* Limit Slider */}
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between stepper-label uppercase">
+                            <span>Answer Word Limit</span>
+                            <span className="text-amber-500 font-bold">{copilotWordLimit} words</span>
+                          </div>
+                          <input 
+                            type="range" 
+                            min="50" 
+                            max="400" 
+                            step="25"
+                            value={copilotWordLimit}
+                            onChange={(e) => setCopilotWordLimit(parseInt(e.target.value))}
+                            className="w-full accent-amber-500 cursor-pointer h-1 bg-black/10 dark:bg-white/10 rounded-lg appearance-none"
+                          />
+                        </div>
+
+                        <button
+                          onClick={handleGenerateCopilotAnswer}
+                          disabled={isGeneratingCopilotAnswer || !copilotQuestion.trim()}
+                          className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 text-white rounded-xl text-xs font-bold transition-all shrink-0 flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-indigo-600/10"
+                        >
+                          {isGeneratingCopilotAnswer ? (
+                            <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Generating...</>
+                          ) : (
+                            <><Sparkles className="w-3.5 h-3.5" /> Generate Tailored Answer</>
+                          )}
+                        </button>
+
+                        {/* Generated Answers List */}
+                        {copilotAnswers.length > 0 && (
+                          <div className="space-y-4 pt-4 border-t border-card-border">
+                            <h5 className="text-[9px] font-black text-text-muted uppercase tracking-widest">Generated Answers ({copilotAnswers.length})</h5>
+                            <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
+                              {copilotAnswers.map((ans, idx) => (
+                                <div key={idx} className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border/60 space-y-2">
+                                  <p className="text-[10px] font-bold text-foreground">Q: &quot;{ans.q}&quot;</p>
+                                  <div className="p-3 bg-black/10 dark:bg-white/5 border border-card-border/40 rounded-lg text-xs leading-relaxed text-slate-800 dark:text-slate-200 font-sans whitespace-pre-wrap select-text">
+                                    {ans.a}
+                                  </div>
+                                  <button
+                                    onClick={() => copyToClipboard(ans.a, "Answer copied!")}
+                                    className="text-[10px] font-bold text-amber-500 hover:underline uppercase tracking-wider block text-right w-full cursor-pointer"
+                                  >
+                                    Copy Answer
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-5">
+                        <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="stepper-label uppercase">Resume Highlights</span>
+                            <button onClick={() => copyToClipboard(optimizeModal.result.tailoredResumeText || "", "Highlights copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
+                          </div>
+                          <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap">
+                            {optimizeModal.result.tailoredResumeText}
+                          </div>
+                        </div>
+
+                        <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="stepper-label uppercase">Cover Letter</span>
+                            <button onClick={() => copyToClipboard(optimizeModal.result.tailoredCoverLetter || optimizeModal.result.coverLetterText || "", "Cover letter copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
+                          </div>
+                          <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap italic">
+                            {optimizeModal.result.tailoredCoverLetter || optimizeModal.result.coverLetterText}
+                          </div>
+                        </div>
+
+                        <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="stepper-label uppercase">LinkedIn Outreach</span>
+                            <button onClick={() => copyToClipboard(optimizeModal.result.linkedinHook || "", "LinkedIn hook copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
+                          </div>
+                          <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap italic">
+                            {optimizeModal.result.linkedinHook}
+                          </div>
+                        </div>
+
+                        <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="stepper-label uppercase">Cold Email Hook</span>
+                            <button onClick={() => copyToClipboard(optimizeModal.result.emailHook || "", "Email hook copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
+                          </div>
+                          <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap italic">
+                            {optimizeModal.result.emailHook}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1360,12 +1978,20 @@ export default function TrackerPage() {
                   Next Step
                 </button>
               ) : (
-                <button
-                  onClick={handleSaveReady}
-                  className="px-8 py-3 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-500/20"
-                >
-                  Approve & Queue
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleSaveApplied}
+                    className="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white border border-card-border rounded-xl font-black text-xs uppercase tracking-widest transition-all cursor-pointer"
+                  >
+                    Applied Manually
+                  </button>
+                  <button
+                    onClick={handleSaveReady}
+                    className="px-8 py-3 bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-500/20 cursor-pointer"
+                  >
+                    Approve &amp; Queue
+                  </button>
+                </div>
               )}
             </div>
 
@@ -1416,7 +2042,7 @@ export default function TrackerPage() {
                       <p className={`text-4xl font-black ${jdMatchModal.result.matchScore >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>{jdMatchModal.result.matchScore}%</p>
                     </div>
                     <div className="text-right">
-                       <p className="text-xs text-text-muted font-medium italic">"{jdMatchModal.result.rewrittenSummary}"</p>
+                       <p className="text-xs text-text-muted font-medium italic">&quot;{jdMatchModal.result.rewrittenSummary}&quot;</p>
                     </div>
                   </div>
 
@@ -1448,6 +2074,79 @@ export default function TrackerPage() {
           </div>
         </div>
       )}
+      {/* Quick Review Modal */}
+      {reviewingJob && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-card border border-card-border w-full max-w-3xl rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+            <div className="p-6 border-b border-card-border flex justify-between items-center bg-black/[0.02] dark:bg-white/[0.02] shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 animate-pulse">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-foreground">{reviewingJob.title}</h3>
+                  <p className="text-xs text-text-muted uppercase font-black tracking-widest">{reviewingJob.company} &bull; {reviewingJob.location}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="text-right">
+                  <div className={`text-2xl font-bold ${reviewingJob.score >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                    {reviewingJob.score > 0 ? `${reviewingJob.score}%` : 'PENDING'}
+                  </div>
+                  <p className="text-[9px] text-text-muted uppercase font-bold tracking-wider">AI Match</p>
+                </div>
+                <button onClick={() => setReviewingJob(null)} className="p-2 hover:bg-foreground/5 rounded-full text-text-muted transition-all">
+                  <XCircle className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-8 space-y-6 overflow-y-auto flex-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+              {reviewingJob.reason && (
+                <div className="p-4 rounded-xl bg-indigo-500/5 border border-indigo-500/10">
+                  <h4 className="text-xs font-bold uppercase text-indigo-600 dark:text-indigo-400 mb-2 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 animate-spin-slow" />
+                    AI Reasoning & Fit Details
+                  </h4>
+                  <p className="text-slate-900 dark:text-slate-300 text-sm leading-relaxed whitespace-pre-wrap italic">
+                    {reviewingJob.reason}
+                  </p>
+                </div>
+              )}
+              
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold uppercase text-text-muted tracking-wider">Job Description</h4>
+                <div className="p-5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.03] border border-card-border text-sm leading-relaxed text-slate-800 dark:text-slate-300 whitespace-pre-wrap font-sans max-h-96 overflow-y-auto">
+                  {reviewingJob.description || "No description available."}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-card-border bg-black/5 dark:bg-white/5 flex justify-end gap-3 shrink-0">
+              {reviewingJob.url && (
+                <a 
+                  href={reviewingJob.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="px-5 py-2.5 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold border border-card-border transition-all flex items-center gap-2"
+                >
+                  View Original Post <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
+              <button 
+                onClick={() => {
+                  setReviewingJob(null);
+                  handleStartOptimize(reviewingJob);
+                }}
+                className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-black rounded-xl text-xs font-black tracking-widest uppercase transition-all shadow-lg shadow-amber-500/20 animate-pulse"
+              >
+                Start AI Tailoring
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {copiedText && (
         <div className="fixed bottom-6 right-6 z-[99999] px-6 py-3 bg-emerald-600 text-white rounded-xl shadow-2xl font-black text-xs uppercase tracking-widest animate-in fade-in slide-in-from-bottom-5 duration-300 border border-emerald-500/20">
           {copiedText}
@@ -1456,4 +2155,104 @@ export default function TrackerPage() {
     </div>
   );
 }
+
+function isLineModified(line: string, originalText: string, approvedLines: string[]): boolean {
+  const cleanLine = line.trim().replace(/^[•\-\*\s\d\.\)]+/, '').toLowerCase();
+  if (cleanLine.length < 10) return false;
+  if (approvedLines.includes(cleanLine)) return false;
+  return !originalText.toLowerCase().includes(cleanLine);
+}
+
+function renderTailoredWithHighlights(
+  original: string,
+  tailored: string,
+  approvedLines: string[],
+  onRevert: (lineIdx: number, text: string) => void,
+  onEdit: () => void,
+  onApprove: (text: string) => void
+) {
+  if (!original) return tailored;
+  const lines = tailored.split('\n');
+  return lines.map((line, idx) => {
+    const cleanLine = line.trim().replace(/^[•\-\*\s]+/, '');
+    if (!cleanLine) return <div key={idx} className="h-4" />;
+    
+    const isModified = isLineModified(cleanLine, original, approvedLines);
+    
+    if (isModified) {
+      const matchBullet = line.match(/^([•\-\*\s]*)(.*)$/);
+      const bulletPrefix = matchBullet ? matchBullet[1] : "";
+      const textPart = matchBullet ? matchBullet[2] : line;
+      
+      return (
+        <div key={idx} className="group/line py-1.5 flex items-start justify-between gap-4 border-b border-card-border/20">
+          <div className="flex-1 leading-relaxed">
+            {bulletPrefix}
+            <span className="resume-highlight-text px-1 py-0.5 rounded font-semibold transition-colors">
+              {textPart}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 opacity-0 group-hover/line:opacity-100 transition-opacity shrink-0 pt-0.5 select-none">
+            {/* Revert button */}
+            <button
+              onClick={() => onRevert(idx, cleanLine)}
+              className="p-1 rounded bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-text-muted hover:text-amber-600 transition-all cursor-pointer border border-card-border/40 flex items-center justify-center"
+              title="Revert this line to original resume matching block"
+            >
+              <RotateCcw className="w-3 h-3" />
+            </button>
+            {/* Edit button */}
+            <button
+              onClick={onEdit}
+              className="p-1 rounded bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-text-muted hover:text-blue-500 transition-all cursor-pointer border border-card-border/40 flex items-center justify-center"
+              title="Switch to bulk edit mode"
+            >
+              <Edit2 className="w-3 h-3" />
+            </button>
+            {/* Approve button */}
+            <button
+              onClick={() => onApprove(cleanLine)}
+              className="p-1 rounded bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-text-muted hover:text-emerald-600 transition-all cursor-pointer border border-card-border/40 flex items-center justify-center"
+              title="Accept AI update and clear highlight"
+            >
+              <Check className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      );
+    }
+    
+    return <div key={idx} className="py-1 leading-relaxed">{line}</div>;
+  });
+}
+
+function renderOriginalWithMatchingStyles(originalText: string) {
+  if (!originalText) return "No original resume uploaded.";
+  const lines = originalText.split('\n');
+  return lines.map((line, idx) => {
+    // Strip bold markers (**) for clean visual appearance
+    const cleanLine = line.replace(/\*\*/g, '');
+    const trimmed = cleanLine.trim();
+    if (!trimmed) return <div key={idx} className="h-4" />;
+    
+    // Determine if it is a bullet point or header block
+    const isBullet = /^[•\-\*\s]+/.test(trimmed);
+    if (isBullet) {
+      return (
+        <div key={idx} className="py-1.5 border-b border-card-border/20 leading-relaxed font-sans text-slate-800 dark:text-slate-200">
+          {cleanLine}
+        </div>
+      );
+    }
+    
+    // Header block
+    return (
+      <div key={idx} className="py-2 font-bold text-slate-900 dark:text-slate-100 font-sans uppercase tracking-wide mt-3 first:mt-0">
+        {cleanLine}
+      </div>
+    );
+  });
+}
+
+
 

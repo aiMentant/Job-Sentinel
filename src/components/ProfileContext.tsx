@@ -49,14 +49,20 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    refreshProfiles();
+    // Defer state synchronization to the next tick to prevent synchronous cascading render warnings
+    const timer = setTimeout(() => {
+      refreshProfiles();
+    }, 0);
     
     // Listen for history popstate events (e.g. browser back/forward)
     const handlePopState = () => {
       refreshProfiles();
     };
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("popstate", handlePopState);
+    };
   }, []);
 
   const switchProfile = async (id: string) => {
@@ -72,7 +78,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     try {
       const all = await listAllProfilesWithData();
       setProfiles(all);
-    } catch (e) {}
+    } catch {}
   };
 
   const createProfile = async (name: string) => {

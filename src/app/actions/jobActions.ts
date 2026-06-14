@@ -83,7 +83,25 @@ export async function fetchPublicFallbackJobs(title: string, location: string): 
     const data = await response.json();
     const rawList = data.jobs || [];
     
-    return rawList.map((j: any) => ({
+    const targetLocLower = location.toLowerCase();
+    const isTargetUS = targetLocLower.includes("fl") || targetLocLower.includes("florida") || targetLocLower.includes("usa") || targetLocLower.includes("united states") || targetLocLower.includes("us") || targetLocLower.includes("communities");
+    const isTargetUK = targetLocLower.includes("uk") || targetLocLower.includes("united kingdom") || targetLocLower.includes("london") || targetLocLower.includes("england") || targetLocLower.includes("nottingham") || targetLocLower.includes("lincoln");
+
+    const filteredList = rawList.filter((j: any) => {
+      const reqLoc = (j.candidate_required_location || "").toLowerCase().trim();
+      if (!reqLoc) return true;
+      if (reqLoc.includes("worldwide") || reqLoc.includes("anywhere")) return true;
+      
+      const isJobUS = reqLoc.includes("us") || reqLoc.includes("united states") || reqLoc.includes("america") || reqLoc.includes("usa") || reqLoc.includes("fl") || reqLoc.includes("florida");
+      const isJobUK = reqLoc.includes("uk") || reqLoc.includes("united kingdom") || reqLoc.includes("london") || reqLoc.includes("europe") || reqLoc.includes("gb") || reqLoc.includes("england");
+      
+      if (isTargetUS && isJobUK && !isJobUS) return false;
+      if (isTargetUK && isJobUS && !isJobUK) return false;
+      
+      return true;
+    });
+
+    return filteredList.map((j: any) => ({
       id: String(j.id) || Math.random().toString(36).substring(7),
       title: j.title || title,
       company: j.company_name || "Enterprise Partner",
@@ -484,6 +502,24 @@ export async function analyzeSingleJob(jobId: string, profileIdOverride?: string
 
   if (!job || !profile) throw new Error("Job or profile not found");
 
+  // Dynamically fetch full job description if it is missing or is placeholder
+  let description = job.description || "";
+  if (!description || 
+      description === "Details fetched during search." || 
+      description.startsWith("Job listing on") || 
+      description.length < 150) {
+    try {
+      const scraped = await scrapeJobDescription(job.url);
+      if (scraped && scraped.length > 150) {
+        description = scraped;
+        await dbUpdateJobField(jobId, { description }, profileId);
+        job.description = description;
+      }
+    } catch (scrapeError) {
+      console.error("[analyzeSingleJob] Scrape failed, using existing description:", scrapeError);
+    }
+  }
+
   const { analyzeJobMatch } = await import("@/lib/gemini");
   
   // Synthesize resume if raw text is missing
@@ -494,14 +530,15 @@ export async function analyzeSingleJob(jobId: string, profileIdOverride?: string
     Experience: ${(profile.experience || []).map((e: any) => `${e.role} at ${e.company}: ${e.description}`).join("\n")}
   `;
 
-  const analysis = await analyzeJobMatch(resumeContext, `Role: ${job.title} at ${job.company}. Location: ${job.location}. Description: ${job.description}`);
+  const analysis = await analyzeJobMatch(resumeContext, `Role: ${job.title} at ${job.company}. Location: ${job.location}. Description: ${description}`);
   
   const isGhost = (analysis.reason || "").toLowerCase().includes("vague") || (analysis.reason || "").toLowerCase().includes("talent pool") || (analysis.reason || "").toLowerCase().includes("ghost");
   
   const updatedFields = {
     score: analysis.score,
     reason: isGhost ? `🚨 FLAG: ${analysis.reason}` : analysis.reason,
-    status: isGhost ? 'rejected' : job.status
+    status: isGhost ? 'rejected' : job.status,
+    description
   };
 
   await dbUpdateJobField(jobId, updatedFields, profileId);
@@ -656,12 +693,23 @@ function heuristicMatchScore(jobTitle: string, targetTitles: string[]): number {
   return maxScore;
 }
 
+async function getBrowserInstance(chromium: any) {
+  const browserlessKey = process.env.BROWSERLESS_API_KEY;
+  if (browserlessKey && browserlessKey !== "") {
+    try {
+      console.log("Connecting to Cloud Chromium via Browserless...");
+      return await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`);
+    } catch (wsErr) {
+      console.warn("Browserless connection failed, falling back to local launch:", wsErr);
+    }
+  }
+  console.log("Launching Local Headless Chromium...");
+  return await chromium.launch({ headless: true });
+}
+
 export async function searchMultiPlatformJobs(query: string, location: string, platformsOverride?: string[], targetTitlesOverride?: string[]): Promise<Job[]> {
   const { chromium } = await import('playwright');
-  const browserlessKey = process.env.BROWSERLESS_API_KEY;
-  const browser = browserlessKey 
-    ? await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`)
-    : await chromium.launch({ headless: true });
+  const browser = await getBrowserInstance(chromium);
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
   });
@@ -929,16 +977,10 @@ export async function findReferralRoutes(companyName: string, profile: UserProfi
   formerCompanies.forEach(c => searchTerms.push(`"${c}"`));
   schools.forEach(s => searchTerms.push(`"${s}"`));
   
-  const browserlessKey = process.env.BROWSERLESS_API_KEY;
-  if (!browserlessKey) {
-    console.warn("No BROWSERLESS_API_KEY configured. Skipping referral route lookup.");
-    return [];
-  }
-  
   const { chromium } = await import('playwright');
   let browser;
   try {
-    browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`);
+    browser = await getBrowserInstance(chromium);
     const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     });

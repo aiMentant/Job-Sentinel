@@ -24,8 +24,17 @@ export async function runBulkSubmissions(jobs: Job[]) {
   try {
     const browserlessKey = process.env.BROWSERLESS_API_KEY;
     if (browserlessKey && browserlessKey !== "") {
-      console.log("Connecting to Cloud Chromium via Browserless...");
-      browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`);
+      try {
+        console.log("Connecting to Cloud Chromium via Browserless...");
+        browser = await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`);
+      } catch (wsErr) {
+        console.warn("Browserless connection failed, falling back to local launch:", wsErr);
+        browser = await chromium.launch({ 
+          headless: false,
+          slowMo: 100,
+          timeout: 30000
+        });
+      }
     } else {
       console.log("Launching Local Chromium...");
       browser = await chromium.launch({ 
@@ -43,10 +52,31 @@ export async function runBulkSubmissions(jobs: Job[]) {
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
   });
+
+  // Inject LinkedIn cookie if configured
+  if (profile.linkedinCookie && profile.linkedinCookie.trim() !== "") {
+    console.log("[Submission] Injecting saved LinkedIn session cookie...");
+    await context.addCookies([{
+      name: 'li_at',
+      value: profile.linkedinCookie.trim(),
+      domain: '.www.linkedin.com',
+      path: '/',
+      httpOnly: true,
+      secure: true,
+      sameSite: 'None'
+    }]);
+  }
+
   const page = await context.newPage();
 
   try {
     for (let i = 0; i < jobs.length; i++) {
+      // Exit if user requested abort
+      const statusCheck = await getAgentStatus();
+      if (!statusCheck.isSubmitting) {
+        break;
+      }
+      
       const job = jobs[i];
       const progress = Math.round(((i + 1) / jobs.length) * 100);
       
@@ -63,7 +93,13 @@ export async function runBulkSubmissions(jobs: Job[]) {
         
         // Handle LinkedIn specifically
         if (page.url().includes('linkedin.com')) {
-          await waitForHuman(page, "LinkedIn login/application detected. Please handle Easy Apply or login, then click 'Resume'.");
+          // If we have a cookie injected, check if we need to log in or if we can proceed
+          const isLoggedOut = await page.locator('a[href*="login"], button[data-tracking-control-name*="guest"]').isVisible().catch(() => false);
+          if (isLoggedOut || !profile.linkedinCookie) {
+            await waitForHuman(page, "LinkedIn login required. Please log in or verify credentials, then click 'Resume'.");
+          } else {
+            await waitForHuman(page, "LinkedIn Cookie Active! Navigated to job application. Please complete any Easy Apply form steps and click 'Resume'.");
+          }
         } else if (!isSupportedPlatform) {
           // Custom portal - assist the human
           await waitForHuman(page, `Custom platform detected for ${job.company}. Please fill the form, upload your tailored resume, submit the application, and then click 'Resume' here.`);
@@ -172,6 +208,10 @@ async function waitForHuman(page: any, message: string) {
   let approved = false;
   while (!approved) {
     const status = await getAgentStatus();
+    // Exit if user requested abort
+    if (!status.isSubmitting) {
+      throw new Error("Submissions aborted by user.");
+    }
     if (status.needsApproval === false) {
       approved = true;
     } else {

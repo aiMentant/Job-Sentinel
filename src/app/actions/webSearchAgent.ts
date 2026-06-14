@@ -11,11 +11,22 @@ import { setAgentStatus } from "./agentStatus";
 // chromium.use(stealth()); // Removed to fix utils.typeOf runtime error
 
 
-export async function runWebDiscovery(targetTitles: string[], targetLocations: string[], radius: number = 25): Promise<Job[]> {
+async function getBrowserInstance() {
   const browserlessKey = process.env.BROWSERLESS_API_KEY;
-  const browser = browserlessKey 
-    ? await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`)
-    : await chromium.launch({ headless: true });
+  if (browserlessKey && browserlessKey !== "") {
+    try {
+      console.log("Connecting to Cloud Chromium via Browserless...");
+      return await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`);
+    } catch (wsErr) {
+      console.warn("Browserless connection failed, falling back to local launch:", wsErr);
+    }
+  }
+  console.log("Launching Local Headless Chromium...");
+  return await chromium.launch({ headless: true });
+}
+
+export async function runWebDiscovery(targetTitles: string[], targetLocations: string[], radius: number = 25): Promise<Job[]> {
+  const browser = await getBrowserInstance();
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
   });

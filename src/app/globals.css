@@ -85,3 +85,85 @@ html.dark, .dark {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
+
+/* Explicit high-contrast classes to guarantee contrast compliance under light and dark mode */
+.card-company-text {
+  color: #1e293b !important;
+}
+.dark .card-company-text {
+  color: #f1f5f9 !important;
+}
+
+.card-location-text {
+  color: #475569 !important;
+}
+.dark .card-location-text {
+  color: #cbd5e1 !important;
+}
+
+.card-reason-text {
+  color: #1e1b4b !important;
+}
+.dark .card-reason-text {
+  color: #e2e8f0 !important;
+}
+
+/* Highly legible resume text styling for light and dark modes */
+.resume-pane-text {
+  font-family: var(--font-sans), ui-sans-serif, system-ui;
+  color: #1e293b !important; /* Near-black (slate-800) for clean readability */
+  font-weight: 500 !important;
+  line-height: 1.75 !important;
+}
+.dark .resume-pane-text {
+  color: #f1f5f9 !important; /* Near-white (slate-100) for dark mode */
+}
+
+/* High-contrast amber highlights for AI edits */
+.resume-highlight-text {
+  background-color: rgba(217, 119, 6, 0.18) !important;
+  color: #78350f !important; /* Dark brown amber for >4.5:1 contrast against light amber */
+  border-bottom: 1.5px solid rgba(217, 119, 6, 0.4) !important;
+  font-weight: 600 !important;
+}
+.dark .resume-highlight-text {
+  background-color: rgba(245, 158, 11, 0.25) !important;
+  color: #fef08a !important; /* Soft bright yellow for superb contrast in dark mode */
+  border-bottom: 1.5px solid rgba(245, 158, 11, 0.5) !important;
+}
+
+/* Full application stepper text improvements (high-contrast inputs and labels) */
+.stepper-label {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.1em !important;
+  color: #475569 !important;
+}
+.dark .stepper-label {
+  color: #cbd5e1 !important;
+}
+
+.stepper-body-text {
+  font-family: var(--font-sans), ui-sans-serif, system-ui;
+  color: #334155 !important;
+  font-weight: 500 !important;
+  line-height: 1.625 !important;
+}
+.dark .stepper-body-text {
+  color: #cbd5e1 !important;
+}
+
+.stepper-textarea {
+  font-family: var(--font-sans), ui-sans-serif, system-ui !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.75 !important;
+  color: #0f172a !important;
+}
+.dark .stepper-textarea {
+  color: #f8fafc !important;
+}
+
+
+

@@ -30,7 +30,9 @@ export default function SettingsPage() {
   const [apiKey, setApiKey] = useState("");
   const [preferredModel, setPreferredModel] = useState("gemini-2.0-flash");
   const [stealthMode, setStealthMode] = useState(true);
+  const [linkedinCookie, setLinkedinCookie] = useState("");
   const [showKey, setShowKey] = useState(false);
+  const [showCookie, setShowCookie] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: "" });
@@ -48,10 +50,12 @@ export default function SettingsPage() {
           setApiKey(profile.geminiApiKey || "");
           setPreferredModel(profile.preferredModel || "gemini-2.0-flash");
           setStealthMode(profile.linkedinStealth ?? true);
+          setLinkedinCookie(profile.linkedinCookie || "");
         } else {
           setApiKey("");
           setPreferredModel("gemini-2.0-flash");
           setStealthMode(true);
+          setLinkedinCookie("");
         }
       } catch (error: any) {
         console.error("Failed to load settings profile:", error);
@@ -70,7 +74,8 @@ export default function SettingsPage() {
       const res = await patchUserProfile({
         geminiApiKey: apiKey,
         preferredModel: preferredModel,
-        linkedinStealth: stealthMode
+        linkedinStealth: stealthMode,
+        linkedinCookie: linkedinCookie
       });
       if (res.success) {
         setSaveStatus({ type: 'success', message: "Configuration securely saved." });
@@ -152,7 +157,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-indigo-400">
               <Key className="w-5 h-5" />
-              <h3 className="font-bold text-lg text-white">AI Engine Credentials</h3>
+              <h3 className="font-bold text-lg text-white">AI Engine & Platform Credentials</h3>
             </div>
             <span className="text-[9px] uppercase font-bold tracking-widest text-slate-500 bg-white/5 px-2.5 py-1 rounded-full border border-white/5">
               Secure Local Storage
@@ -203,6 +208,35 @@ export default function SettingsPage() {
                   <option value="gemini-1.5-flash">Gemini 1.5 Flash (Standard)</option>
                   <option value="gemini-1.5-pro">Gemini 1.5 Pro (High Precision)</option>
                 </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-6 pt-2">
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">LinkedIn Session Cookie (li_at)</label>
+                    <span className="text-[8px] font-bold px-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded">Session Token Bypass</span>
+                  </div>
+                  <span className="text-[9px] text-slate-400">Ex: AQEDAT... (inspect cookies on linkedin.com to copy)</span>
+                </div>
+                
+                <div className="relative">
+                  <input 
+                    type={showCookie ? "text" : "password"} 
+                    value={linkedinCookie} 
+                    onChange={(e) => setLinkedinCookie(e.target.value)}
+                    placeholder="Paste your 'li_at' cookie here..."
+                    className="input-field w-full text-sm pr-10 font-mono tracking-wide" 
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCookie(!showCookie)}
+                    className="absolute right-4 top-3 text-slate-500 hover:text-white transition-colors"
+                  >
+                    {showCookie ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             </div>
             
