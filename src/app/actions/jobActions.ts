@@ -11,25 +11,47 @@ import { getActiveProfileId } from "./profileSwitch";
 import { logActivity } from "./adminActions";
 
 export async function fetchJobs(profileIdOverride?: string) {
-  const profileId = profileIdOverride || await getActiveProfileId();
-  return await getJobs(profileId);
+  try {
+    const profileId = profileIdOverride || await getActiveProfileId();
+    return await getJobs(profileId);
+  } catch (e) {
+    console.error("fetchJobs server error:", e);
+    return [];
+  }
 }
 
 export async function fetchUserProfile(profileIdOverride?: string) {
-  const profileId = profileIdOverride || await getActiveProfileId();
-  return await getProfile(profileId);
+  try {
+    const profileId = profileIdOverride || await getActiveProfileId();
+    return await getProfile(profileId);
+  } catch (e: any) {
+    console.error("fetchUserProfile server error:", e);
+    return {
+      fullName: "Fallback Operator",
+      targetTitles: [],
+      targetLocations: [],
+      skills: [],
+      experience: [],
+      education: []
+    };
+  }
 }
 
 export async function addJobs(newJobs: Job[], profileIdOverride?: string) {
-  const profileId = profileIdOverride || await getActiveProfileId();
-  const existingJobs = await getJobs(profileId);
-  
-  // Merge and prevent duplicates by URL
-  const existingUrls = new Set(existingJobs.map((j: any) => j.url));
-  const uniqueNewJobs = newJobs.filter(j => !existingUrls.has(j.url));
-  
-  const updatedJobs = [...uniqueNewJobs, ...existingJobs];
-  return await saveJobs(updatedJobs, profileId);
+  try {
+    const profileId = profileIdOverride || await getActiveProfileId();
+    const existingJobs = await getJobs(profileId);
+    
+    // Merge and prevent duplicates by URL
+    const existingUrls = new Set(existingJobs.map((j: any) => j.url));
+    const uniqueNewJobs = newJobs.filter(j => !existingUrls.has(j.url));
+    
+    const updatedJobs = [...uniqueNewJobs, ...existingJobs];
+    return await saveJobs(updatedJobs, profileId);
+  } catch (e) {
+    console.error("addJobs server error:", e);
+    return false;
+  }
 }
 
 export async function fetchFullJobDescription(jobId: string, url: string, profileIdOverride?: string) {
