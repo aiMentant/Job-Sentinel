@@ -34,9 +34,7 @@ export default function LoginPage() {
         document.cookie = `auth_role=${matchedUser.role}; max-age=604800; path=/`;
         document.cookie = `auth_email=${matchedUser.email}; max-age=604800; path=/`;
         document.cookie = `active_profile_id=${matchedUser.profile_id}; max-age=604800; path=/`;
-        
-        router.push("/");
-        router.refresh();
+        window.location.href = "/";
       } else {
         setError("Invalid identity credentials.");
         setIsLoading(false);
