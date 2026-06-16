@@ -1,4 +1,3 @@
-import fs from 'fs/promises';
 import path from 'path';
 import { supabase } from './supabaseClient';
 
@@ -28,7 +27,7 @@ export function isSupabaseEnabled(): boolean {
 
 async function ensureDir(dir: string) {
   try {
-    await fs.mkdir(dir, { recursive: true });
+    await (await import("fs/promises")).mkdir(dir, { recursive: true });
   } catch (e) {
     // Ignore folder creation errors (e.g. read-only filesystem)
   }
@@ -49,7 +48,7 @@ export async function listProfiles() {
   // Fallback to local files
   try {
     await ensureDir(BASE_DATA_PATH);
-    const dirs = await fs.readdir(BASE_DATA_PATH);
+    const dirs = await (await import("fs/promises")).readdir(BASE_DATA_PATH);
     const filtered = dirs.filter(d => !d.startsWith('.'));
     const combined = Array.from(new Set([...filtered, ...memoryProfiles.keys()]));
     return combined.length > 0 ? combined : ['default'];
@@ -79,7 +78,7 @@ export async function getProfile(profileId: string = 'default') {
   // Fallback to local files
   const profilePath = path.join(BASE_DATA_PATH, safeId, 'profile.json');
   try {
-    const data = await fs.readFile(profilePath, 'utf-8');
+    const data = await (await import("fs/promises")).readFile(profilePath, 'utf-8');
     return JSON.parse(data);
   } catch (error) {
     if (memoryProfiles.has(safeId)) {
@@ -111,7 +110,7 @@ export async function saveProfile(profile: any, profileId: string = 'default') {
   try {
     const dir = path.join(BASE_DATA_PATH, safeId);
     await ensureDir(dir);
-    await fs.writeFile(path.join(dir, 'profile.json'), JSON.stringify(profile, null, 2));
+    await (await import("fs/promises")).writeFile(path.join(dir, 'profile.json'), JSON.stringify(profile, null, 2));
   } catch (fsError: any) {
     console.warn(`Local filesystem saveProfile failed (${fsError.message}), using in-memory storage fallback.`);
     memoryProfiles.set(safeId, profile);
@@ -137,7 +136,7 @@ export async function getJobs(profileId: string = 'default') {
   // Fallback to local files
   const dbPath = path.join(BASE_DATA_PATH, safeId, 'jobs.json');
   try {
-    const data = await fs.readFile(dbPath, 'utf-8');
+    const data = await (await import("fs/promises")).readFile(dbPath, 'utf-8');
     return JSON.parse(data);
   } catch (error) {
     if (memoryJobs.has(safeId)) {
@@ -165,7 +164,7 @@ export async function saveJobs(jobs: any[], profileId: string = 'default') {
   try {
     const dir = path.join(BASE_DATA_PATH, safeId);
     await ensureDir(dir);
-    await fs.writeFile(path.join(dir, 'jobs.json'), JSON.stringify(jobs, null, 2));
+    await (await import("fs/promises")).writeFile(path.join(dir, 'jobs.json'), JSON.stringify(jobs, null, 2));
   } catch (fsError: any) {
     console.warn(`Local filesystem saveJobs failed (${fsError.message}), using in-memory storage fallback.`);
     memoryJobs.set(safeId, jobs);

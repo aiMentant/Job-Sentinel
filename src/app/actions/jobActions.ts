@@ -4,7 +4,6 @@ import { searchLinkedInJobs, scrapeJobDescription } from "@/lib/linkedin_scraper
 import { generateWithAI, analyzeJobMatch } from "@/lib/gemini";
 import { Job, UserProfile, mockJobs, ReferralRoute } from "@/lib/db";
 import { getJobs, saveJobs, updateJobStatus as dbUpdateStatus, deleteJob as dbDeleteJob, saveProfile, getProfile, toggleFavourite as dbToggleFavourite, updateJobField as dbUpdateJobField } from "@/lib/storage";
-import JSZip from "jszip";
 
 import { getAgentStatus, setAgentStatus } from "./agentStatus";
 import { getActiveProfileId } from "./profileSwitch";
@@ -643,7 +642,7 @@ export async function parseUploadedFile(formData: FormData): Promise<string> {
     }
   } else if (filename.endsWith(".docx")) {
     const buffer = await file.arrayBuffer();
-    const zip = await JSZip.loadAsync(buffer);
+    const zip = await (await import("jszip")).default.loadAsync(buffer);
     const docXml = await zip.file("word/document.xml")?.async("string");
     return docXml ? docXml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "";
   }

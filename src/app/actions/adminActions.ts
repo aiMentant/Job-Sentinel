@@ -1,6 +1,5 @@
 "use server";
 
-import fs from "fs/promises";
 import path from "path";
 import { isSupabaseEnabled } from "@/lib/storage";
 import { supabase } from "@/lib/supabaseClient";
@@ -21,7 +20,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number = 3000): Promise<T> {
 async function ensureDataDir() {
   try {
     const safeCwd = typeof process !== 'undefined' && typeof process.cwd === 'function' ? process.cwd() : '';
-    await fs.mkdir(path.join(safeCwd, "data"), { recursive: true });
+    await (await import("fs/promises")).mkdir(path.join(safeCwd, "data"), { recursive: true });
   } catch (e) {
     // Ignore
   }
@@ -52,7 +51,7 @@ export async function listAllUsers() {
   // Fallback to local files
   try {
     await ensureDataDir();
-    const content = await fs.readFile(USERS_FILE_PATH, "utf8");
+    const content = await (await import("fs/promises")).readFile(USERS_FILE_PATH, "utf8");
     return JSON.parse(content);
   } catch (e) {
     // Return seeded defaults if file doesn't exist
@@ -100,7 +99,7 @@ export async function saveUser(user: { email: string; password?: string; role?: 
       });
     }
 
-    await fs.writeFile(USERS_FILE_PATH, JSON.stringify(users, null, 2));
+    await (await import("fs/promises")).writeFile(USERS_FILE_PATH, JSON.stringify(users, null, 2));
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e.message || String(e) };
@@ -125,7 +124,7 @@ export async function deleteUser(email: string) {
     await ensureDataDir();
     const users = await listAllUsers();
     const filtered = users.filter((u: any) => u.email !== email);
-    await fs.writeFile(USERS_FILE_PATH, JSON.stringify(filtered, null, 2));
+    await (await import("fs/promises")).writeFile(USERS_FILE_PATH, JSON.stringify(filtered, null, 2));
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e.message || String(e) };
@@ -155,7 +154,7 @@ export async function logActivity(email: string, action: string, details: Record
     await ensureDataDir();
     let logs: any[] = [];
     try {
-      const content = await fs.readFile(LOGS_FILE_PATH, "utf8");
+      const content = await (await import("fs/promises")).readFile(LOGS_FILE_PATH, "utf8");
       logs = JSON.parse(content);
     } catch (readErr) {
       // Ignore if file is missing
@@ -172,7 +171,7 @@ export async function logActivity(email: string, action: string, details: Record
     // Keep last 500 logs locally
     if (logs.length > 500) logs = logs.slice(0, 500);
 
-    await fs.writeFile(LOGS_FILE_PATH, JSON.stringify(logs, null, 2));
+    await (await import("fs/promises")).writeFile(LOGS_FILE_PATH, JSON.stringify(logs, null, 2));
   } catch (e) {
     console.error("Local logActivity failed:", e);
   }
@@ -197,7 +196,7 @@ export async function getActivityLogs() {
   // Fallback to local files
   try {
     await ensureDataDir();
-    const content = await fs.readFile(LOGS_FILE_PATH, "utf8");
+    const content = await (await import("fs/promises")).readFile(LOGS_FILE_PATH, "utf8");
     return JSON.parse(content);
   } catch (e) {
     return [];

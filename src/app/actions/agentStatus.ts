@@ -1,6 +1,5 @@
 "use server";
 
-import fs from "fs/promises";
 import path from "path";
 
 const STATUS_PATH = path.join(process.cwd(), "data", "agent_status.json");
@@ -35,7 +34,7 @@ if (process.env.NODE_ENV !== "production") {
 
 export async function getAgentStatus(): Promise<AgentStatus> {
   try {
-    const data = await fs.readFile(STATUS_PATH, "utf-8");
+    const data = await (await import("fs/promises")).readFile(STATUS_PATH, "utf-8");
     return JSON.parse(data);
   } catch {
     return memoryStatus;
@@ -46,8 +45,8 @@ export async function setAgentStatus(status: Partial<AgentStatus>) {
   const current = await getAgentStatus();
   const updated = { ...current, ...status, lastUpdated: new Date().toISOString() };
   try {
-    await fs.mkdir(path.dirname(STATUS_PATH), { recursive: true });
-    await fs.writeFile(STATUS_PATH, JSON.stringify(updated, null, 2));
+    await (await import("fs/promises")).mkdir(path.dirname(STATUS_PATH), { recursive: true });
+    await (await import("fs/promises")).writeFile(STATUS_PATH, JSON.stringify(updated, null, 2));
   } catch (e: any) {
     console.warn(`Writing agent status to filesystem failed (${e.message}), using in-memory fallback.`);
   }
