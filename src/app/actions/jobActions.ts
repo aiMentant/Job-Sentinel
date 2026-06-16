@@ -625,8 +625,9 @@ export async function parseUploadedFile(formData: FormData): Promise<string> {
     return await file.text();
   } else if (filename.endsWith(".pdf")) {
     const buffer = Buffer.from(await file.arrayBuffer());
-    if (typeof (global as any).DOMMatrix === 'undefined') {
-      (global as any).DOMMatrix = class DOMMatrix {
+    const _global = typeof globalThis !== 'undefined' ? globalThis : global;
+    if (typeof (_global as any).DOMMatrix === 'undefined') {
+      (_global as any).DOMMatrix = class DOMMatrix {
         constructor() {}
       };
     }

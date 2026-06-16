@@ -5,8 +5,9 @@ import path from "path";
 import { isSupabaseEnabled } from "@/lib/storage";
 import { supabase } from "@/lib/supabaseClient";
 
-const USERS_FILE_PATH = path.join(process.cwd(), "data/users.json");
-const LOGS_FILE_PATH = path.join(process.cwd(), "data/activity_logs.json");
+const safeCwd = typeof process !== 'undefined' && typeof process.cwd === 'function' ? process.cwd() : '';
+const USERS_FILE_PATH = path.join(safeCwd, "data/users.json");
+const LOGS_FILE_PATH = path.join(safeCwd, "data/activity_logs.json");
 
 // Helper to race a promise against a timeout to prevent serverless function hangs
 function withTimeout<T>(promise: Promise<T>, ms: number = 3000): Promise<T> {
@@ -19,7 +20,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number = 3000): Promise<T> {
 // Ensure data folder exists
 async function ensureDataDir() {
   try {
-    await fs.mkdir(path.join(process.cwd(), "data"), { recursive: true });
+    const safeCwd = typeof process !== 'undefined' && typeof process.cwd === 'function' ? process.cwd() : '';
+    await fs.mkdir(path.join(safeCwd, "data"), { recursive: true });
   } catch (e) {
     // Ignore
   }

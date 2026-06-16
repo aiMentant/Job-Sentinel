@@ -2,10 +2,11 @@ import fs from 'fs/promises';
 import path from 'path';
 import { supabase } from './supabaseClient';
 
-const BASE_DATA_PATH = path.join(process.cwd(), 'data/profiles');
+const safeCwd = typeof process !== 'undefined' && typeof process.cwd === 'function' ? process.cwd() : '';
+const BASE_DATA_PATH = path.join(safeCwd, 'data/profiles');
 
 // Keep in-memory singletons across Next.js Hot Module Replacement (HMR)
-const globalForStorage = global as unknown as {
+const globalForStorage = (typeof globalThis !== 'undefined' ? globalThis : global) as unknown as {
   memoryProfiles?: Map<string, any>;
   memoryJobs?: Map<string, any[]>;
 };
@@ -13,7 +14,7 @@ const globalForStorage = global as unknown as {
 const memoryProfiles = globalForStorage.memoryProfiles || new Map<string, any>();
 const memoryJobs = globalForStorage.memoryJobs || new Map<string, any[]>();
 
-if (process.env.NODE_ENV !== "production") {
+if (typeof process !== 'undefined' && process.env.NODE_ENV !== "production") {
   globalForStorage.memoryProfiles = memoryProfiles;
   globalForStorage.memoryJobs = memoryJobs;
 }

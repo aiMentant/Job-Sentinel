@@ -17,7 +17,7 @@ export type AgentStatus = {
 };
 
 // Keep in-memory status cached globally across HMR
-const globalForStatus = global as unknown as {
+const globalForStatus = (typeof globalThis !== 'undefined' ? globalThis : global) as unknown as {
   memoryStatus?: AgentStatus;
 };
 
