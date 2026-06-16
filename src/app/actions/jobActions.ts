@@ -747,123 +747,114 @@ async function getBrowserInstance(chromium: any) {
 }
 
 export async function searchMultiPlatformJobs(query: string, location: string, platformsOverride?: string[], targetTitlesOverride?: string[]): Promise<Job[]> {
-  const { chromium } = await import('playwright');
-  const browser = await getBrowserInstance(chromium);
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-  });
-  
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-    (window as any).chrome = { runtime: {} };
-  });
-
-  const page = await context.newPage();
-  
-  const domains = platformsOverride && platformsOverride.length > 0
-    ? platformsOverride
-    : ["indeed.com", "glassdoor.com", "ziprecruiter.com", "usajobs.gov", "snagajob.com", "linkedin.com"];
-
-  const platforms = domains.map(domain => {
-    const cleanDomain = domain.trim().toLowerCase();
-    const name = cleanDomain.split('.')[0];
-    const friendlyName = name.charAt(0).toUpperCase() + name.slice(1);
-    return { domain: cleanDomain, name: friendlyName };
-  });
-  
-  const siteQuery = platforms.map(p => `site:${p.domain}`).join(' OR ');
-  const googleQuery = `(${query}) "${location}" (${siteQuery})`;
-  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(googleQuery)}`;
-  
-  console.log(`[MultiPlatform] Querying Google: ${googleQuery}`);
-  
-  let entries: { url: string; title: string; snippet: string }[] = [];
+  let browser: any = null;
   try {
-    await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 12000 });
-    await page.waitForTimeout(1000);
-    
-    const currentUrl = page.url();
-    if (currentUrl.includes("sorry/index") || currentUrl.includes("consent.google.com")) {
-      console.warn("[MultiPlatform] Google CAPTCHA or Cookie Redirect detected. Falling back to DuckDuckGo HTML Search...");
-      throw new Error("Google blocked request");
-    }
-
-    entries = await page.evaluate(() => {
-      const blocks = Array.from(document.querySelectorAll('div.g, div.MjjYud, div.v7W49e, div.tF2Cxc'));
-      return blocks.map(div => {
-        const link = div.querySelector('a') as HTMLAnchorElement | null;
-        const h3 = div.querySelector('h3') as HTMLElement | null;
-        const snippet = div.querySelector('div.VwiC3b, div.yXK7Cc, span.aCOpRe') as HTMLElement | null;
-        return {
-          url: link?.href || "",
-          title: h3?.textContent || link?.textContent || "",
-          snippet: snippet?.textContent || ""
-        };
-      }).filter(e => e.url && e.title);
+    const { chromium } = await import('playwright');
+    browser = await getBrowserInstance(chromium);
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     });
-  } catch (error) {
-    console.warn("[MultiPlatform] Google search failed or blocked. Trying DuckDuckGo failover...");
+
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+      (window as any).chrome = { runtime: {} };
+    });
+
+    const page = await context.newPage();
+
+    const domains = platformsOverride && platformsOverride.length > 0
+      ? platformsOverride
+      : ["indeed.com", "glassdoor.com", "ziprecruiter.com", "usajobs.gov", "snagajob.com", "linkedin.com"];
+
+    const platforms = domains.map(domain => {
+      const cleanDomain = domain.trim().toLowerCase();
+      const name = cleanDomain.split('.')[0];
+      return { domain: cleanDomain, name: name.charAt(0).toUpperCase() + name.slice(1) };
+    });
+
+    const siteQuery = platforms.map(p => `site:${p.domain}`).join(' OR ');
+    const googleQuery = `(${query}) "${location}" (${siteQuery})`;
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(googleQuery)}`;
+
+    console.log(`[MultiPlatform] Querying Google: ${googleQuery}`);
+
+    let entries: { url: string; title: string; snippet: string }[] = [];
     try {
-      const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(googleQuery)}`;
-      await page.goto(ddgUrl, { waitUntil: 'domcontentloaded', timeout: 12000 });
+      await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 12000 });
+      await page.waitForTimeout(1000);
+
+      const currentUrl = page.url();
+      if (currentUrl.includes("sorry/index") || currentUrl.includes("consent.google.com")) {
+        throw new Error("Google blocked request");
+      }
+
       entries = await page.evaluate(() => {
-        const blocks = Array.from(document.querySelectorAll('.web-result'));
+        const blocks = Array.from(document.querySelectorAll('div.g, div.MjjYud, div.v7W49e, div.tF2Cxc'));
         return blocks.map(div => {
-          const link = div.querySelector('.result__url') as HTMLAnchorElement | null;
-          const h3 = div.querySelector('.result__title') as HTMLElement | null;
-          const snippet = div.querySelector('.result__snippet') as HTMLElement | null;
-          return {
-            url: link?.href || "",
-            title: h3?.textContent || "",
-            snippet: snippet?.textContent || ""
-          };
+          const link = div.querySelector('a') as HTMLAnchorElement | null;
+          const h3 = div.querySelector('h3') as HTMLElement | null;
+          const snippet = div.querySelector('div.VwiC3b, div.yXK7Cc, span.aCOpRe') as HTMLElement | null;
+          return { url: link?.href || "", title: h3?.textContent || link?.textContent || "", snippet: snippet?.textContent || "" };
         }).filter(e => e.url && e.title);
       });
-      console.log(`[MultiPlatform] DuckDuckGo fallback found ${entries.length} results.`);
-    } catch (ddgError) {
-      console.error("[MultiPlatform] DuckDuckGo fallback failed too:", ddgError);
+    } catch (googleError) {
+      console.warn("[MultiPlatform] Google search failed or blocked. Trying DuckDuckGo failover...");
+      try {
+        const siteQuery2 = platforms.map(p => `site:${p.domain}`).join(' OR ');
+        const googleQuery2 = `(${query}) "${location}" (${siteQuery2})`;
+        const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(googleQuery2)}`;
+        await page.goto(ddgUrl, { waitUntil: 'domcontentloaded', timeout: 12000 });
+        entries = await page.evaluate(() => {
+          return Array.from(document.querySelectorAll('.web-result')).map(div => ({
+            url: (div.querySelector('.result__url') as HTMLAnchorElement)?.href || "",
+            title: (div.querySelector('.result__title') as HTMLElement)?.textContent || "",
+            snippet: (div.querySelector('.result__snippet') as HTMLElement)?.textContent || ""
+          })).filter(e => e.url && e.title);
+        });
+        console.log(`[MultiPlatform] DuckDuckGo fallback found ${entries.length} results.`);
+      } catch (ddgError) {
+        console.error("[MultiPlatform] DuckDuckGo fallback failed too:", ddgError);
+      }
     }
-  } finally {
-    await browser.close();
-  }
-  
-  const results: Job[] = [];
-  const targetRoles = targetTitlesOverride || [];
 
-  for (const entry of entries) {
-    if (entry.url.includes('google.com') || entry.url.includes('duckduckgo.com')) continue;
-    const matchedPlatform = platforms.find(p => entry.url.includes(p.domain));
-    const source = matchedPlatform ? matchedPlatform.name : "Search Index";
-    
-    let company = "Enterprise Partner";
-    const titleClean = entry.title.split(' - ')[0] || entry.title;
-    
-    const parts = entry.title.split(' - ');
-    if (parts.length > 1) {
-      company = parts[1].trim();
-    }
-    
-    const matchScore = targetRoles.length > 0 ? heuristicMatchScore(titleClean, targetRoles) : 75;
-    
-    results.push({
-      id: Math.random().toString(36).substring(7),
-      title: titleClean,
-      company: company,
-      location: location,
-      description: entry.snippet || `Job listing on ${source}`,
-      score: matchScore,
-      reason: `Match strength: ${matchScore}% computed via target role relevance matching.`,
-      status: 'Discovery',
-      url: entry.url,
-      source: source,
-      createdAt: new Date().toISOString()
-    });
+    await browser.close();
+
+    const targetRoles = targetTitlesOverride || [];
+    return entries
+      .filter(e => !e.url.includes('google.com') && !e.url.includes('duckduckgo.com'))
+      .map(entry => {
+        const matchedPlatform = platforms.find(p => entry.url.includes(p.domain));
+        const source = matchedPlatform ? matchedPlatform.name : "Search Index";
+        const parts = entry.title.split(' - ');
+        const titleClean = parts[0] || entry.title;
+        const company = parts.length > 1 ? parts[1].trim() : "Enterprise Partner";
+        const matchScore = targetRoles.length > 0 ? heuristicMatchScore(titleClean, targetRoles) : 75;
+        return {
+          id: Math.random().toString(36).substring(7),
+          title: titleClean,
+          company,
+          location,
+          description: entry.snippet || `Job listing on ${source}`,
+          score: matchScore,
+          reason: `Match strength: ${matchScore}% computed via target role relevance matching.`,
+          status: 'Discovery' as const,
+          url: entry.url,
+          source,
+          createdAt: new Date().toISOString()
+        };
+      });
+
+  } catch (error: any) {
+    console.warn('[MultiPlatform] Browser-based search unavailable (no browser runtime):', error.message);
+    if (browser) { try { await browser.close(); } catch {} }
+    return [];
   }
-  
-  return results;
 }
+
+
+
 
 export async function scanCompanyJobs(companyName: string, targetTitles: string[], targetLocations: string[], careerUrl?: string): Promise<Job[]> {
   if (careerUrl) {
