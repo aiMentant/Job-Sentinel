@@ -120,6 +120,7 @@ export type UserProfile = {
   skills: string[];
   summary: string;
   targetTitles?: string[];
+  alternativeTitles?: string[];
   targetLocations?: string[];
   searchRadius?: number;
   matchStrictness?: 'exact' | 'strong' | 'flexible';

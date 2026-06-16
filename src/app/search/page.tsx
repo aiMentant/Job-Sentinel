@@ -22,7 +22,11 @@ import {
   SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
-  Globe
+  Globe,
+  Copy,
+  Target,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 
 import { 
@@ -83,6 +87,7 @@ export default function SearchPage() {
   const [status, setStatus] = useState("");
   const [profile, setProfile] = useState<Partial<UserProfile>>({});
   const [targetTitles, setTargetTitles] = useState<string[]>([]);
+  const [alternativeTitles, setAlternativeTitles] = useState<string[]>([]);
   const [targetLocations, setTargetLocations] = useState<string[]>([]);
   const [radius, setRadius] = useState<number>(25);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -90,6 +95,8 @@ export default function SearchPage() {
   const [showHighScoresOnly, setShowHighScoresOnly] = useState(false);
   const [searchMode, setSearchMode] = useState<'standard' | 'deep'>('standard');
   const [showDismissModal, setShowDismissModal] = useState(false);
+  const [showAlternativeTitles, setShowAlternativeTitles] = useState(false);
+  const [showBooleanTools, setShowBooleanTools] = useState(false);
   const [dreamCompanies, setDreamCompanies] = useState<any[]>([]);
   const [isGeneratingDreamList, setIsGeneratingDreamList] = useState(false);
   const [activeTab, setActiveTab] = useState<'live' | 'ghost' | 'companies' | 'boards'>('live');
@@ -132,6 +139,7 @@ export default function SearchPage() {
           }
 
           setTargetTitles(roles);
+          setAlternativeTitles(p.alternativeTitles || []);
           setTargetLocations(locs);
           if (p.targetSites && p.targetSites.length > 0) setTargetSites(p.targetSites);
           if (p.searchRadius) setRadius(p.searchRadius);
@@ -366,23 +374,27 @@ export default function SearchPage() {
     else setSelectedIds(filteredResults.map(j => j.id));
   };
 
-  const removeArrayItem = (field: 'targetTitles' | 'targetLocations' | 'targetSites', index: number) => {
+  const removeArrayItem = (field: 'targetTitles' | 'targetLocations' | 'targetSites' | 'alternativeTitles', index: number) => {
     if (field === 'targetTitles') {
       setTargetTitles(prev => prev.filter((_, i) => i !== index));
     } else if (field === 'targetLocations') {
       setTargetLocations(prev => prev.filter((_, i) => i !== index));
+    } else if (field === 'alternativeTitles') {
+      setAlternativeTitles(prev => prev.filter((_, i) => i !== index));
     } else {
       setTargetSites(prev => prev.filter((_, i) => i !== index));
     }
   };
 
-  const addArrayItem = (field: 'targetTitles' | 'targetLocations' | 'targetSites', value: string) => {
+  const addArrayItem = (field: 'targetTitles' | 'targetLocations' | 'targetSites' | 'alternativeTitles', value: string) => {
     if (!value.trim()) return;
     const cleanValue = value.trim();
     if (field === 'targetTitles') {
       setTargetTitles(prev => prev.includes(cleanValue) ? prev : [...prev, cleanValue]);
     } else if (field === 'targetLocations') {
       setTargetLocations(prev => prev.includes(cleanValue) ? prev : [...prev, cleanValue]);
+    } else if (field === 'alternativeTitles') {
+      setAlternativeTitles(prev => prev.includes(cleanValue) ? prev : [...prev, cleanValue]);
     } else {
       let cleanSite = cleanValue.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, "");
       setTargetSites(prev => prev.includes(cleanSite) ? prev : [...prev, cleanSite]);
@@ -447,6 +459,7 @@ export default function SearchPage() {
         const locs = (p.targetLocations || []).filter(isValidLocation);
         const sites = p.targetSites || ["linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com", "usajobs.gov", "snagajob.com"];
         setTargetTitles(roles);
+        setAlternativeTitles(p.alternativeTitles || []);
         setTargetLocations(locs);
         setTargetSites(sites);
         if (p.searchRadius) setRadius(p.searchRadius);
@@ -523,7 +536,8 @@ export default function SearchPage() {
               profile.resumeText || "",
               targetSites,
               activeProfileId,
-              profile.matchStrictness || 'exact'
+              profile.matchStrictness || 'exact',
+              alternativeTitles
             );
 
             totalFound += newJobs.length;
@@ -604,7 +618,7 @@ export default function SearchPage() {
         
         try {
           const { scanCompanyJobs, addJobs } = await import("@/app/actions/jobActions");
-          const newJobs = await scanCompanyJobs(comp.name, targetTitles, targetLocations, comp.careerUrl);
+          const newJobs = await scanCompanyJobs(comp.name, targetTitles, targetLocations, comp.careerUrl, alternativeTitles);
           if (newJobs.length > 0) {
             await addJobs(newJobs, activeProfileId);
             setResults(prev => {
@@ -635,7 +649,7 @@ export default function SearchPage() {
     setStatus(`Scanning ${companyName}...`);
     try {
       const { scanCompanyJobs, addJobs } = await import("@/app/actions/jobActions");
-      const newJobs = await scanCompanyJobs(companyName, targetTitles, targetLocations, careerUrl);
+      const newJobs = await scanCompanyJobs(companyName, targetTitles, targetLocations, careerUrl, alternativeTitles);
       if (newJobs.length > 0) {
         await addJobs(newJobs, activeProfileId);
         setResults(prev => {
@@ -673,7 +687,7 @@ export default function SearchPage() {
         setStatus(`Batch scanning [${i + 1}/${dreamCompanies.length}]: ${company.name}...`);
         
         try {
-          const newJobs = await scanCompanyJobs(company.name, targetTitles, targetLocations, company.careerUrl);
+          const newJobs = await scanCompanyJobs(company.name, targetTitles, targetLocations, company.careerUrl, alternativeTitles);
           if (newJobs.length > 0) {
             await addJobs(newJobs, activeProfileId);
             setResults(prev => {
@@ -1297,6 +1311,42 @@ export default function SearchPage() {
               />
             </div>
 
+            {/* Alternative Roles Accordion */}
+            <div className="mt-3">
+              <button
+                onClick={() => setShowAlternativeTitles(!showAlternativeTitles)}
+                className="w-full flex items-center justify-between px-3 py-2 bg-card border border-card-border rounded hover:bg-card-hover transition-colors text-xs font-semibold text-text-muted cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Target className="w-3.5 h-3.5 text-indigo-400" />
+                  Include Alternative Titles (+{alternativeTitles.length})
+                </div>
+                {showAlternativeTitles ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+              
+              {showAlternativeTitles && (
+                <div className="p-3 border border-t-0 border-card-border bg-card-hover/30 rounded-b space-y-2">
+                  <p className="text-[10px] text-text-muted leading-relaxed">
+                    These secondary titles will be used as lower-weighted fallbacks if your primary targets don't yield enough matches.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {alternativeTitles.map((title, i) => (
+                      <span key={i} className="px-2 py-1 bg-gray-500/10 border border-gray-500/20 rounded text-[11px] text-gray-400 flex items-center gap-1.5 font-semibold">
+                        {title}
+                        <button onClick={() => removeArrayItem('alternativeTitles', i)} className="hover:text-white cursor-pointer">&times;</button>
+                      </span>
+                    ))}
+                  </div>
+                  <input 
+                    type="text" 
+                    placeholder="Add alternative title & press Enter..." 
+                    className="input-field text-xs py-1.5 w-full bg-card border-card-border focus:border-foreground/30 text-foreground"
+                    onKeyDown={(e) => { if (e.key === 'Enter') { addArrayItem('alternativeTitles', e.currentTarget.value); e.currentTarget.value = ''; } }}
+                  />
+                </div>
+              )}
+            </div>
+
             {/* Target Locations */}
             <div>
               <label className="text-xs text-text-muted font-bold uppercase tracking-wider mb-2 block">Locations / Postcodes</label>
@@ -1389,6 +1439,72 @@ export default function SearchPage() {
               <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
               {isRegenerating ? "Analyzing Resume..." : "Suggest Smart Targets"}
             </button>
+
+
+
+            {/* Boolean Search Strings (Advanced Tools) */}
+            <div className="mt-4 pt-4 mb-4 border-t border-card-border">
+              <label className="text-xs text-text-muted font-bold uppercase tracking-wider mb-2 block">Advanced Tools</label>
+              <div className="space-y-2">
+                <button
+                  onClick={() => setShowBooleanTools(!showBooleanTools)}
+                  className="w-full flex items-center justify-between px-3 py-2 bg-black/5 dark:bg-white/5 border border-card-border rounded hover:bg-card-hover transition-colors text-xs font-semibold text-text-muted cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <Search className="w-3.5 h-3.5 text-orange-400" />
+                    Boolean Search Strings
+                  </div>
+                  {showBooleanTools ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
+                {showBooleanTools && (
+                  <div className="p-3 border border-card-border bg-card-hover/30 rounded space-y-3">
+                    <p className="text-[10px] text-text-muted leading-relaxed">
+                      Copy these AI-generated boolean strings to manually hunt on LinkedIn, Indeed, or Google.
+                    </p>
+                    
+                    {/* Strict Title Search */}
+                    <div>
+                      <div className="flex justify-between mb-1 items-end">
+                        <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Strict (LinkedIn)</span>
+                        <div className="flex gap-2">
+                          <button onClick={() => {
+                            const str = targetTitles.map(t => `"${t}"`).join(" OR ");
+                            navigator.clipboard.writeText(str);
+                          }} className="text-[10px] text-text-muted hover:text-white" title="Copy">
+                            <Copy className="w-3 h-3" />
+                          </button>
+                          <a href={`https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(targetTitles.map(t => `"${t}"`).join(" OR "))}`} target="_blank" rel="noreferrer" className="text-[10px] text-indigo-400 hover:text-indigo-300" title="Open in LinkedIn">
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </div>
+                      </div>
+                      <code className="block p-2 bg-black/20 rounded text-[10px] font-mono text-gray-300 break-all border border-black/10">
+                        {targetTitles.map(t => `"${t}"`).join(" OR ")}
+                      </code>
+                    </div>
+
+                    {/* Broad Search */}
+                    <div>
+                      <div className="flex justify-between mb-1 items-end">
+                        <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider">Broad (Indeed/Google)</span>
+                        <div className="flex gap-2">
+                          <button onClick={() => {
+                            const str = [...targetTitles, ...(alternativeTitles || [])].map(t => `"${t}"`).join(" OR ");
+                            navigator.clipboard.writeText(`(${str})`);
+                          }} className="text-[10px] text-text-muted hover:text-white" title="Copy">
+                            <Copy className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                      <code className="block p-2 bg-black/20 rounded text-[10px] font-mono text-gray-300 break-all border border-black/10">
+                        ({[...targetTitles, ...(alternativeTitles || [])].map(t => `"${t}"`).join(" OR ")})
+                      </code>
+                    </div>
+
+                  </div>
+                )}
+              </div>
+            </div>
 
             <button 
               onClick={() => handleSearch()}
@@ -1607,6 +1723,7 @@ export default function SearchPage() {
                   const updatedProfile = {
                     ...profile,
                     targetTitles: roles,
+                    alternativeTitles: alternativeTitles,
                     targetLocations: locs
                   };
                   await saveUserProfile(updatedProfile);

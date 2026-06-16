@@ -97,10 +97,10 @@ export async function listAllProfilesWithData() {
 }
 
 
-export async function fetchPublicFallbackJobs(title: string, location: string): Promise<any[]> {
+export async function fetchPublicFallbackJobs(query: string, location: string, targetTitlesOverride?: string[], alternativeTitlesOverride?: string[]): Promise<Job[]> {
   try {
-    console.log(`[Fallback] Scraping Remotive for fallback results matching: ${title}`);
-    const url = `https://remotive.com/api/remote-jobs?search=${encodeURIComponent(title)}`;
+    console.log(`[Fallback] Scraping Remotive for fallback results matching: ${query}`);
+    const url = `https://remotive.com/api/remote-jobs?search=${encodeURIComponent(query)}`;
     const response = await fetch(url);
     if (!response.ok) return [];
     const data = await response.json();
@@ -126,7 +126,7 @@ export async function fetchPublicFallbackJobs(title: string, location: string): 
 
     return filteredList.map((j: any) => ({
       id: String(j.id) || Math.random().toString(36).substring(7),
-      title: j.title || title,
+      title: j.title || query,
       company: j.company_name || "Enterprise Partner",
       location: j.candidate_required_location || "Remote",
       description: j.description || `Public Remote role.`,
@@ -151,7 +151,8 @@ export async function runJobSearch(
   resumeText: string,
   targetSites?: string[],
   profileIdOverride?: string,
-  matchStrictness: 'exact' | 'strong' | 'flexible' = 'exact'
+  matchStrictness: 'exact' | 'strong' | 'flexible' = 'exact',
+  alternativeTitles: string[] = []
 ) {
   const profileId = profileIdOverride || await getActiveProfileId();
   const profile = await getProfile(profileId);
@@ -198,10 +199,10 @@ export async function runJobSearch(
           linkedinJobs = await searchLinkedInJobs(title, location, radius);
         }
         
-        const multiJobs = await searchMultiPlatformJobs(title, location, targetSites);
+        const multiJobs = await searchMultiPlatformJobs(title, location, targetSites, targetTitles, alternativeTitles);
         let rawJobs = [...linkedinJobs, ...multiJobs];
         if (!rawJobs || rawJobs.length === 0) {
-          rawJobs = await fetchPublicFallbackJobs(title, location);
+          rawJobs = await fetchPublicFallbackJobs(title, location, targetTitles, alternativeTitles);
         }
         
         // KEYWORD GUARDRAIL: Adhere to target roles depending on matchStrictness setting
@@ -211,10 +212,11 @@ export async function runJobSearch(
           const titleLower = raw.title.toLowerCase();
           
           let isTargetMatch = false;
-          if (targetTitles.length === 0) {
+          const allAcceptedTitles = [...targetTitles, ...(alternativeTitles || [])];
+          if (allAcceptedTitles.length === 0) {
             isTargetMatch = true;
           } else {
-            isTargetMatch = targetTitles.some(target => {
+            isTargetMatch = allAcceptedTitles.some(target => {
               const targetLower = target.toLowerCase();
               
               if (matchStrictness === 'exact') {
@@ -470,12 +472,12 @@ export async function parseResumeText(text: string, profileIdOverride?: string):
     
     CRITICAL ROLE FIT INSTRUCTIONS:
     - Analyze the scale and themes of the candidate's achievements (e.g. budgets managed, enterprise scope, stakeholder seniority, leadership breadth) rather than just past titles.
-    - For the "targetTitles" field, deduce a comprehensive array of 5 to 8 high-leverage target job titles representing the peak seniority and strategic scope of their capabilities.
-    - Avoid titles that would "under-position" the candidate (e.g., if they lead multi-million pound portfolios, exclude "Project Manager" or "PMO Manager" in favor of "Programme Director" or "Head of PMO").
+    - For the "targetTitles" field, deduce a strict array of 3 to 5 Primary, aspirational, high-leverage target job titles representing the peak seniority and strategic scope of their capabilities. Do NOT include lower-level legacy titles here.
+    - For the "alternativeTitles" field, extract 5 to 10 Legacy/Semantic or alternative job titles. These are roles they have previously held, horizontal moves, or industry-specific variations that encompass the same responsibilities but are not the absolute peak aspirational titles.
     
     CRITICAL:
     - For the "positioningSummary" field, write a high-impact, 1-sentence professional positioning statement (elevator pitch) that summarizes their core expertise and peak value proposition.
-    - For the "booleanSearchString" field, generate a clean, copy-pasteable LinkedIn/Indeed Boolean search string representing these target job titles (e.g. '("Programme Director" OR "Head of PMO") AND (IT OR Digital)').
+    - For the "booleanSearchString" field, generate a clean, copy-pasteable LinkedIn/Indeed Boolean search string representing these primary target job titles (e.g. '("Programme Director" OR "Head of PMO") AND (IT OR Digital)').
  
     CRITICAL ANTI-HALLUCINATION GUARDRAILS:
     - Rely ONLY on the provided TEXT. Do not invent, fabricate, or embellish candidate history.
@@ -499,7 +501,8 @@ export async function parseResumeText(text: string, profileIdOverride?: string):
         { "institution": "University", "degree": "BA/MA" }
       ],
       "skills": ["Skill 1", "Skill 2"],
-      "targetTitles": ["Suggested Job Title 1", "Suggested Job Title 2"],
+      "targetTitles": ["Primary Target Role 1", "Primary Target Role 2"],
+      "alternativeTitles": ["Legacy Title 1", "Semantic Variation 1"],
       "targetLocations": ["Extracted City/Postcode 1"],
       "booleanSearchString": "Boolean search string query",
       "positioningSummary": "1-sentence professional elevator pitch"
@@ -519,6 +522,7 @@ export async function parseResumeText(text: string, profileIdOverride?: string):
       education: data.education || [],
       skills: data.skills || [],
       targetTitles: data.targetTitles || [],
+      alternativeTitles: data.alternativeTitles || [],
       targetLocations: data.targetLocations || [],
       booleanSearchString: data.booleanSearchString || "",
       positioningSummary: data.positioningSummary || ""
@@ -716,8 +720,10 @@ function calculateJaccardSimilarity(str1: string, str2: string): number {
   return intersection.size / union.size;
 }
 
-function heuristicMatchScore(jobTitle: string, targetTitles: string[]): number {
+function heuristicMatchScore(jobTitle: string, targetTitles: string[], alternativeTitles: string[] = []): number {
   let maxScore = 0;
+  
+  // Score against primary titles (full weight)
   for (const target of targetTitles) {
     if (jobTitle.toLowerCase().trim() === target.toLowerCase().trim()) {
       return 100;
@@ -729,6 +735,21 @@ function heuristicMatchScore(jobTitle: string, targetTitles: string[]): number {
     const score = Math.round(sim * 100);
     maxScore = Math.max(maxScore, score);
   }
+  
+  // Score against alternative titles (capped at 85)
+  for (const alt of alternativeTitles) {
+    if (jobTitle.toLowerCase().trim() === alt.toLowerCase().trim()) {
+      maxScore = Math.max(maxScore, 85);
+      continue;
+    }
+    if (jobTitle.toLowerCase().includes(alt.toLowerCase()) || alt.toLowerCase().includes(jobTitle.toLowerCase())) {
+      maxScore = Math.max(maxScore, 80);
+    }
+    const sim = calculateJaccardSimilarity(jobTitle, alt);
+    const score = Math.round(sim * 85); // Penalty factor for alternative titles
+    maxScore = Math.max(maxScore, score);
+  }
+  
   return maxScore;
 }
 
@@ -746,7 +767,7 @@ async function getBrowserInstance(chromium: any) {
   return await chromium.launch({ headless: true });
 }
 
-export async function searchMultiPlatformJobs(query: string, location: string, platformsOverride?: string[], targetTitlesOverride?: string[]): Promise<Job[]> {
+export async function searchMultiPlatformJobs(query: string, location: string, platformsOverride?: string[], targetTitlesOverride?: string[], alternativeTitlesOverride?: string[]): Promise<Job[]> {
   let browser: any = null;
   try {
     const { chromium } = await import('playwright');
@@ -830,7 +851,7 @@ export async function searchMultiPlatformJobs(query: string, location: string, p
         const parts = entry.title.split(' - ');
         const titleClean = parts[0] || entry.title;
         const company = parts.length > 1 ? parts[1].trim() : "Enterprise Partner";
-        const matchScore = targetRoles.length > 0 ? heuristicMatchScore(titleClean, targetRoles) : 75;
+        const matchScore = targetRoles.length > 0 ? heuristicMatchScore(titleClean, targetRoles, alternativeTitlesOverride || []) : 75;
         return {
           id: Math.random().toString(36).substring(7),
           title: titleClean,
@@ -856,7 +877,7 @@ export async function searchMultiPlatformJobs(query: string, location: string, p
 
 
 
-export async function scanCompanyJobs(companyName: string, targetTitles: string[], targetLocations: string[], careerUrl?: string): Promise<Job[]> {
+export async function scanCompanyJobs(companyName: string, targetTitles: string[], targetLocations: string[], careerUrl?: string, alternativeTitles: string[] = []): Promise<Job[]> {
   if (careerUrl) {
     try {
       const lowerUrl = careerUrl.toLowerCase();
@@ -885,7 +906,7 @@ export async function scanCompanyJobs(companyName: string, targetTitles: string[
             
             const matches: Job[] = [];
             for (const j of jobsList) {
-              const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles) : 75;
+              const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles, alternativeTitles) : 75;
               if (score > 40) {
                 matches.push({
                   id: String(j.id),
@@ -930,7 +951,7 @@ export async function scanCompanyJobs(companyName: string, targetTitles: string[
             
             const matches: Job[] = [];
             for (const j of jobsList) {
-              const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles) : 75;
+              const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles, alternativeTitles) : 75;
               if (score > 40) {
                 matches.push({
                   id: String(j.id),

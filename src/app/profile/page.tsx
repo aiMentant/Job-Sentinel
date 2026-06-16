@@ -15,7 +15,8 @@ import {
   ChevronUp,
   Building2,
   GraduationCap,
-  Upload
+  Upload,
+  Target
 } from "lucide-react";
 import { parseResumeText, saveUserProfile, fetchUserProfile, listAllProfilesWithData, deleteProfile, runLinkedInProfileScrape, parseUploadedFile, safeParseUploadedFile, safeParseResumeText, safeLinkedInProfileScrape } from "@/app/actions/jobActions";
 
@@ -351,13 +352,13 @@ function ProfilePageContent() {
     setProfile({ ...profile, education: newEdu });
   };
 
-  const removeArrayItem = (field: 'skills' | 'targetTitles' | 'targetLocations', index: number) => {
+  const removeArrayItem = (field: 'skills' | 'targetTitles' | 'alternativeTitles' | 'targetLocations', index: number) => {
     const arr = [...(profile[field] || [])];
     arr.splice(index, 1);
     setProfile({ ...profile, [field]: arr });
   };
 
-  const addArrayItem = (field: 'skills' | 'targetTitles' | 'targetLocations', value: string) => {
+  const addArrayItem = (field: 'skills' | 'targetTitles' | 'alternativeTitles' | 'targetLocations', value: string) => {
     if (!value.trim()) return;
     const arr = [...(profile[field] || [])];
     arr.push(value.trim());
@@ -840,6 +841,30 @@ function ProfilePageContent() {
                       placeholder="Add job title and press Enter..." 
                       className="input-field text-sm w-full"
                       onKeyDown={(e) => { if (e.key === 'Enter') { addArrayItem('targetTitles', e.currentTarget.value); e.currentTarget.value = ''; } }}
+                    />
+                  </div>
+
+                  <div>
+                    <h3 className="font-bold flex items-center gap-2 mb-3 mt-6">
+                      <Target className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                      Alternative / Legacy Job Titles
+                    </h3>
+                    <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                      Secondary or historical titles used as a fallback if primary roles don't yield enough matches. 
+                    </p>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {profile.alternativeTitles?.map((title, i) => (
+                        <span key={i} className="px-3 py-1 bg-gray-500/10 border border-gray-500/20 rounded-full text-xs text-gray-600 dark:text-gray-300 flex items-center gap-2">
+                          <span>{title}</span>
+                          <button onClick={() => removeArrayItem('alternativeTitles', i)} className="hover:text-red-400">&times;</button>
+                        </span>
+                      ))}
+                    </div>
+                    <input 
+                      type="text" 
+                      placeholder="Add alternative title and press Enter..." 
+                      className="input-field text-sm w-full"
+                      onKeyDown={(e) => { if (e.key === 'Enter') { addArrayItem('alternativeTitles', e.currentTarget.value); e.currentTarget.value = ''; } }}
                     />
                   </div>
 
