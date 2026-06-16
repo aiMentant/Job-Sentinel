@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import { Cpu, Lock, AlertCircle, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { listAllUsers, logActivity } from "@/app/actions/adminActions";
+
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,24 +13,41 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setIsLoading(true);
 
-    // Simple delay for modern interface response feel
-    setTimeout(() => {
-      if (username.toLowerCase() === "wenban" && password === "pixel") {
-        // Set cookie valid for 7 days
+    try {
+      const users = await listAllUsers();
+      const lowerUsername = username.toLowerCase().trim();
+      const matchedUser = users.find(
+        (u: any) => u.email.toLowerCase() === lowerUsername || (lowerUsername === "wenban" && u.email === "lwenban@gmail.com")
+      );
+
+      if (matchedUser && matchedUser.password === password) {
+        // Log activity
+        await logActivity(matchedUser.email, "User Login", { role: matchedUser.role, profile_id: matchedUser.profile_id });
+
+        // Set cookies valid for 7 days
         document.cookie = "auth_session=verified; max-age=604800; path=/";
+        document.cookie = `auth_role=${matchedUser.role}; max-age=604800; path=/`;
+        document.cookie = `auth_email=${matchedUser.email}; max-age=604800; path=/`;
+        document.cookie = `active_profile_id=${matchedUser.profile_id}; max-age=604800; path=/`;
+        
         router.push("/");
         router.refresh();
       } else {
         setError("Invalid identity credentials.");
         setIsLoading(false);
       }
-    }, 800);
+    } catch (err: any) {
+      console.error(err);
+      setError("Database connection error. Please try again.");
+      setIsLoading(false);
+    }
   };
+
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#0a0a0c] text-white relative overflow-hidden p-6 font-sans">

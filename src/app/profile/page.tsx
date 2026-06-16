@@ -94,7 +94,7 @@ function ProfilePageContent() {
     setResumeText(text);
     setStatus("LinkedIn profile scraped. Parsing into profile structure...");
     
-    const parseRes = await safeParseResumeText(text);
+    const parseRes = await safeParseResumeText(text, activeProfileId);
     if (!parseRes.success) {
       const isQuotaError = parseRes.error?.includes("429") || parseRes.error?.includes("quota");
       if (isQuotaError) {
@@ -139,7 +139,7 @@ function ProfilePageContent() {
     setResumeText(text);
     setStatus("File content loaded. Parsing into profile structure...");
     
-    const parseRes = await safeParseResumeText(text);
+    const parseRes = await safeParseResumeText(text, activeProfileId);
     if (!parseRes.success) {
       const isQuotaError = parseRes.error?.includes("429") || parseRes.error?.includes("quota");
       if (isQuotaError) {
@@ -316,7 +316,7 @@ function ProfilePageContent() {
     if (!resumeText) return;
     setIsParsing(true);
     
-    const parseRes = await safeParseResumeText(resumeText);
+    const parseRes = await safeParseResumeText(resumeText, activeProfileId);
     if (!parseRes.success) {
       const isQuotaError = parseRes.error?.includes("429") || parseRes.error?.includes("quota");
       if (isQuotaError) {

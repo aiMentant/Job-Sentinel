@@ -60,12 +60,13 @@ export async function listProfiles() {
 }
 
 export async function getProfile(profileId: string = 'default') {
+  const safeId = (typeof profileId === 'string' && profileId.trim()) ? profileId.trim() : 'default';
   if (isSupabaseEnabled()) {
     try {
       const { data, error } = await supabase
         .from('profiles')
         .select('data')
-        .eq('id', profileId)
+        .eq('id', safeId)
         .single();
       if (error && error.code !== 'PGRST116') throw error;
       if (data) return data.data;
@@ -75,28 +76,29 @@ export async function getProfile(profileId: string = 'default') {
   }
 
   // Fallback to local files
-  const profilePath = path.join(BASE_DATA_PATH, profileId, 'profile.json');
+  const profilePath = path.join(BASE_DATA_PATH, safeId, 'profile.json');
   try {
     const data = await fs.readFile(profilePath, 'utf-8');
     return JSON.parse(data);
   } catch (error) {
-    if (memoryProfiles.has(profileId)) {
-      return memoryProfiles.get(profileId);
+    if (memoryProfiles.has(safeId)) {
+      return memoryProfiles.get(safeId);
     }
-    if (profileId === 'default') {
+    if (safeId === 'default') {
       return { fullName: "Lea Wenban", targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
     }
-    const formattedName = profileId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const formattedName = safeId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
     return { fullName: formattedName, targetTitles: [], targetLocations: [], skills: [], experience: [], education: [] };
   }
 }
 
 export async function saveProfile(profile: any, profileId: string = 'default') {
+  const safeId = (typeof profileId === 'string' && profileId.trim()) ? profileId.trim() : 'default';
   if (isSupabaseEnabled()) {
     try {
       const { error } = await supabase
         .from('profiles')
-        .upsert({ id: profileId, data: profile });
+        .upsert({ id: safeId, data: profile });
       if (error) throw error;
       return;
     } catch (supabaseError: any) {
@@ -106,22 +108,23 @@ export async function saveProfile(profile: any, profileId: string = 'default') {
 
   // Fallback to local files
   try {
-    const dir = path.join(BASE_DATA_PATH, profileId);
+    const dir = path.join(BASE_DATA_PATH, safeId);
     await ensureDir(dir);
     await fs.writeFile(path.join(dir, 'profile.json'), JSON.stringify(profile, null, 2));
   } catch (fsError: any) {
     console.warn(`Local filesystem saveProfile failed (${fsError.message}), using in-memory storage fallback.`);
-    memoryProfiles.set(profileId, profile);
+    memoryProfiles.set(safeId, profile);
   }
 }
 
 export async function getJobs(profileId: string = 'default') {
+  const safeId = (typeof profileId === 'string' && profileId.trim()) ? profileId.trim() : 'default';
   if (isSupabaseEnabled()) {
     try {
       const { data, error } = await supabase
         .from('jobs')
         .select('jobs')
-        .eq('profile_id', profileId)
+        .eq('profile_id', safeId)
         .single();
       if (error && error.code !== 'PGRST116') throw error;
       if (data) return data.jobs || [];
@@ -131,24 +134,25 @@ export async function getJobs(profileId: string = 'default') {
   }
 
   // Fallback to local files
-  const dbPath = path.join(BASE_DATA_PATH, profileId, 'jobs.json');
+  const dbPath = path.join(BASE_DATA_PATH, safeId, 'jobs.json');
   try {
     const data = await fs.readFile(dbPath, 'utf-8');
     return JSON.parse(data);
   } catch (error) {
-    if (memoryJobs.has(profileId)) {
-      return memoryJobs.get(profileId) || [];
+    if (memoryJobs.has(safeId)) {
+      return memoryJobs.get(safeId) || [];
     }
     return [];
   }
 }
 
 export async function saveJobs(jobs: any[], profileId: string = 'default') {
+  const safeId = (typeof profileId === 'string' && profileId.trim()) ? profileId.trim() : 'default';
   if (isSupabaseEnabled()) {
     try {
       const { error } = await supabase
         .from('jobs')
-        .upsert({ profile_id: profileId, jobs: jobs });
+        .upsert({ profile_id: safeId, jobs: jobs });
       if (error) throw error;
       return;
     } catch (supabaseError: any) {
@@ -158,12 +162,12 @@ export async function saveJobs(jobs: any[], profileId: string = 'default') {
 
   // Fallback to local files
   try {
-    const dir = path.join(BASE_DATA_PATH, profileId);
+    const dir = path.join(BASE_DATA_PATH, safeId);
     await ensureDir(dir);
     await fs.writeFile(path.join(dir, 'jobs.json'), JSON.stringify(jobs, null, 2));
   } catch (fsError: any) {
     console.warn(`Local filesystem saveJobs failed (${fsError.message}), using in-memory storage fallback.`);
-    memoryJobs.set(profileId, jobs);
+    memoryJobs.set(safeId, jobs);
   }
 }
 

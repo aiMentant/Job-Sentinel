@@ -10,6 +10,7 @@ export default function ProfileTabs() {
   const { activeProfileId, profiles, switchProfile, createProfile } = useProfile();
   const router = useRouter();
   const pathname = usePathname();
+  const [isAdmin, setIsAdmin] = useState(false);
   const [dbStatus, setDbStatus] = useState<{
     connected: boolean;
     hasUrl: boolean;
@@ -39,10 +40,23 @@ export default function ProfileTabs() {
       }
     }
     checkStatus();
-  }, [profiles]);
+
+    const getCookie = (name: string): string | null => {
+      if (typeof document === 'undefined') return null;
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+      return null;
+    };
+    const role = getCookie("auth_role");
+    setIsAdmin(role === "admin");
+  }, [profiles, pathname]);
 
   // Don't show tabs on login screen
   if (pathname === "/login") return null;
+
+  // Hide tabs for non-admin users
+  if (!isAdmin) return null;
 
   const handleSwitch = async (id: string) => {
     await switchProfile(id);

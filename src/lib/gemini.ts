@@ -7,8 +7,8 @@ import { getProfile } from "@/lib/storage";
  * Direct fetch-based Gemini caller to bypass SDK bugs (like utils.typeOf)
  * and ensure stable performance in Next.js server actions.
  */
-export async function generateWithAI(prompt: string, options: { retries?: number, jsonMode?: boolean } = {}) {
-  const profileId = await getActiveProfileId().catch(() => "default");
+export async function generateWithAI(prompt: string, options: { retries?: number, jsonMode?: boolean, profileIdOverride?: string } = {}) {
+  const profileId = options.profileIdOverride || await getActiveProfileId().catch(() => "default");
   const profile = await getProfile(profileId).catch(() => null);
   
   let key = profile?.geminiApiKey;

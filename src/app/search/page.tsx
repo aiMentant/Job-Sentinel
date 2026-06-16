@@ -417,7 +417,7 @@ export default function SearchPage() {
     setIsRegenerating(true);
     setStatus("AI is analyzing resume for new roles...");
     try {
-      const data = await parseResumeText(profile.resumeText);
+      const data = await parseResumeText(profile.resumeText, activeProfileId);
       
       // MERGE logic: Keep current, add new unique ones
       const uniqueTitles = Array.from(new Set([...targetTitles, ...(data.targetTitles || [])]));

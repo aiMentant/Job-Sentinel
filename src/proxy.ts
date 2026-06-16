@@ -13,11 +13,18 @@ export function proxy(request: NextRequest) {
     pathname === "/login";
 
   const session = request.cookies.get("auth_session")?.value;
+  const role = request.cookies.get("auth_role")?.value;
 
   if (!session && !isExcluded) {
     // Redirect to login if not verified
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
+  }
+
+  if (pathname.startsWith("/admin") && role !== "admin") {
+    // Redirect non-admins away from admin center
+    const homeUrl = new URL("/", request.url);
+    return NextResponse.redirect(homeUrl);
   }
 
   if (session && pathname === "/login") {

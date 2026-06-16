@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   LayoutDashboard, 
   Search, 
@@ -13,7 +13,9 @@ import {
   ChevronRight, 
   Sun,
   Moon,
-  Calendar
+  Calendar,
+  Shield,
+  LogOut
 } from "lucide-react";
 
 import Link from "next/link";
@@ -40,9 +42,22 @@ export default function Sidebar() {
   const { activeProfileId, profiles } = useProfile();
   const { theme, toggleTheme } = useTheme();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   // Hide sidebar on login screen
   if (pathname === "/login") return null;
+
+  useEffect(() => {
+    const getCookie = (name: string): string | null => {
+      if (typeof document === 'undefined') return null;
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+      return null;
+    };
+    const role = getCookie("auth_role");
+    setIsAdmin(role === "admin");
+  }, [pathname]);
 
   const activeProfile = profiles.find(p => p.id === activeProfileId);
 
@@ -90,6 +105,21 @@ export default function Sidebar() {
             </Link>
           );
         })}
+
+        {isAdmin && (
+          <Link
+            href="/admin"
+            className={`flex items-center ${isCollapsed ? "justify-center" : "gap-3 px-4"} py-3 rounded-xl transition-all duration-200 group ${
+              pathname === "/admin" 
+                ? "bg-foreground/5 text-foreground font-semibold border border-card-border" 
+                : "text-text-muted hover:bg-foreground/5 hover:text-foreground"
+            }`}
+            title={isCollapsed ? "User Management" : ""}
+          >
+            <Shield className={`w-5 h-5 flex-shrink-0 ${pathname === "/admin" ? "text-foreground" : "text-text-muted group-hover:text-foreground"}`} />
+            {!isCollapsed && <span className="font-medium animate-in fade-in slide-in-from-left-2 duration-300 text-sm">User Management</span>}
+          </Link>
+        )}
       </nav>
 
       {/* Secondary Navigation Group (Bottom) */}
@@ -117,11 +147,27 @@ export default function Sidebar() {
       {/* Theme Toggler */}
       <button
         onClick={toggleTheme}
-        className={`flex items-center ${isCollapsed ? "justify-center px-0" : "gap-3 px-4"} py-3 mb-4 rounded-xl text-text-muted hover:bg-foreground/5 hover:text-foreground transition-all duration-200 cursor-pointer`}
+        className={`flex items-center ${isCollapsed ? "justify-center px-0" : "gap-3 px-4"} py-3 mb-2 rounded-xl text-text-muted hover:bg-foreground/5 hover:text-foreground transition-all duration-200 cursor-pointer`}
         title={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
       >
         {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         {!isCollapsed && <span className="font-semibold text-sm animate-in fade-in duration-300">{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>}
+      </button>
+
+      {/* Logout Toggler */}
+      <button
+        onClick={() => {
+          document.cookie = "auth_session=; max-age=0; path=/";
+          document.cookie = "auth_role=; max-age=0; path=/";
+          document.cookie = "auth_email=; max-age=0; path=/";
+          document.cookie = "active_profile_id=; max-age=0; path=/";
+          window.location.href = "/login";
+        }}
+        className={`flex items-center ${isCollapsed ? "justify-center px-0" : "gap-3 px-4"} py-3 mb-4 rounded-xl text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition-all duration-200 cursor-pointer`}
+        title="Logout"
+      >
+        <LogOut className="w-5 h-5" />
+        {!isCollapsed && <span className="font-semibold text-sm animate-in fade-in duration-300">Logout</span>}
       </button>
 
       {!isCollapsed && (

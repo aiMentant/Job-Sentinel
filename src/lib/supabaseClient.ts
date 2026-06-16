@@ -7,6 +7,14 @@ if (!supabaseUrl || !supabaseUrl.startsWith("http")) {
   console.warn("Missing or invalid Supabase URL environment variable.");
 }
 
-export const supabase = (supabaseUrl && supabaseUrl.startsWith("http") && supabaseServiceKey)
-  ? createClient(supabaseUrl, supabaseServiceKey)
-  : null as any;
+let client = null;
+try {
+  if (supabaseUrl && supabaseUrl.startsWith("http") && supabaseServiceKey) {
+    client = createClient(supabaseUrl, supabaseServiceKey);
+  }
+} catch (e) {
+  console.error("Failed to initialize Supabase client:", e);
+}
+
+export const supabase = client as any;
+

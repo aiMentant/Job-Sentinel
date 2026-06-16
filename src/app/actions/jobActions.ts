@@ -8,6 +8,7 @@ import JSZip from "jszip";
 
 import { getAgentStatus, setAgentStatus } from "./agentStatus";
 import { getActiveProfileId } from "./profileSwitch";
+import { logActivity } from "./adminActions";
 
 export async function fetchJobs(profileIdOverride?: string) {
   const profileId = profileIdOverride || await getActiveProfileId();
@@ -132,6 +133,14 @@ export async function runJobSearch(
 ) {
   const profileId = profileIdOverride || await getActiveProfileId();
   const profile = await getProfile(profileId);
+  const email = profile?.email || "unknown";
+  
+  await logActivity(email, "Job Search Started", { 
+    profile_id: profileId, 
+    titles: targetTitles, 
+    locations: targetLocations 
+  });
+
   const jobStore = await getJobs(profileId);
   const allResults: Job[] = [];
   
@@ -268,9 +277,17 @@ export async function runJobSearch(
     const updatedJobs = [...allResults, ...jobStore];
     await saveJobs(updatedJobs, profileId);
     await setAgentStatus({ isSearching: false, status: `Complete. Found ${allResults.length} new matches.` });
+    await logActivity(email, "Job Search Completed", { 
+      profile_id: profileId, 
+      new_matches: allResults.length 
+    });
     return allResults;
-  } catch (error) {
+  } catch (error: any) {
     await setAgentStatus({ isSearching: false, status: "Search failed. Check logs." });
+    await logActivity(email, "Job Search Failed", { 
+      profile_id: profileId, 
+      error: error.message || String(error) 
+    });
     throw error;
   }
 }
@@ -424,7 +441,7 @@ CRITICAL ANTI-HALLUCINATION GUARDRAILS:
   }
 }
 
-export async function parseResumeText(text: string): Promise<Partial<UserProfile>> {
+export async function parseResumeText(text: string, profileIdOverride?: string): Promise<Partial<UserProfile>> {
   const prompt = `
     Extract resume data from the text below. 
     IMPORTANT: You must return ONLY a JSON object. No preamble, no markdown blocks.
@@ -437,12 +454,12 @@ export async function parseResumeText(text: string): Promise<Partial<UserProfile
     CRITICAL:
     - For the "positioningSummary" field, write a high-impact, 1-sentence professional positioning statement (elevator pitch) that summarizes their core expertise and peak value proposition.
     - For the "booleanSearchString" field, generate a clean, copy-pasteable LinkedIn/Indeed Boolean search string representing these target job titles (e.g. '("Programme Director" OR "Head of PMO") AND (IT OR Digital)').
-
+ 
     CRITICAL ANTI-HALLUCINATION GUARDRAILS:
     - Rely ONLY on the provided TEXT. Do not invent, fabricate, or embellish candidate history.
     - Do NOT invent or add any KPIs, metrics, projects, companies, technologies, or credentials not explicitly mentioned in the TEXT.
     - Keep all extracted info 100% faithful to the source facts.
-
+ 
     TEXT:
     ${text}
     
@@ -466,9 +483,9 @@ export async function parseResumeText(text: string): Promise<Partial<UserProfile
       "positioningSummary": "1-sentence professional elevator pitch"
     }
   `;
-
+ 
   try {
-    const data = await generateWithAI(prompt, { jsonMode: true });
+    const data = await generateWithAI(prompt, { jsonMode: true, profileIdOverride });
     
     return {
       fullName: data.fullName || data.name || "",
@@ -647,9 +664,9 @@ export async function safeParseUploadedFile(formData: FormData): Promise<{ succe
   }
 }
 
-export async function safeParseResumeText(text: string): Promise<{ success: boolean; data?: Partial<UserProfile>; error?: string }> {
+export async function safeParseResumeText(text: string, profileIdOverride?: string): Promise<{ success: boolean; data?: Partial<UserProfile>; error?: string }> {
   try {
-    const data = await parseResumeText(text);
+    const data = await parseResumeText(text, profileIdOverride);
     return { success: true, data };
   } catch (error: any) {
     return { success: false, error: error.message || "Failed to parse resume text." };
