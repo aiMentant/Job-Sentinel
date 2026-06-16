@@ -458,8 +458,8 @@ export default function SearchPage() {
           setShowMissingParamsModal(true);
         }
       }
-    } catch (e) {
-      setStatus("Sync Failed: Check profile database.");
+    } catch (e: any) {
+      setStatus(`Sync Failed: ${e.message || String(e)}`);
     } finally {
       setIsRegenerating(false);
     }
