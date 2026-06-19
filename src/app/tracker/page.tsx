@@ -175,6 +175,53 @@ export default function TrackerPage() {
     }
   };
 
+  const handleSelectedBulkOptimize = async () => {
+    if (!profile || !profile.geminiApiKey) {
+      alert("Gemini API Key missing! Please navigate to Agent Settings to add your key.");
+      return;
+    }
+    const selectedJobs = jobs.filter(j => selectedIds.includes(j.id));
+    if (selectedJobs.length === 0) return;
+    
+    if (confirm(`Run AI Auto-Tailor for ${selectedJobs.length} selected jobs? This will rewrite resumes and cover letters for each.`)) {
+      setIsBulkOptimizing(true);
+      setAgent(prev => ({ ...prev, isSubmitting: true, status: "AI is tailoring applications...", progress: 0 }));
+      
+      const { optimizeApplicationPackage } = await import("@/app/actions/careerTools");
+
+      for (let i = 0; i < selectedJobs.length; i++) {
+        const job = selectedJobs[i];
+        setAgent(prev => ({ ...prev, status: `Tailoring ${job.company}...`, progress: Math.round(((i+1)/selectedJobs.length)*100) }));
+        
+        try {
+          const result = await optimizeApplicationPackage(job.description || "", job.title, job.company);
+          await updateJob(job.id, {
+            ...job,
+            score: result.matchScore,
+            coverLetterText: result.tailoredCoverLetter,
+            tailoredResumeText: result.tailoredResumeText,
+            recruiterHookLinkedin: result.linkedinHook,
+            recruiterHookEmail: result.emailHook,
+            applicationNotes: result.applicationStrategy,
+            applicationStatus: { 
+              ...job.applicationStatus, 
+              stage: 'Ready', 
+              lastUpdated: new Date().toISOString() 
+            }
+          });
+          await updateJobStatus(job.id, 'Ready' as any);
+        } catch (e) {
+          console.error(`Failed to optimize ${job.company}:`, e);
+        }
+      }
+      
+      setIsBulkOptimizing(false);
+      setAgent(prev => ({ ...prev, isSubmitting: false, status: "Finished AI Tailoring", progress: 100 }));
+      setSelectedIds([]);
+      loadJobs();
+    }
+  };
+
   const handleUpdateStatus = async (id: string, status: any) => {
     await updateJobStatus(id, status as any);
     setJobs(prev => prev.map(j => j.id === id ? { ...j, status } : j));
@@ -707,6 +754,16 @@ export default function TrackerPage() {
             <Play className="w-3.5 h-3.5 fill-current" />
             EXECUTE [{jobs.filter(j => (j.status as any) === 'Ready').length}] SUBMISSIONS
           </button>
+          {activeTrackerTab === 'workshop' && (
+            <button 
+              onClick={handleSelectedBulkOptimize}
+              disabled={selectedIds.length === 0 || isBulkOptimizing}
+              className="px-6 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-slate-800 disabled:text-slate-500 text-black disabled:shadow-none rounded-xl text-xs font-black tracking-widest uppercase transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2 cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              {isBulkOptimizing ? "Tailoring..." : `Bulk Tailor ${selectedIds.length > 0 ? `(${selectedIds.length})` : ""}`}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1194,6 +1251,15 @@ export default function TrackerPage() {
             <button onClick={() => setSelectedIds([])} className="px-3 py-1.5 text-xs font-medium text-indigo-100 hover:text-white">
               Clear
             </button>
+            {activeTrackerTab === 'workshop' && (
+              <button 
+                onClick={handleSelectedBulkOptimize} 
+                disabled={isBulkOptimizing}
+                className="px-4 py-1.5 bg-amber-500 text-black rounded-lg text-xs font-bold hover:bg-amber-400 transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isBulkOptimizing ? "Tailoring..." : "Bulk Tailor"}
+              </button>
+            )}
           </div>
         </div>
       )}
