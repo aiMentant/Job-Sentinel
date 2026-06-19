@@ -39,7 +39,8 @@ import {
   fetchJobs,
   bulkDeleteJobs,
   parseResumeText,
-  updateJobStatus
+  updateJobStatus,
+  bulkMoveToPipeline
 } from "@/app/actions/jobActions";
 
 import { getAgentStatus, setAgentStatus } from "@/app/actions/agentStatus";
@@ -84,6 +85,7 @@ export default function SearchPage() {
   const { activeProfileId } = useProfile();
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<Job[]>([]);
+  const [isMovingToPipeline, setIsMovingToPipeline] = useState(false);
   const [status, setStatus] = useState("");
   const [profile, setProfile] = useState<Partial<UserProfile>>({});
   const [targetTitles, setTargetTitles] = useState<string[]>([]);
@@ -349,14 +351,29 @@ export default function SearchPage() {
 
 
   const handleBulkMove = async () => {
-    // In our new workflow, "Move to Pipeline" means Starring the jobs
-    setResults(prev => prev.map(j => selectedIds.includes(j.id) ? { ...j, isFavourite: true } : j));
-    const { toggleJobFavourite } = await import("@/app/actions/jobActions");
-    for (const id of selectedIds) {
-      await toggleJobFavourite(id, activeProfileId);
+    if (isMovingToPipeline || selectedIds.length === 0) return;
+    setIsMovingToPipeline(true);
+    setStatus(`Moving ${selectedIds.length} jobs to Pipeline...`);
+    try {
+      // Optimistic UI update: Star them on client immediately
+      setResults(prev => prev.map(j => selectedIds.includes(j.id) ? { ...j, isFavourite: true } : j));
+      
+      const count = selectedIds.length;
+      const res = await bulkMoveToPipeline(selectedIds, activeProfileId);
+      if (res && res.success) {
+        setStatus(`Successfully moved ${count} jobs to Pipeline.`);
+        setTimeout(() => setStatus(""), 3000);
+      } else {
+        throw new Error(res?.error || "Unknown error during bulk move.");
+      }
+      setSelectedIds([]);
+    } catch (e: any) {
+      console.error(e);
+      alert(`Failed to move jobs to Pipeline: ${e.message || String(e)}`);
+      setStatus("Bulk move failed.");
+    } finally {
+      setIsMovingToPipeline(false);
     }
-    setSelectedIds([]);
-    alert(`${selectedIds.length} jobs moved to your Application Pipeline.`);
   };
 
   const getPostingAge = (postedAt?: string, createdAt?: string): string => {
@@ -1557,9 +1574,15 @@ export default function SearchPage() {
           <div className="flex gap-2">
             <button 
               onClick={handleBulkMove}
-              className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-500/20"
+              disabled={isMovingToPipeline}
+              className={`px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-500 transition-colors shadow-lg shadow-indigo-500/20 flex items-center gap-1.5 ${isMovingToPipeline ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              Move to Pipeline
+              {isMovingToPipeline ? (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping shrink-0" />
+                  Moving...
+                </>
+              ) : "Move to Pipeline"}
             </button>
             <button 
               onClick={() => setShowDismissModal(true)}

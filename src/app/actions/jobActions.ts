@@ -328,6 +328,19 @@ export async function bulkDeleteJobs(ids: string[], profileIdOverride?: string) 
   return { success: true };
 }
 
+export async function bulkMoveToPipeline(ids: string[], profileIdOverride?: string) {
+  try {
+    const profileId = profileIdOverride || await getActiveProfileId();
+    const jobs = await getJobs(profileId);
+    const updated = jobs.map((j: any) => ids.includes(j.id) ? { ...j, isFavourite: true } : j);
+    await saveJobs(updated, profileId);
+    return { success: true };
+  } catch (e: any) {
+    console.error("bulkMoveToPipeline failed:", e);
+    return { success: false, error: e.message || String(e) };
+  }
+}
+
 export async function saveUserProfile(profile: any, targetProfileId?: string) {
   try {
     const profileId = targetProfileId || (await getActiveProfileId());
@@ -631,21 +644,21 @@ export async function parseUploadedFile(formData: FormData): Promise<string> {
         constructor() {}
       };
     }
-    const pdfModule = await import("pdf-parse");
+    const pdfModule = await import("pdf-parse") as any;
     const pdf = typeof pdfModule.default === 'function' 
       ? pdfModule.default 
-      : (typeof pdfModule === 'function' ? pdfModule : (pdfModule as any).PDFParse);
+      : (typeof pdfModule === 'function' ? pdfModule : pdfModule.PDFParse);
 
     let parsedText = "";
     if (typeof pdf === 'function') {
       const parsed = await pdf(buffer);
       parsedText = parsed.text;
-    } else if (pdfModule && (pdfModule as any).PDFParse) {
-      const parser = new (pdfModule as any).PDFParse({ data: buffer });
+    } else if (pdfModule && pdfModule.PDFParse) {
+      const parser = new pdfModule.PDFParse({ data: buffer });
       const parsed = await parser.getText();
       parsedText = parsed.text;
     } else {
-      const directPdf = (pdfModule as any).default || pdfModule;
+      const directPdf = pdfModule.default || pdfModule;
       const parsed = await directPdf(buffer);
       parsedText = parsed.text;
     }
