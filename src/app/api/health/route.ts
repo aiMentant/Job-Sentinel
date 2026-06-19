@@ -19,6 +19,7 @@ export async function GET() {
     supabase_client_initialized: supabase !== null && supabase !== undefined,
     supabase_connected: false,
     tables: {} as Record<string, string>,
+    profiles_in_db: [] as string[],
     error: null as string | null,
   };
 
@@ -39,6 +40,12 @@ export async function GET() {
       report.tables[table] = `EXCEPTION: ${e?.message || e}`;
     }
   }
+
+  // List which profile IDs actually exist in the DB
+  try {
+    const { data } = await supabase.from("profiles").select("id");
+    report.profiles_in_db = (data || []).map((r: any) => r.id);
+  } catch {}
 
   // Mark overall connection health
   const profilesOk = report.tables["profiles"] === "OK";
