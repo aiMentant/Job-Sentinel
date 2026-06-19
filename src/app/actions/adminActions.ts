@@ -9,9 +9,10 @@ const USERS_FILE_PATH = path.join(safeCwd, "data/users.json");
 const LOGS_FILE_PATH = path.join(safeCwd, "data/activity_logs.json");
 
 // Helper to race a promise against a timeout to prevent serverless function hangs
-function withTimeout<T>(promise: Promise<T>, ms: number = 3000): Promise<T> {
+// Accepts PromiseLike<T> so Supabase query builders (which are thenables, not strict Promises) work.
+function withTimeout<T>(promise: PromiseLike<T>, ms: number = 3000): Promise<T> {
   return Promise.race([
-    promise,
+    Promise.resolve(promise),
     new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Database timeout")), ms))
   ]);
 }
@@ -37,7 +38,7 @@ export async function listAllUsers() {
   if (isSupabaseEnabled()) {
     try {
       const { data, error } = (await withTimeout(
-        supabase
+        supabase!
           .from("users")
           .select("*")
           .order("created_at", { ascending: true })
@@ -63,7 +64,7 @@ export async function saveUser(user: { email: string; password?: string; role?: 
   if (isSupabaseEnabled()) {
     try {
       const { error } = (await withTimeout(
-        supabase.from("users").upsert({
+        supabase!.from("users").upsert({
           email: user.email,
           password: user.password,
           role: user.role || "user",
@@ -110,7 +111,7 @@ export async function deleteUser(email: string) {
   if (isSupabaseEnabled()) {
     try {
       const { error } = (await withTimeout(
-        supabase.from("users").delete().eq("email", email)
+        supabase!.from("users").delete().eq("email", email)
       )) as any;
       if (!error) return { success: true };
       throw error;
@@ -136,7 +137,7 @@ export async function logActivity(email: string, action: string, details: Record
   if (isSupabaseEnabled()) {
     try {
       const { error } = (await withTimeout(
-        supabase.from("activity_logs").insert({
+        supabase!.from("activity_logs").insert({
           email,
           action,
           details,
@@ -181,7 +182,7 @@ export async function getActivityLogs() {
   if (isSupabaseEnabled()) {
     try {
       const { data, error } = (await withTimeout(
-        supabase
+        supabase!
           .from("activity_logs")
           .select("*")
           .order("created_at", { ascending: false })

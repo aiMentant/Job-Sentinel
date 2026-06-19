@@ -5,6 +5,8 @@ const safeCwd = typeof process !== 'undefined' && typeof process.cwd === 'functi
 const BASE_DATA_PATH = path.join(safeCwd, 'data/profiles');
 
 // Keep in-memory singletons across Next.js Hot Module Replacement (HMR)
+// NOTE: Enabled in ALL environments — previously only non-production, which
+// meant production serverless had no working fallback when filesystem writes fail.
 const globalForStorage = (typeof globalThis !== 'undefined' ? globalThis : global) as unknown as {
   memoryProfiles?: Map<string, any>;
   memoryJobs?: Map<string, any[]>;
@@ -13,16 +15,17 @@ const globalForStorage = (typeof globalThis !== 'undefined' ? globalThis : globa
 const memoryProfiles = globalForStorage.memoryProfiles || new Map<string, any>();
 const memoryJobs = globalForStorage.memoryJobs || new Map<string, any[]>();
 
-if (typeof process !== 'undefined' && process.env.NODE_ENV !== "production") {
-  globalForStorage.memoryProfiles = memoryProfiles;
-  globalForStorage.memoryJobs = memoryJobs;
-}
+// Always persist singletons on globalThis so they survive HMR in dev
+// and within-invocation re-imports in production serverless.
+globalForStorage.memoryProfiles = memoryProfiles;
+globalForStorage.memoryJobs = memoryJobs;
 
 // Helper to determine if we should use Supabase or local files
 export function isSupabaseEnabled(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
-  return !!(url && key && url !== "" && key !== "" && supabase);
+  // Also check that the supabase client was actually initialized (not null)
+  return !!(url && key && url !== "" && key !== "" && supabase !== null && supabase !== undefined);
 }
 
 async function ensureDir(dir: string) {
@@ -36,7 +39,7 @@ async function ensureDir(dir: string) {
 export async function listProfiles() {
   if (isSupabaseEnabled()) {
     try {
-      const { data, error } = await supabase.from('profiles').select('id');
+      const { data, error } = await supabase!.from('profiles').select('id');
       if (error) throw error;
       const dbIds = (data || []).map((p: any) => p.id);
       return Array.from(new Set(['default', ...dbIds]));
@@ -63,7 +66,7 @@ export async function getProfile(profileId: string = 'default') {
   const safeId = (typeof profileId === 'string' && profileId.trim()) ? profileId.trim() : 'default';
   if (isSupabaseEnabled()) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabase!
         .from('profiles')
         .select('data')
         .eq('id', safeId)
@@ -96,7 +99,7 @@ export async function saveProfile(profile: any, profileId: string = 'default') {
   const safeId = (typeof profileId === 'string' && profileId.trim()) ? profileId.trim() : 'default';
   if (isSupabaseEnabled()) {
     try {
-      const { error } = await supabase
+      const { error } = await supabase!
         .from('profiles')
         .upsert({ id: safeId, data: profile });
       if (error) throw error;
@@ -106,13 +109,13 @@ export async function saveProfile(profile: any, profileId: string = 'default') {
     }
   }
 
-  // Fallback to local files
+  // Fallback to local files (works in dev, read-only in production serverless)
   try {
     const dir = path.join(BASE_DATA_PATH, safeId);
     await ensureDir(dir);
     await (await import("fs/promises")).writeFile(path.join(dir, 'profile.json'), JSON.stringify(profile, null, 2));
   } catch (fsError: any) {
-    console.warn(`Local filesystem saveProfile failed (${fsError.message}), using in-memory storage fallback.`);
+    console.warn(`[Storage] Local filesystem saveProfile failed (${fsError.message}). Using in-memory fallback. Note: in-memory data is lost on serverless cold start — ensure Supabase is connected for production persistence.`);
     memoryProfiles.set(safeId, profile);
   }
 }
@@ -121,7 +124,7 @@ export async function getJobs(profileId: string = 'default') {
   const safeId = (typeof profileId === 'string' && profileId.trim()) ? profileId.trim() : 'default';
   if (isSupabaseEnabled()) {
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabase!
         .from('jobs')
         .select('jobs')
         .eq('profile_id', safeId)
@@ -150,7 +153,7 @@ export async function saveJobs(jobs: any[], profileId: string = 'default') {
   const safeId = (typeof profileId === 'string' && profileId.trim()) ? profileId.trim() : 'default';
   if (isSupabaseEnabled()) {
     try {
-      const { error } = await supabase
+      const { error } = await supabase!
         .from('jobs')
         .upsert({ profile_id: safeId, jobs: jobs });
       if (error) throw error;
@@ -160,13 +163,13 @@ export async function saveJobs(jobs: any[], profileId: string = 'default') {
     }
   }
 
-  // Fallback to local files
+  // Fallback to local files (works in dev, read-only in production serverless)
   try {
     const dir = path.join(BASE_DATA_PATH, safeId);
     await ensureDir(dir);
     await (await import("fs/promises")).writeFile(path.join(dir, 'jobs.json'), JSON.stringify(jobs, null, 2));
   } catch (fsError: any) {
-    console.warn(`Local filesystem saveJobs failed (${fsError.message}), using in-memory storage fallback.`);
+    console.warn(`[Storage] Local filesystem saveJobs failed (${fsError.message}). Using in-memory fallback. Note: in-memory data is lost on serverless cold start — ensure Supabase is connected for production persistence.`);
     memoryJobs.set(safeId, jobs);
   }
 }
