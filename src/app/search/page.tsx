@@ -234,6 +234,9 @@ export default function SearchPage() {
       if (searchMode === 'standard' && isDeepSource) return false;
       if (searchMode === 'deep' && !isDeepSource) return false;
 
+      // Filter out jobs that are already in the application pipeline (starred)
+      if (j.isFavourite) return false;
+
       // Filter by location (flexible matching)
       if (selectedLocationFilter !== "all") {
         const cleanFilter = selectedLocationFilter.toLowerCase().trim();
