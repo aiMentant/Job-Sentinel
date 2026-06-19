@@ -1,7 +1,5 @@
 "use server";
 
-import { chromium } from "playwright";
-
 // import stealth from "puppeteer-extra-plugin-stealth";
 
 import { Job } from "@/lib/db";
@@ -12,6 +10,7 @@ import { setAgentStatus } from "./agentStatus";
 
 
 async function getBrowserInstance() {
+  const { chromium } = await import("playwright");
   const browserlessKey = process.env.BROWSERLESS_API_KEY;
   if (browserlessKey && browserlessKey !== "") {
     try {

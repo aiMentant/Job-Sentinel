@@ -1,14 +1,10 @@
 "use server";
 
-import { chromium } from "playwright";
 import { Job } from "@/lib/db";
 import { fetchUserProfile, fetchJobs } from "./jobActions";
 import { setAgentStatus, getAgentStatus } from "./agentStatus";
 import { getJobs, saveJobs } from "@/lib/storage";
 import { getActiveProfileId } from "./profileSwitch";
-
-import path from "path";
-import fs from "fs/promises";
 
 export async function runBulkSubmissions(jobs: Job[]) {
   const profile = await fetchUserProfile();
@@ -22,6 +18,7 @@ export async function runBulkSubmissions(jobs: Job[]) {
 
   let browser;
   try {
+    const { chromium } = await import("playwright");
     const browserlessKey = process.env.BROWSERLESS_API_KEY;
     if (browserlessKey && browserlessKey !== "") {
       try {
@@ -152,6 +149,8 @@ export async function runBulkSubmissions(jobs: Job[]) {
           if (confirmed) {
             // Take a screenshot as "Proof of Work"
             try {
+              const fs = await import("fs/promises");
+              const path = await import("path");
               const screenshotPath = `public/proofs/${job.id}.png`;
               await fs.mkdir(path.dirname(screenshotPath), { recursive: true });
               await page.screenshot({ path: screenshotPath, fullPage: true });
