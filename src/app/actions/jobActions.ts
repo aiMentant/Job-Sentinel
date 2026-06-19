@@ -528,7 +528,8 @@ export async function parseResumeText(text: string, profileIdOverride?: string):
     };
   } catch (error: any) {
     try {
-      await require('fs/promises').writeFile('data/debug_error.txt', error.stack || error.message);
+      const fs = await import('fs/promises');
+      await fs.writeFile('data/debug_error.txt', error.stack || error.message);
     } catch (fsErr) {
       console.warn("Failed to write debug_error.txt in read-only environment.");
     }
@@ -630,16 +631,25 @@ export async function parseUploadedFile(formData: FormData): Promise<string> {
         constructor() {}
       };
     }
-    const pdfModule = require("pdf-parse");
-    if (typeof pdfModule.PDFParse === 'function') {
-      const parser = new pdfModule.PDFParse({ data: buffer });
-      const parsed = await parser.getText();
-      return parsed.text;
-    } else {
-      const pdf = typeof pdfModule === 'function' ? pdfModule : pdfModule.default;
+    const pdfModule = await import("pdf-parse");
+    const pdf = typeof pdfModule.default === 'function' 
+      ? pdfModule.default 
+      : (typeof pdfModule === 'function' ? pdfModule : (pdfModule as any).PDFParse);
+
+    let parsedText = "";
+    if (typeof pdf === 'function') {
       const parsed = await pdf(buffer);
-      return parsed.text;
+      parsedText = parsed.text;
+    } else if (pdfModule && (pdfModule as any).PDFParse) {
+      const parser = new (pdfModule as any).PDFParse({ data: buffer });
+      const parsed = await parser.getText();
+      parsedText = parsed.text;
+    } else {
+      const directPdf = (pdfModule as any).default || pdfModule;
+      const parsed = await directPdf(buffer);
+      parsedText = parsed.text;
     }
+    return parsedText;
   } else if (filename.endsWith(".docx")) {
     const buffer = await file.arrayBuffer();
     const zip = await (await import("jszip")).default.loadAsync(buffer);

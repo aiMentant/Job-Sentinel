@@ -35,7 +35,13 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 
       let pId = urlProfileId;
       if (!pId) {
-        pId = await getActiveProfileId();
+        if (typeof document !== "undefined") {
+          const match = document.cookie.match(/(?:^|; )active_profile_id=([^;]*)/);
+          pId = match ? decodeURIComponent(match[1]) : null;
+        }
+        if (!pId) {
+          pId = await getActiveProfileId();
+        }
       } else {
         await setActiveProfileId(pId);
       }
