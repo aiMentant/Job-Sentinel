@@ -17,40 +17,32 @@ type HelpModalProps = {
   isOpen: boolean;
   onClose: () => void;
   activeProfileId: string;
+  type: "setup" | "search";
 };
 
-export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModalProps) {
-  const [activeTab, setActiveTab] = useState<"setup" | "search">("setup");
-  const [setupStep, setSetupStep] = useState(1);
-  const [searchStep, setSearchStep] = useState(1);
+export default function HelpModal({ isOpen, onClose, activeProfileId, type }: HelpModalProps) {
+  const [currentStep, setCurrentStep] = useState(1);
 
   if (!isOpen) return null;
 
-  const currentStep = activeTab === "setup" ? setupStep : searchStep;
   const totalSteps = 2;
 
   const handleDismiss = () => {
-    if (typeof window !== "undefined") {
+    if (type === "setup" && typeof window !== "undefined") {
       localStorage.setItem(`job_sentinel_setup_shown_${activeProfileId}`, "true");
     }
     onClose();
   };
 
   const handleNext = () => {
-    if (activeTab === "setup") {
-      setSetupStep(prev => Math.min(prev + 1, totalSteps));
-    } else {
-      setSearchStep(prev => Math.min(prev + 1, totalSteps));
-    }
+    setCurrentStep(prev => Math.min(prev + 1, totalSteps));
   };
 
   const handleBack = () => {
-    if (activeTab === "setup") {
-      setSetupStep(prev => Math.max(prev - 1, 1));
-    } else {
-      setSearchStep(prev => Math.max(prev - 1, 1));
-    }
+    setCurrentStep(prev => Math.max(prev - 1, 1));
   };
+
+  const titleText = type === "setup" ? "Account Setup Guide" : "Job Search & AI Guide";
 
   return (
     <div className="fixed inset-0 z-50 p-[2px] bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 flex">
@@ -60,37 +52,13 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
         <div className="flex justify-between items-center pb-4 border-b border-card-border/60 shrink-0">
           <div className="flex items-center gap-2">
             <HelpCircle className="w-5 h-5 text-indigo-500" />
-            <h2 className="text-lg font-black font-outfit text-foreground uppercase tracking-wider">Job Sentinel System Manual</h2>
+            <h2 className="text-lg font-black font-outfit text-foreground uppercase tracking-wider">{titleText}</h2>
           </div>
           <button 
             onClick={onClose} 
             className="p-1 rounded-lg hover:bg-foreground/5 text-text-muted hover:text-foreground transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Tab Selectors */}
-        <div className="flex gap-4 border-b border-card-border/40 py-3 shrink-0">
-          <button
-            onClick={() => setActiveTab("setup")}
-            className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-xl transition-all border cursor-pointer ${
-              activeTab === "setup"
-                ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/30"
-                : "text-text-muted hover:text-foreground border-transparent hover:bg-foreground/5"
-            }`}
-          >
-            🛠 1. Account Setup Guide
-          </button>
-          <button
-            onClick={() => setActiveTab("search")}
-            className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-xl transition-all border cursor-pointer ${
-              activeTab === "search"
-                ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/30"
-                : "text-text-muted hover:text-foreground border-transparent hover:bg-foreground/5"
-            }`}
-          >
-            🔍 2. Search & Vetting Guide
           </button>
         </div>
 
@@ -109,10 +77,10 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
         {/* Step Content Area */}
         <div className="flex-1 overflow-y-auto pr-1 text-sm leading-relaxed space-y-4 py-2">
           
-          {/* TAB 1: ACCOUNT SETUP */}
-          {activeTab === "setup" && (
+          {/* TYPE 1: ACCOUNT SETUP */}
+          {type === "setup" && (
             <>
-              {setupStep === 1 && (
+              {currentStep === 1 && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 font-bold shrink-0">
@@ -144,7 +112,7 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
                 </div>
               )}
 
-              {setupStep === 2 && (
+              {currentStep === 2 && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 font-bold shrink-0">
@@ -190,10 +158,10 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
             </>
           )}
 
-          {/* TAB 2: SEARCH & VETTING GUIDE */}
-          {activeTab === "search" && (
+          {/* TYPE 2: SEARCH & VETTING GUIDE */}
+          {type === "search" && (
             <>
-              {searchStep === 1 && (
+              {currentStep === 1 && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 font-bold shrink-0">
@@ -208,7 +176,7 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
                   <div className="p-4 bg-foreground/[0.02] border border-card-border rounded-xl space-y-4 text-xs text-text-muted">
                     <div>
                       <h5 className="font-bold text-foreground text-xs mb-1">Standard Mode (Job Boards)</h5>
-                      <p>Focuses on central platforms like LinkedIn and Indeed. When triggered, the crawler directly queries your selected target sites using your titles and locations. (Requires the LinkedIn cookie from Tab 1 to run successfully).</p>
+                      <p>Focuses on central platforms like LinkedIn and Indeed. When triggered, the crawler directly queries your selected target sites using your titles and locations. (Requires the LinkedIn cookie to run successfully).</p>
                     </div>
                     <div className="border-t border-card-border/60 pt-3">
                       <h5 className="font-bold text-foreground text-xs mb-1">Deep Web Mode (Direct Company Careers)</h5>
@@ -222,7 +190,7 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
                 </div>
               )}
 
-              {searchStep === 2 && (
+              {currentStep === 2 && (
                 <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 font-bold shrink-0">
@@ -259,12 +227,16 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
 
         {/* Footer Controls */}
         <div className="flex justify-between items-center pt-4 border-t border-card-border/60 mt-4 shrink-0">
-          <button
-            onClick={handleDismiss}
-            className="text-xs text-text-muted hover:text-foreground font-semibold uppercase tracking-wider cursor-pointer"
-          >
-            Don't show again
-          </button>
+          <div>
+            {type === "setup" && (
+              <button
+                onClick={handleDismiss}
+                className="text-xs text-text-muted hover:text-foreground font-semibold uppercase tracking-wider cursor-pointer"
+              >
+                Don't show again
+              </button>
+            )}
+          </div>
           
           <div className="flex items-center gap-3">
             {currentStep > 1 && (
@@ -288,7 +260,7 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
                 onClick={handleDismiss}
                 className="btn-primary py-1.5 px-4 rounded-lg text-xs font-black uppercase tracking-widest bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1 cursor-pointer"
               >
-                Complete Setup
+                {type === "setup" ? "Complete Setup" : "Dismiss Guide"}
               </button>
             )}
           </div>
