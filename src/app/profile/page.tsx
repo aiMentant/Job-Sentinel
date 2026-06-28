@@ -18,7 +18,7 @@ import {
   Upload,
   Target
 } from "lucide-react";
-import { parseResumeText, saveUserProfile, fetchUserProfile, listAllProfilesWithData, deleteProfile, runLinkedInProfileScrape, parseUploadedFile, safeParseUploadedFile, safeParseResumeText, safeLinkedInProfileScrape } from "@/app/actions/jobActions";
+import { parseResumeText, saveUserProfile, fetchUserProfile, listAllProfilesWithData, deleteProfile, parseUploadedFile, safeParseUploadedFile, safeParseResumeText } from "@/app/actions/jobActions";
 
 import { getActiveProfileId, setActiveProfileId } from "@/app/actions/profileSwitch";
 import { findRoleFit, upgradeBullets } from "@/app/actions/careerTools";
@@ -74,49 +74,9 @@ function ProfilePageContent() {
   const [profileToDelete, setProfileToDelete] = useState<string | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
-  const [linkedInUrl, setLinkedInUrl] = useState("");
-  const [isScraping, setIsScraping] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
-  const handleLinkedInScrape = async () => {
-    if (!linkedInUrl) return;
-    setIsScraping(true);
-    setStatus("Scraping LinkedIn profile...");
-    
-    const scrapeRes = await safeLinkedInProfileScrape(linkedInUrl);
-    if (!scrapeRes.success) {
-      alert(scrapeRes.error || "Failed to scrape LinkedIn profile.");
-      setStatus("LinkedIn scrape failed.");
-      setIsScraping(false);
-      return;
-    }
 
-    const text = scrapeRes.text || "";
-    setResumeText(text);
-    setStatus("LinkedIn profile scraped. Parsing into profile structure...");
-    
-    const parseRes = await safeParseResumeText(text, activeProfileId);
-    if (!parseRes.success) {
-      const isQuotaError = parseRes.error?.includes("429") || parseRes.error?.includes("quota");
-      if (isQuotaError) {
-        alert("Gemini API Quota Exceeded (429). The profile text was successfully extracted and loaded on the left, but the AI could not auto-parse the details. Please go to Settings to add your own active Gemini API Key, or fill in the details manually.");
-      } else {
-        alert(parseRes.error || "Failed to parse profile.");
-      }
-      setStatus("LinkedIn scrape failed.");
-      setIsScraping(false);
-      return;
-    }
-
-    const data = parseRes.data || {};
-    if (Object.keys(data).length === 0 || (!data.fullName && !data.experience?.length)) {
-      setStatus("LinkedIn scrape succeeded, but AI found no structured data. Review raw text on left.");
-    } else {
-      setProfileHelper(data);
-      setStatus("LinkedIn profile imported successfully.");
-    }
-    setIsScraping(false);
-  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -527,53 +487,36 @@ function ProfilePageContent() {
                 </button>
               </div>
             </div>
-            {/* LinkedIn Scraper & File Upload Quick Controls */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-foreground/[0.02] rounded-xl border border-card-border">
-              <div className="space-y-2">
-                <label className="text-[10px] text-text-muted uppercase font-bold tracking-wider flex items-center gap-1">
-                  <svg className="w-3.5 h-3.5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z" />
-                    <rect x="2" y="9" width="4" height="12" />
-                    <circle cx="4" cy="4" r="2" />
-                  </svg>
-                  LinkedIn Import
-                </label>
-                <div className="flex flex-col gap-2">
-                  <input
-                    type="url"
-                    placeholder="https://linkedin.com/in/username"
-                    value={linkedInUrl}
-                    onChange={(e) => setLinkedInUrl(e.target.value)}
-                    className="input-field text-xs py-1.5 w-full"
-                  />
-                  <button
-                    onClick={handleLinkedInScrape}
-                    disabled={isScraping || !linkedInUrl}
-                    className="w-full py-1.5 bg-indigo-500/10 text-indigo-400 rounded-lg text-xs font-bold border border-indigo-500/20 hover:bg-indigo-500/20 transition-all disabled:opacity-50 cursor-pointer"
-                  >
-                    {isScraping ? "Scraping..." : "Scrape"}
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] text-text-muted uppercase font-bold tracking-wider flex items-center gap-1">
-                  <Upload className="w-3.5 h-3.5 text-emerald-400" /> ATS Resume Upload
-                </label>
-                <div className="relative">
-                  <input
-                    type="file"
-                    accept=".txt,.pdf,.docx"
-                    onChange={handleFileUpload}
-                    disabled={isUploading}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-                  />
-                  <div className="flex flex-col items-center justify-center gap-1 border border-dashed border-card-border hover:border-emerald-500/30 bg-card hover:bg-emerald-500/[0.02] transition-all h-[76px] rounded-lg text-xs font-medium text-text-muted">
-                    <Upload className="w-4 h-4 text-text-muted" />
-                    <span>{isUploading ? "Uploading..." : "Upload PDF / DOCX / TXT"}</span>
-                  </div>
+            {/* ATS Resume Upload */}
+            <div className="p-3 bg-foreground/[0.02] rounded-xl border border-card-border">
+              <label className="text-[10px] text-text-muted uppercase font-bold tracking-wider flex items-center gap-1 mb-2">
+                <Upload className="w-3.5 h-3.5 text-emerald-400" /> ATS Resume Upload
+              </label>
+              <div className="relative">
+                <input
+                  type="file"
+                  accept=".txt,.docx"
+                  onChange={handleFileUpload}
+                  disabled={isUploading}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                />
+                <div className="flex flex-col items-center justify-center gap-1 border border-dashed border-card-border hover:border-emerald-500/30 bg-card hover:bg-emerald-500/[0.02] transition-all h-[76px] rounded-lg text-xs font-medium text-text-muted">
+                  <Upload className="w-4 h-4 text-text-muted" />
+                  <span>{isUploading ? "Uploading..." : "Upload DOCX / TXT"}</span>
+                  <span className="text-[10px] text-text-muted/60">PDF not supported — use DOCX or TXT</span>
                 </div>
               </div>
             </div>
+            {/* LinkedIn Copy-Paste parser guide */}
+            <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl space-y-1.5">
+              <span className="text-[9px] uppercase tracking-wider font-bold text-indigo-400 flex items-center gap-1">
+                💡 Import From LinkedIn Profile
+              </span>
+              <p className="text-[10px] text-text-muted leading-relaxed">
+                To auto-generate your profile/resume from LinkedIn: Open your LinkedIn profile, press <kbd className="px-1 bg-black/30 rounded border border-card-border">Cmd/Ctrl + A</kbd> to select all text, copy it, and paste it into the editor below. Click <strong className="text-emerald-400">AI Parse</strong> to extract your structured experience.
+              </p>
+            </div>
+
             <textarea 
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
@@ -675,7 +618,6 @@ function ProfilePageContent() {
                       value={profile.linkedInUrl || ""} 
                       onChange={(e) => {
                         setProfile({...profile, linkedInUrl: e.target.value});
-                        setLinkedInUrl(e.target.value);
                       }}
                       placeholder="https://linkedin.com/in/username"
                       className="input-field text-sm w-full" 

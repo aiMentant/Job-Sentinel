@@ -22,6 +22,20 @@ Target Titles: ${(profile.targetTitles || []).join(", ")}
 }
 
 // ────────────────────────────────────────────────────────
+// Shared anti-detection & human cadence rules
+// Injected into every output-facing AI prompt so generated
+// text bypasses common LLM-detection scanners naturally.
+// ────────────────────────────────────────────────────────
+const ANTI_DETECTION_RULES = `
+AI DETECTION BYPASS — HUMAN CADENCE RULES (MANDATORY):
+- BANNED WORDS & PHRASES: Do NOT use any of the following at any point in your output: "Moreover", "Furthermore", "Delve", "Testament to", "A testament", "Exciting mix", "Passion for", "Passionate about", "Foster", "Synergy", "Tapestry", "Leverage" (as a verb for skills), "Spearheaded" (unless directly from the user's background), "Utilize" (prefer "use"), "Embark", "Journey", "Landscape", "Transformative", "Impactful journey", "I am writing to", "Hope this finds you well", "Eager to bring my unique", "I would be a great fit", "Delighted to", "Thrilled to", "Excited to bring".
+- SENTENCE VARIETY (BURSTINESS): Mix sentence lengths deliberately. Short punchy sentences. Occasionally use longer, more complex sentences that flow naturally into the next idea. Avoid a rhythm of uniformly-structured sentences of the same length.
+- VOICE: Write in a direct, confident, professional first-person voice. Active voice only. Avoid passive constructions like "was responsible for" — prefer "managed", "built", "cut", "grew".
+- NO BULLET OVERLOAD: Avoid more than 4–5 consecutive bullet points without a break. Prose paragraphs should be used where natural flow matters (cover letters, messages).
+- CONTRACTIONS: Use natural contractions sparingly where appropriate (e.g. "I've", "I'm", "it's") to sound human — but only in cover letters and messages, not in resume bullets.
+`.trim();
+
+// ────────────────────────────────────────────────────────
 // 1. Resume Conversion Fixer
 // Rewrites resume for maximum interview callbacks.
 // ────────────────────────────────────────────────────────
@@ -169,6 +183,8 @@ CRITICAL ANTI-HALLUCINATION GUARDRAILS:
 - If no direct match exists for a key requirement, focus on adjacent transferable skills mentioned in the background rather than inventing it.
 - Keep it under 280 words.
 - Do not use phrases like "I am writing to express my interest." Start with a strong hook.
+
+${ANTI_DETECTION_RULES}
   `;
 
   const result: any = await generateWithAI(prompt);
@@ -198,6 +214,8 @@ CRITICAL ANTI-HALLUCINATION GUARDRAILS:
 - Do not make up any career details.
 - Avoid begging, generic phrases, or "I hope this message finds you well." 
 - LinkedIn message must be under 100 words. Email must be under 150 words with a subject line.
+
+${ANTI_DETECTION_RULES}
 
 Return ONLY a JSON object (no markdown):
 {
@@ -278,6 +296,8 @@ CRITICAL FORMATTING & HUMAN CADENCE GUARDRAILS:
 - BULLET STYLE: Use the standard bullet character "•" instead of markdown asterisks ("*") for all bulleted lists in the resume and cover letter.
 - HUMAN CADENCE / MULTI-LLM SYNERGY: Rewrite with a natural human conversational cadence. Vary sentence lengths (mix short, medium, and long sentences). Do not use formulaic AI transition phrases (e.g., "hope this message finds you well", "as a testament to", "passion for", "excited to bring my unique mix"). Make it read like a polished human professional who is technically expert and direct.
 
+${ANTI_DETECTION_RULES}
+
 1. Match Score (0-100).
 2. Missing Keywords: Identify critical terms from the JD missing from my profile.
 3. Tailored Resume: Rewrite my entire resume to match this role. 
@@ -341,6 +361,8 @@ Do NOT invent or exaggerate credentials, metrics, or experiences.
 3. Use the standard bullet character "•" instead of markdown asterisks ("*") for lists.
 4. Human Cadence & Multi-LLM Synergy: Emulate a natural human tone (varied sentence lengths, active voice, conversational yet professional, avoiding buzzwords like "hope this message finds you well", "testament to", "delighted to").
 5. Return ONLY the final refined text. Do NOT include any preamble, conversational replies, or markdown blocks (like \`\`\`).
+
+${ANTI_DETECTION_RULES}
 `;
 
   try {

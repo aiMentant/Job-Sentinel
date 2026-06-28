@@ -81,7 +81,22 @@ export async function listAllProfiles() {
 }
 
 export async function listAllProfilesWithData() {
+  const { cookies } = await import("next/headers");
   const { listProfiles, getProfile } = await import("@/lib/storage");
+
+  // Read auth cookies to determine who is signed in
+  let authEmail = "";
+  let authRole = "";
+  let activeProfileId = "default";
+  try {
+    const cookieStore = await cookies();
+    authEmail = cookieStore.get("auth_email")?.value || "";
+    authRole = cookieStore.get("auth_role")?.value || "";
+    activeProfileId = cookieStore.get("active_profile_id")?.value || "default";
+  } catch (_) { /* server context may not have cookies during build */ }
+
+  const isAdmin = authRole === "admin" || authEmail === "lwenban@gmail.com";
+
   const ids = await listProfiles();
   const profiles = await Promise.all(ids.map(async (id: string) => {
     const data = await getProfile(id);
@@ -89,10 +104,19 @@ export async function listAllProfilesWithData() {
       id, 
       fullName: data?.fullName || id, 
       targetTitle: data?.targetTitles?.[0] || "",
-      profilePictureUrl: data?.profilePictureUrl || ""
+      profilePictureUrl: data?.profilePictureUrl || "",
+      creatorEmail: data?.creatorEmail || ""
     };
   }));
-  return profiles;
+
+  // Admins see all profiles
+  if (isAdmin) return profiles;
+
+  // Regular users only see profiles tied to their own profile_id or created by them
+  return profiles.filter(p =>
+    p.id === activeProfileId ||
+    (authEmail && p.creatorEmail === authEmail)
+  );
 }
 
 
@@ -344,6 +368,17 @@ export async function bulkMoveToPipeline(ids: string[], profileIdOverride?: stri
 export async function saveUserProfile(profile: any, targetProfileId?: string) {
   try {
     const profileId = targetProfileId || (await getActiveProfileId());
+
+    // Inject creatorEmail from auth cookie if not already set on the profile
+    if (!profile.creatorEmail) {
+      try {
+        const { cookies } = await import("next/headers");
+        const cookieStore = await cookies();
+        const authEmail = cookieStore.get("auth_email")?.value || "";
+        if (authEmail) profile = { ...profile, creatorEmail: authEmail };
+      } catch (_) { /* ignore during build */ }
+    }
+
     await saveProfile(profile, profileId);
     return { success: true };
   } catch (e: any) {
@@ -637,39 +672,16 @@ export async function parseUploadedFile(formData: FormData): Promise<string> {
   if (filename.endsWith(".txt")) {
     return await file.text();
   } else if (filename.endsWith(".pdf")) {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const _global = typeof globalThis !== 'undefined' ? globalThis : global;
-    if (typeof (_global as any).DOMMatrix === 'undefined') {
-      (_global as any).DOMMatrix = class DOMMatrix {
-        constructor() {}
-      };
-    }
-    const pdfModule = await import("pdf-parse") as any;
-    const pdf = typeof pdfModule.default === 'function' 
-      ? pdfModule.default 
-      : (typeof pdfModule === 'function' ? pdfModule : pdfModule.PDFParse);
-
-    let parsedText = "";
-    if (typeof pdf === 'function') {
-      const parsed = await pdf(buffer);
-      parsedText = parsed.text;
-    } else if (pdfModule && pdfModule.PDFParse) {
-      const parser = new pdfModule.PDFParse({ data: buffer });
-      const parsed = await parser.getText();
-      parsedText = parsed.text;
-    } else {
-      const directPdf = pdfModule.default || pdfModule;
-      const parsed = await directPdf(buffer);
-      parsedText = parsed.text;
-    }
-    return parsedText;
+    throw new Error(
+      "PDF uploads are not supported. Please convert your resume to DOCX or TXT format and try again."
+    );
   } else if (filename.endsWith(".docx")) {
     const buffer = await file.arrayBuffer();
     const zip = await (await import("jszip")).default.loadAsync(buffer);
     const docXml = await zip.file("word/document.xml")?.async("string");
     return docXml ? docXml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : "";
   }
-  throw new Error("Unsupported file format.");
+  throw new Error("Unsupported file format. Please upload a DOCX or TXT file.");
 }
 
 export async function getDbStatus() {

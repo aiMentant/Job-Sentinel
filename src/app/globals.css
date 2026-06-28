@@ -165,5 +165,16 @@ html.dark, .dark {
   color: #f8fafc !important;
 }
 
+/* High-contrast keyword highlighting in search results */
+.keyword-highlight {
+  background-color: #fef08a !important; /* bg-yellow-200 */
+  color: #0f172a !important; /* text-slate-900 */
+  font-weight: 600 !important;
+}
+.dark .keyword-highlight {
+  background-color: rgba(234, 179, 8, 0.2) !important; /* yellow-500/20 */
+  color: #fef08a !important; /* yellow-200 */
+}
+
 
 

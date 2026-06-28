@@ -31,6 +31,7 @@ import {
   Check,
   Edit2,
   AlertCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { fetchJobs, updateJobStatus, deleteJob, generateCoverLetter, updateJob, saveApplicationDraft, markApplicationReady, fetchFullJobDescription } from "@/app/actions/jobActions";
 
@@ -39,6 +40,7 @@ import { resolveApproval } from "@/app/actions/agentStatus";
 import { personalizeCoverLetter, generateRecruiterMessage, matchToJobDescription, optimizeApplicationPackage, refineTailoredMaterial } from "@/app/actions/careerTools";
 import { Job } from "@/lib/db";
 import { useProfile } from "@/components/ProfileContext";
+import { getSourceBadgeClass, computeGhostScore, getGhostBadge } from "@/lib/jobUtils";
 
 const statuses = [
   { id: 'Discovery', label: 'Discovery Inbox', color: 'bg-blue-500' },
@@ -927,12 +929,27 @@ export default function TrackerPage() {
                               className="text-left focus:outline-none group/row"
                               title="Click to quick review Job Description & match details"
                             >
-                              <div className="font-bold text-sm text-foreground leading-tight group-hover/row:underline">{job.company}</div>
+                              <div className="font-bold text-sm text-foreground leading-tight group-hover/row:underline flex items-center gap-2">
+                                {job.company}
+                                {(() => {
+                                  const score = job.ghostScore ?? computeGhostScore(job);
+                                  const badge = getGhostBadge(score);
+                                  if (!badge) return null;
+                                  return (
+                                    <span className={`text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-0.5 ${badge.className}`} title={badge.description}>
+                                      <AlertTriangle className="w-2 h-2" />
+                                      {badge.label}
+                                    </span>
+                                  );
+                                })()}
+                              </div>
                               <div className="text-xs text-text-muted mt-1 font-medium group-hover/row:text-foreground/85">{job.title}</div>
                             </button>
                           </td>
                           <td className="py-4 px-4">
-                            <span className="text-[9px] font-black uppercase tracking-wider text-text-muted">{job.source}</span>
+                            <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${getSourceBadgeClass(job.source)}`}>
+                              {job.source.toLowerCase().includes("linkedin") ? "LinkedIn" : job.source.toLowerCase().includes("indeed") ? "Indeed" : job.source}
+                            </span>
                           </td>
                           <td className="py-4 px-4 text-center">
                             <span className={`text-xs font-black ${job.score >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
@@ -1067,8 +1084,23 @@ export default function TrackerPage() {
                         className="group glass-card p-5 hover:border-card-border transition-all cursor-grab active:cursor-grabbing border-card-border hover:bg-foreground/[0.03]"
                       >
                         <div className="flex justify-between items-start mb-3">
-                          <div className="flex flex-col gap-1">
-                            <span className="text-[9px] font-black text-indigo-600/75 dark:text-indigo-400/60 uppercase tracking-[0.2em]">{job.source}</span>
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${getSourceBadgeClass(job.source)}`}>
+                                {job.source.toLowerCase().includes("linkedin") ? "LinkedIn" : job.source.toLowerCase().includes("indeed") ? "Indeed" : job.source}
+                              </span>
+                              {(() => {
+                                const score = job.ghostScore ?? computeGhostScore(job);
+                                const badge = getGhostBadge(score);
+                                if (!badge) return null;
+                                return (
+                                  <span className={`text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-0.5 ${badge.className}`} title={badge.description}>
+                                    <AlertTriangle className="w-2 h-2" />
+                                    {badge.label}
+                                  </span>
+                                );
+                              })()}
+                            </div>
                             <div className="flex items-center gap-2">
                               <span className={`text-[11px] font-black ${job.score >= 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
                                 {job.score > 0 ? `${job.score}% MATCH` : 'PENDING'}

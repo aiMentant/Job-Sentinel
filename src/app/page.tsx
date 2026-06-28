@@ -15,7 +15,8 @@ import {
   Settings,
   Search,
   ExternalLink,
-  RefreshCw
+  RefreshCw,
+  AlertTriangle
 } from "lucide-react";
 
 
@@ -25,6 +26,7 @@ import { generateApplicationStrategy } from "@/app/actions/careerTools";
 import { UserProfile } from "@/lib/db";
 import Link from "next/link";
 import { useProfile } from "@/components/ProfileContext";
+import { getSourceBadgeClass, computeGhostScore, getGhostBadge } from "@/lib/jobUtils";
 
 
 export default function Dashboard() {
@@ -238,7 +240,23 @@ export default function Dashboard() {
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 mb-2">
                       <div className="min-w-0">
                         <h4 className="font-bold text-lg text-foreground truncate group-hover:opacity-85 transition-opacity leading-tight">{job.title}</h4>
-                        <p className="text-text-muted font-bold text-xs uppercase tracking-widest mt-0.5">{job.company}</p>
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <p className="text-text-muted font-bold text-xs uppercase tracking-widest">{job.company}</p>
+                          <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${getSourceBadgeClass(job.source)}`}>
+                            {job.source.toLowerCase().includes("linkedin") ? "LinkedIn" : job.source.toLowerCase().includes("indeed") ? "Indeed" : job.source}
+                          </span>
+                          {(() => {
+                            const score = job.ghostScore ?? computeGhostScore(job);
+                            const badge = getGhostBadge(score);
+                            if (!badge) return null;
+                            return (
+                              <span className={`text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-0.5 ${badge.className}`} title={badge.description}>
+                                <AlertTriangle className="w-2.5 h-2.5" />
+                                {badge.label}
+                              </span>
+                            );
+                          })()}
+                        </div>
                       </div>
                       <div className="flex items-center gap-3">
                          <div className="flex flex-col items-end">
