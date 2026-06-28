@@ -168,23 +168,37 @@ export default function HelpModal({ isOpen, onClose, activeProfileId, type }: He
                       <Search className="w-5 h-5" />
                     </div>
                     <div>
-                      <h3 className="font-bold text-foreground text-sm">Step 1 of 2: Operating the Search Scanners</h3>
-                      <p className="text-xs text-text-muted">Use search strategies to discover public and hidden listings</p>
+                      <h3 className="font-bold text-foreground text-sm">Step 1 of 2: Core Search & Tracker Pages</h3>
+                      <p className="text-xs text-text-muted">Discover roles and manage your active application pipeline</p>
                     </div>
                   </div>
 
                   <div className="p-4 bg-foreground/[0.02] border border-card-border rounded-xl space-y-4 text-xs text-text-muted">
                     <div>
-                      <h5 className="font-bold text-foreground text-xs mb-1">Standard Mode (Job Boards)</h5>
-                      <p>Focuses on central platforms like LinkedIn and Indeed. When triggered, the crawler directly queries your selected target sites using your titles and locations. (Requires the LinkedIn cookie to run successfully).</p>
+                      <h5 className="font-black text-foreground text-xs uppercase tracking-wider mb-1">🏠 Dashboard</h5>
+                      <ul className="list-disc pl-4 space-y-1">
+                        <li><strong>Scraper Status</strong>: View countdowns for background sweeps and active crawls.</li>
+                        <li><strong>Top Matches</strong>: Review high-scoring matches immediately on login.</li>
+                        <li><strong>Quick Ingest</strong>: Drop in a new resume text file to update your background references instantly.</li>
+                      </ul>
                     </div>
+
                     <div className="border-t border-card-border/60 pt-3">
-                      <h5 className="font-bold text-foreground text-xs mb-1">Deep Web Mode (Direct Company Careers)</h5>
-                      <p>Scrapes search engines using custom dorking syntax (e.g. <code className="bg-foreground/5 px-1 py-0.5 rounded text-foreground">site:lever.co OR site:greenhouse.io</code>) to find listings published directly on company portals that haven't been aggregate-posted to boards yet.</p>
+                      <h5 className="font-black text-foreground text-xs uppercase tracking-wider mb-1">🔍 Job Search</h5>
+                      <ul className="list-disc pl-4 space-y-1">
+                        <li><strong>Standard Search</strong>: Scan job aggregators like LinkedIn/Indeed directly.</li>
+                        <li><strong>Deep Web Search</strong>: Query Google syntax to scrape careers pages directly from employer sites.</li>
+                        <li><strong>AI Match Analysis</strong>: Click the green **AI Analyze All** button to vet descriptions against your resume, calculate fit scores (0-100%), and flag Ghost or Harvesting listings.</li>
+                      </ul>
                     </div>
+
                     <div className="border-t border-card-border/60 pt-3">
-                      <h5 className="font-bold text-foreground text-xs mb-1">AI Match Ratings</h5>
-                      <p>Newly scraped results start as Pending. Click the green <strong>"AI Analyze All"</strong> button in the top bar to run sequential Gemini evaluations. The AI compares the job description text with your resume, scoring the match and detailing fit reasoning.</p>
+                      <h5 className="font-black text-foreground text-xs uppercase tracking-wider mb-1">📋 Application Tracker</h5>
+                      <ul className="list-disc pl-4 space-y-1">
+                        <li><strong>Move to Board</strong>: Click the Star icon on any job in Search to move it to the Kanban columns.</li>
+                        <li><strong>Tailor Materials</strong>: Click any card on the board to auto-generate personalized cover letters and recruiter outreach messages in one click.</li>
+                        <li><strong>Anti-Detection</strong>: All generated text is dynamically vetted to strip out typical AI buzzwords.</li>
+                      </ul>
                     </div>
                   </div>
                 </div>
@@ -197,25 +211,33 @@ export default function HelpModal({ isOpen, onClose, activeProfileId, type }: He
                       <Briefcase className="w-5 h-5" />
                     </div>
                     <div>
-                      <h3 className="font-bold text-foreground text-sm">Step 2 of 2: Tracking Applications & AI Tailoring</h3>
-                      <p className="text-xs text-text-muted">Organize pipeline stages and compile custom application materials</p>
+                      <h3 className="font-bold text-foreground text-sm">Step 2 of 2: Management & Settings Pages</h3>
+                      <p className="text-xs text-text-muted">Track scheduled calls, configure parameters, and review logs</p>
                     </div>
                   </div>
 
-                  <div className="p-4 bg-foreground/[0.02] border border-card-border rounded-xl space-y-3.5 text-xs text-text-muted">
-                    <div className="flex items-start gap-2.5">
-                      <span className="w-4 h-4 rounded bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center justify-center text-[10px] shrink-0 mt-0.5">1</span>
-                      <div>
-                        <h5 className="font-bold text-foreground mb-0.5">Moving to the Tracker</h5>
-                        <p>Click the <strong>Star Icon</strong> on any job card in search results. This immediately adds the role to your Kanban board in the <strong>Application Tracker</strong> page.</p>
-                      </div>
+                  <div className="p-4 bg-foreground/[0.02] border border-card-border rounded-xl space-y-4 text-xs text-text-muted">
+                    <div>
+                      <h5 className="font-black text-foreground text-xs uppercase tracking-wider mb-1">🗓 Interview Hub</h5>
+                      <ul className="list-disc pl-4 space-y-1">
+                        <li><strong>Schedule Tracking</strong>: Track meeting dates, rounds (screen, technical, panel), and follow-ups.</li>
+                        <li><strong>Preparation</strong>: Record mock notes and contact details for each recruiter.</li>
+                      </ul>
                     </div>
-                    <div className="flex items-start gap-2.5 border-t border-card-border/60 pt-3.5">
-                      <span className="w-4 h-4 rounded bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center justify-center text-[10px] shrink-0 mt-0.5">2</span>
-                      <div>
-                        <h5 className="font-bold text-foreground mb-0.5">Generating Cover Letters & Messages</h5>
-                        <p>Click any job card inside the Tracker columns. In the sliding details panel, click **Generate Cover Letter** or **Recruiter Message**. The AI will compile custom text tailored to that specific job description while stripping out detectable AI buzzwords.</p>
-                      </div>
+
+                    <div className="border-t border-card-border/60 pt-3">
+                      <h5 className="font-black text-foreground text-xs uppercase tracking-wider mb-1">✅ Profile & Identity</h5>
+                      <ul className="list-disc pl-4 space-y-1">
+                        <li><strong>Role Parameters</strong>: Add target titles, location abbreviations (e.g. `Edgewater, FL`), and radius limits.</li>
+                        <li><strong>Cookies & API Keys</strong>: Input your LinkedIn session cookie and add custom Gemini keys.</li>
+                      </ul>
+                    </div>
+
+                    <div className="border-t border-card-border/60 pt-3">
+                      <h5 className="font-black text-foreground text-xs uppercase tracking-wider mb-1">📄 Submission Log</h5>
+                      <ul className="list-disc pl-4 space-y-1">
+                        <li><strong>Historical Log</strong>: Review a full list of all submitted applications, companies, and date stamps.</li>
+                      </ul>
                     </div>
                   </div>
                 </div>
