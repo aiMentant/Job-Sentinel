@@ -20,17 +20,36 @@ type HelpModalProps = {
 };
 
 export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModalProps) {
-  const [currentStep, setCurrentStep] = useState(1);
+  const [activeTab, setActiveTab] = useState<"setup" | "search">("setup");
+  const [setupStep, setSetupStep] = useState(1);
+  const [searchStep, setSearchStep] = useState(1);
 
   if (!isOpen) return null;
 
-  const totalSteps = 4;
+  const currentStep = activeTab === "setup" ? setupStep : searchStep;
+  const totalSteps = 2;
 
   const handleDismiss = () => {
     if (typeof window !== "undefined") {
       localStorage.setItem(`job_sentinel_setup_shown_${activeProfileId}`, "true");
     }
     onClose();
+  };
+
+  const handleNext = () => {
+    if (activeTab === "setup") {
+      setSetupStep(prev => Math.min(prev + 1, totalSteps));
+    } else {
+      setSearchStep(prev => Math.min(prev + 1, totalSteps));
+    }
+  };
+
+  const handleBack = () => {
+    if (activeTab === "setup") {
+      setSetupStep(prev => Math.max(prev - 1, 1));
+    } else {
+      setSearchStep(prev => Math.max(prev - 1, 1));
+    }
   };
 
   return (
@@ -41,7 +60,7 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
         <div className="flex justify-between items-center pb-4 border-b border-card-border/60 shrink-0">
           <div className="flex items-center gap-2">
             <HelpCircle className="w-5 h-5 text-indigo-500" />
-            <h2 className="text-lg font-black font-outfit text-foreground uppercase tracking-wider">Setup & User Guide</h2>
+            <h2 className="text-lg font-black font-outfit text-foreground uppercase tracking-wider">Job Sentinel System Manual</h2>
           </div>
           <button 
             onClick={onClose} 
@@ -51,8 +70,32 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
           </button>
         </div>
 
-        {/* Progress Bar */}
-        <div className="w-full bg-foreground/10 h-1.5 rounded-full overflow-hidden my-4 shrink-0 flex">
+        {/* Tab Selectors */}
+        <div className="flex gap-4 border-b border-card-border/40 py-3 shrink-0">
+          <button
+            onClick={() => setActiveTab("setup")}
+            className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-xl transition-all border cursor-pointer ${
+              activeTab === "setup"
+                ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/30"
+                : "text-text-muted hover:text-foreground border-transparent hover:bg-foreground/5"
+            }`}
+          >
+            🛠 1. Account Setup Guide
+          </button>
+          <button
+            onClick={() => setActiveTab("search")}
+            className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-xl transition-all border cursor-pointer ${
+              activeTab === "search"
+                ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/30"
+                : "text-text-muted hover:text-foreground border-transparent hover:bg-foreground/5"
+            }`}
+          >
+            🔍 2. Search & Vetting Guide
+          </button>
+        </div>
+
+        {/* Step progress within active tab */}
+        <div className="w-full bg-foreground/10 h-1 rounded-full overflow-hidden my-4 shrink-0 flex">
           {Array.from({ length: totalSteps }).map((_, idx) => (
             <div 
               key={idx}
@@ -65,131 +108,153 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
 
         {/* Step Content Area */}
         <div className="flex-1 overflow-y-auto pr-1 text-sm leading-relaxed space-y-4 py-2">
-          {currentStep === 1 && (
-            <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 font-bold shrink-0">
-                  <User className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-foreground text-sm">Step 1: Profile & Target Configurations</h3>
-                  <p className="text-xs text-text-muted">Configure roles and locations for optimal local matching</p>
-                </div>
-              </div>
+          
+          {/* TAB 1: ACCOUNT SETUP */}
+          {activeTab === "setup" && (
+            <>
+              {setupStep === 1 && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 font-bold shrink-0">
+                      <User className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-foreground text-sm">Step 1 of 2: Profile & Target Configurations</h3>
+                      <p className="text-xs text-text-muted">Configure roles and locations for optimal local matching</p>
+                    </div>
+                  </div>
 
-              <div className="p-4 bg-foreground/[0.02] border border-card-border rounded-xl space-y-3">
-                <h4 className="font-bold text-foreground text-xs uppercase tracking-wide">Guidelines:</h4>
-                <ul className="space-y-2.5 text-xs text-text-muted">
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                    <span><strong>ATS Resume (TXT/DOCX only)</strong>: Go to <strong>Profile & Identity</strong> and upload your resume. The AI uses this text to analyze matching fit. (PDFs are not supported).</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                    <span><strong>Target Locations</strong>: Enter precise locations like <code className="bg-foreground/5 px-1 py-0.5 rounded text-foreground font-semibold">Edgewater, FL</code> or <code className="bg-foreground/5 px-1 py-0.5 rounded text-foreground font-semibold">London, UK</code>. Avoid generic placeholders.</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                    <span><strong>Remote Flagging</strong>: If you are looking for local on-site/hands-on roles, <strong>do not</strong> include the word <code className="bg-foreground/5 px-1 py-0.5 rounded text-foreground font-semibold">Remote</code> or <code className="bg-foreground/5 px-1 py-0.5 rounded text-foreground font-semibold">Worldwide</code> in your Target Locations. This ensures the guardrail excludes foreign listings.</span>
-                  </li>
-                </ul>
-              </div>
-            </div>
+                  <div className="p-4 bg-foreground/[0.02] border border-card-border rounded-xl space-y-3">
+                    <h4 className="font-bold text-foreground text-xs uppercase tracking-wide">Onboarding Guidelines:</h4>
+                    <ul className="space-y-3 text-xs text-text-muted">
+                      <li className="flex items-start gap-2.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                        <span><strong>ATS Resume Upload</strong>: Go to <strong>Profile & Identity</strong> and paste or upload your resume text. The AI discovery engine scans this text to evaluate your alignment score. Note that PDFs are not parsed—please use raw text, TXT, or DOCX formats.</span>
+                      </li>
+                      <li className="flex items-start gap-2.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                        <span><strong>Target Locations</strong>: Specify precise values like <code className="bg-foreground/5 px-1 py-0.5 rounded text-foreground font-semibold">Edgewater, FL</code> or <code className="bg-foreground/5 px-1 py-0.5 rounded text-foreground font-semibold">Orlando, FL</code>. Do not use generic placeholders.</span>
+                      </li>
+                      <li className="flex items-start gap-2.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                        <span><strong>Location Guardrail</strong>: If you are searching strictly for on-site/hands-on local roles, <strong>do not</strong> add the word <code className="bg-foreground/5 px-1 py-0.5 rounded text-foreground font-semibold">Remote</code> or <code className="bg-foreground/5 px-1 py-0.5 rounded text-foreground font-semibold">Worldwide</code> to your Target Locations list. Leaving these out ensures the location boundary filter discards foreign listings.</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {setupStep === 2 && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 font-bold shrink-0">
+                      <Key className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-foreground text-sm">Step 2 of 2: Stealth LinkedIn Cookie Setup</h3>
+                      <p className="text-xs text-text-muted">Avoid crawler blocks by adding your session token</p>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-amber-500/[0.03] border border-amber-500/20 rounded-xl">
+                    <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                      <strong>Why this is mandatory:</strong> Standard scrapers get blocked by security check walls when searching without authentication. Saving your session cookie lets the automated scan run stealthily on your behalf.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h4 className="font-bold text-foreground text-xs uppercase tracking-wide">Step-by-Step Instructions:</h4>
+                    <ol className="space-y-3.5 text-xs text-text-muted list-decimal pl-4">
+                      <li>
+                        Open a new browser tab, go to <a href="https://linkedin.com" target="_blank" rel="noreferrer" className="text-indigo-500 underline font-semibold">linkedin.com</a>, and make sure you are logged in.
+                      </li>
+                      <li>
+                        Right-click anywhere on the page and select <strong>Inspect</strong> (or hit <kbd className="bg-foreground/5 px-1 rounded">F12</kbd>).
+                      </li>
+                      <li>
+                        Select the <strong>Application</strong> tab (Chrome/Edge) or <strong>Storage</strong> tab (Safari) at the top of the inspector panel.
+                      </li>
+                      <li>
+                        Under the <strong>Cookies</strong> drop-down menu on the left side, click on <code className="text-foreground">https://www.linkedin.com</code>.
+                      </li>
+                      <li>
+                        Find the row named <strong><code className="text-indigo-500 font-bold">li_at</code></strong>. Double-click the cell in the <strong>Value</strong> column and copy the full text string.
+                      </li>
+                      <li>
+                        Navigate to <strong>Profile & Identity</strong> in this dashboard, paste the value into the <strong>LinkedIn Cookie</strong> field, and click **Save**.
+                      </li>
+                    </ol>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
-          {currentStep === 2 && (
-            <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 font-bold shrink-0">
-                  <Key className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-foreground text-sm">Step 2: Stealth LinkedIn Cookie Setup</h3>
-                  <p className="text-xs text-text-muted">Pass authentication walls to enable automated background scans</p>
-                </div>
-              </div>
+          {/* TAB 2: SEARCH & VETTING GUIDE */}
+          {activeTab === "search" && (
+            <>
+              {searchStep === 1 && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 font-bold shrink-0">
+                      <Search className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-foreground text-sm">Step 1 of 2: Operating the Search Scanners</h3>
+                      <p className="text-xs text-text-muted">Use search strategies to discover public and hidden listings</p>
+                    </div>
+                  </div>
 
-              <div className="p-4 bg-amber-500/[0.03] border border-amber-500/20 rounded-xl">
-                <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                  <strong>Why this is needed:</strong> Standard servers get blocked by LinkedIn login screens. Saving a session cookie allows the agent to search stealthily on your behalf.
-                </p>
-              </div>
+                  <div className="p-4 bg-foreground/[0.02] border border-card-border rounded-xl space-y-4 text-xs text-text-muted">
+                    <div>
+                      <h5 className="font-bold text-foreground text-xs mb-1">Standard Mode (Job Boards)</h5>
+                      <p>Focuses on central platforms like LinkedIn and Indeed. When triggered, the crawler directly queries your selected target sites using your titles and locations. (Requires the LinkedIn cookie from Tab 1 to run successfully).</p>
+                    </div>
+                    <div className="border-t border-card-border/60 pt-3">
+                      <h5 className="font-bold text-foreground text-xs mb-1">Deep Web Mode (Direct Company Careers)</h5>
+                      <p>Scrapes search engines using custom dorking syntax (e.g. <code className="bg-foreground/5 px-1 py-0.5 rounded text-foreground">site:lever.co OR site:greenhouse.io</code>) to find listings published directly on company portals that haven't been aggregate-posted to boards yet.</p>
+                    </div>
+                    <div className="border-t border-card-border/60 pt-3">
+                      <h5 className="font-bold text-foreground text-xs mb-1">AI Match Ratings</h5>
+                      <p>Newly scraped results start as Pending. Click the green <strong>"AI Analyze All"</strong> button in the top bar to run sequential Gemini evaluations. The AI compares the job description text with your resume, scoring the match and detailing fit reasoning.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-              <div className="space-y-3">
-                <h4 className="font-bold text-foreground text-xs uppercase tracking-wide">How to find your cookie:</h4>
-                <ol className="space-y-3 text-xs text-text-muted list-decimal pl-4">
-                  <li>
-                    Open a new tab in your browser and go to <a href="https://linkedin.com" target="_blank" rel="noreferrer" className="text-indigo-500 underline font-semibold">linkedin.com</a> (make sure you are signed in).
-                  </li>
-                  <li>
-                    Right-click anywhere on the page and select <strong>Inspect</strong> (or press <kbd className="bg-foreground/5 px-1 rounded">F12</kbd>) to open Developer Tools.
-                  </li>
-                  <li>
-                    Navigate to the <strong>Application</strong> tab (Chrome/Edge) or <strong>Storage</strong> tab (Safari).
-                  </li>
-                  <li>
-                    In the left menu under <strong>Cookies</strong>, click on <code className="text-foreground">https://www.linkedin.com</code>.
-                  </li>
-                  <li>
-                    Find the cookie named <strong><code className="text-indigo-500 font-bold">li_at</code></strong> and double-click its <strong>Value</strong> to copy it.
-                  </li>
-                  <li>
-                    Go to <strong>Profile & Identity</strong> in this app, paste it into the <strong>LinkedIn Cookie</strong> field, and click Save.
-                  </li>
-                </ol>
-              </div>
-            </div>
+              {searchStep === 2 && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 font-bold shrink-0">
+                      <Briefcase className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-foreground text-sm">Step 2 of 2: Tracking Applications & AI Tailoring</h3>
+                      <p className="text-xs text-text-muted">Organize pipeline stages and compile custom application materials</p>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-foreground/[0.02] border border-card-border rounded-xl space-y-3.5 text-xs text-text-muted">
+                    <div className="flex items-start gap-2.5">
+                      <span className="w-4 h-4 rounded bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center justify-center text-[10px] shrink-0 mt-0.5">1</span>
+                      <div>
+                        <h5 className="font-bold text-foreground mb-0.5">Moving to the Tracker</h5>
+                        <p>Click the <strong>Star Icon</strong> on any job card in search results. This immediately adds the role to your Kanban board in the <strong>Application Tracker</strong> page.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5 border-t border-card-border/60 pt-3.5">
+                      <span className="w-4 h-4 rounded bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center justify-center text-[10px] shrink-0 mt-0.5">2</span>
+                      <div>
+                        <h5 className="font-bold text-foreground mb-0.5">Generating Cover Letters & Messages</h5>
+                        <p>Click any job card inside the Tracker columns. In the sliding details panel, click **Generate Cover Letter** or **Recruiter Message**. The AI will compile custom text tailored to that specific job description while stripping out detectable AI buzzwords.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
-          {currentStep === 3 && (
-            <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 font-bold shrink-0">
-                  <Search className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-foreground text-sm">Step 3: Stealth Search & AI Rating</h3>
-                  <p className="text-xs text-text-muted">Find matching roles and analyze them in bulk</p>
-                </div>
-              </div>
-
-              <div className="p-4 bg-foreground/[0.02] border border-card-border rounded-xl space-y-3.5 text-xs text-text-muted">
-                <div>
-                  <h5 className="font-bold text-foreground mb-1">Standard vs. Deep Web Mode:</h5>
-                  <p><strong>Standard Mode</strong> searches major aggregators (LinkedIn, Indeed, ZipRecruiter) directly. <strong>Deep Web Mode</strong> scans Google using filters to identify hidden listings hosted directly on employer career pages.</p>
-                </div>
-                <div className="border-t border-card-border/60 pt-3">
-                  <h5 className="font-bold text-foreground mb-1">AI Match Vetting:</h5>
-                  <p>Newly crawled jobs start as pending. Click the unhidden green <strong>"AI Analyze All"</strong> button in the top right to analyze all visible listings with Gemini AI in sequence. This scores match relevance and flags Ghost/Harvest postings.</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {currentStep === 4 && (
-            <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 font-bold shrink-0">
-                  <Briefcase className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-foreground text-sm">Step 4: Pipeline Tracking & AI Tailoring</h3>
-                  <p className="text-xs text-text-muted">Manage applications and optimize your resume/cover letters</p>
-                </div>
-              </div>
-
-              <div className="p-4 bg-foreground/[0.02] border border-card-border rounded-xl space-y-3 text-xs text-text-muted">
-                <div className="flex items-start gap-2">
-                  <span className="w-4 h-4 rounded bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center justify-center text-[10px] shrink-0 mt-0.5">1</span>
-                  <p><strong>Move to Pipeline</strong>: Star a job in Search to move it to the <strong>Application Tracker</strong> board.</p>
-                </div>
-                <div className="flex items-start gap-2 border-t border-card-border/60 pt-3">
-                  <span className="w-4 h-4 rounded bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center justify-center text-[10px] shrink-0 mt-0.5">2</span>
-                  <p><strong>AI Customization</strong>: Click on any job card in the tracker to auto-generate personalized cover letters, recruiter messages, and resume suggestions tailored to that specific job description with AI bypass rules enabled.</p>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Footer Controls */}
@@ -204,7 +269,7 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
           <div className="flex items-center gap-3">
             {currentStep > 1 && (
               <button
-                onClick={() => setCurrentStep(prev => prev - 1)}
+                onClick={handleBack}
                 className="btn-secondary py-1.5 px-3 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer"
               >
                 <ArrowLeft className="w-3.5 h-3.5" /> Back
@@ -213,7 +278,7 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
 
             {currentStep < totalSteps ? (
               <button
-                onClick={() => setCurrentStep(prev => prev + 1)}
+                onClick={handleNext}
                 className="btn-primary py-1.5 px-3 rounded-lg text-xs font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer"
               >
                 Next <ArrowRight className="w-3.5 h-3.5" />
