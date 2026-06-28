@@ -34,8 +34,8 @@ export default function HelpModal({ isOpen, onClose, activeProfileId }: HelpModa
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="glass-card w-full max-w-2xl relative z-10 animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh] overflow-hidden bg-card border-card-border p-6 shadow-2xl">
+    <div className="fixed inset-0 z-50 p-[2px] bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 flex">
+      <div className="glass-card w-full h-full relative z-10 animate-in zoom-in-95 duration-200 flex flex-col overflow-hidden bg-card border-card-border p-6 shadow-2xl rounded-2xl">
         
         {/* Header */}
         <div className="flex justify-between items-center pb-4 border-b border-card-border/60 shrink-0">

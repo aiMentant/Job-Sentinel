@@ -2320,24 +2320,23 @@ export default function SearchPage() {
 
       {/* Quick Review Modal */}
       {reviewingJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-[#0a0a0c]/80 backdrop-blur-sm" onClick={() => setReviewingJob(null)} />
-          <div className="glass-card w-full max-w-2xl relative z-10 animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-start mb-6">
+        <div className="fixed inset-0 z-50 p-[2px] bg-[#0a0a0c]/80 backdrop-blur-sm animate-in fade-in duration-200 flex">
+          <div className="glass-card w-full h-full relative z-10 animate-in zoom-in-95 duration-200 flex flex-col p-6 rounded-2xl overflow-hidden border-card-border bg-card">
+            <div className="flex justify-between items-start mb-6 shrink-0">
               <div>
                 <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">{reviewingJob.source}</span>
                 <h2 className="text-2xl font-bold font-outfit mt-1">{reviewingJob.title}</h2>
                 <p className="text-text-muted">{reviewingJob.company} &bull; {reviewingJob.location}</p>
               </div>
-              <div className="text-right">
+              <div className="text-right shrink-0">
                 <div className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{reviewingJob.score}%</div>
                 <p className="text-[10px] text-text-muted uppercase font-bold">AI Match</p>
               </div>
             </div>
 
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/10 flex flex-col h-[280px]">
+            <div className="flex-1 flex flex-col min-h-0 space-y-6 mb-6">
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 min-h-0">
+                <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/10 flex flex-col min-h-0">
                   <h4 className="text-xs font-bold uppercase text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-2 shrink-0">
                     <Sparkles className="w-4 h-4" />
                     AI Reasoning
@@ -2347,7 +2346,7 @@ export default function SearchPage() {
                   </div>
                 </div>
 
-                <div className="p-4 rounded-xl bg-black/10 dark:bg-white/5 border border-card-border flex flex-col h-[280px]">
+                <div className="p-4 rounded-xl bg-black/10 dark:bg-white/5 border border-card-border flex flex-col min-h-0">
                   <h4 className="text-xs font-bold uppercase text-indigo-600 dark:text-indigo-400 mb-2 shrink-0">
                     Job Description
                   </h4>
@@ -2361,7 +2360,7 @@ export default function SearchPage() {
                 </div>
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex gap-3 shrink-0">
                 <a 
                   href={reviewingJob.url} 
                   target="_blank" 
@@ -2385,7 +2384,7 @@ export default function SearchPage() {
 
             <button 
               onClick={() => setReviewingJob(null)}
-              className="absolute top-4 right-4 text-text-muted hover:text-foreground"
+              className="absolute top-4 right-4 text-text-muted hover:text-foreground text-xl p-1"
             >
               &times;
             </button>
@@ -2416,54 +2415,55 @@ export default function SearchPage() {
 
       {/* Missing Parameters Modal */}
       {showMissingParamsModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="glass-card w-full max-w-md p-8 space-y-6 border-indigo-500/30">
-            <div className="flex items-center gap-4 text-indigo-600 dark:text-indigo-400">
-              <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center">
-                <AlertCircle className="w-6 h-6" />
+        <div className="fixed inset-0 z-[100] p-[2px] bg-black/80 backdrop-blur-md animate-in fade-in duration-300 flex">
+          <div className="glass-card w-full h-full border-indigo-500/30 flex flex-col items-center justify-center rounded-2xl overflow-hidden p-8 bg-card">
+            <div className="w-full max-w-md space-y-6">
+              <div className="flex items-center gap-4 text-indigo-600 dark:text-indigo-400">
+                <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-xl">Missing Search Parameters</h3>
+                  <p className="text-xs text-text-muted">Provide a target role and location to run your job search.</p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-bold text-xl">Missing Search Parameters</h3>
-                <p className="text-xs text-text-muted">Provide a target role and location to run your job search.</p>
-              </div>
-            </div>
-            
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs text-text-muted font-bold">Target Roles (comma separated)</label>
-                <input 
-                  type="text" 
-                  value={missingRoleInput} 
-                  onChange={(e) => setMissingRoleInput(e.target.value)}
-                  placeholder="e.g. Senior UX Designer, Product Designer" 
-                  className="input-field text-sm w-full"
-                />
+              
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs text-text-muted font-bold">Target Roles (comma separated)</label>
+                  <input 
+                    type="text" 
+                    value={missingRoleInput} 
+                    onChange={(e) => setMissingRoleInput(e.target.value)}
+                    placeholder="e.g. Senior UX Designer, Product Designer" 
+                    className="input-field text-sm w-full"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs text-text-muted font-bold">Target Locations (semicolon separated)</label>
+                  <input 
+                    type="text" 
+                    value={missingLocationInput} 
+                    onChange={(e) => setMissingLocationInput(e.target.value)}
+                    placeholder="e.g. London, UK; Florida, USA; 33101" 
+                    className="input-field text-sm w-full"
+                  />
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs text-text-muted font-bold">Target Locations (semicolon separated)</label>
-                <input 
-                  type="text" 
-                  value={missingLocationInput} 
-                  onChange={(e) => setMissingLocationInput(e.target.value)}
-                  placeholder="e.g. London, UK; Florida, USA; 33101" 
-                  className="input-field text-sm w-full"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button 
-                onClick={() => {
-                  setShowMissingParamsModal(false);
-                  setIsSearching(false);
-                }} 
-                className="flex-1 py-3 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-sm transition-all"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={async () => {
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => {
+                    setShowMissingParamsModal(false);
+                    setIsSearching(false);
+                  }} 
+                  className="flex-1 py-3 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-sm transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={async () => {
                   const roles = missingRoleInput.split(",").map(r => r.trim()).filter(Boolean);
                   const locs = missingLocationInput.split(";").map(l => l.trim()).filter(isValidLocation);
                   if (roles.length === 0 || locs.length === 0) {
@@ -2527,6 +2527,7 @@ export default function SearchPage() {
                 Apply & Run Search
               </button>
             </div>
+            </div> {/* closing max-w-md wrapper */}
           </div>
         </div>
       )}
