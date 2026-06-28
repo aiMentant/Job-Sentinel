@@ -15,7 +15,8 @@ import {
   Moon,
   Calendar,
   Shield,
-  LogOut
+  LogOut,
+  HelpCircle
 } from "lucide-react";
 
 import Link from "next/link";
@@ -23,6 +24,8 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useProfile } from "@/components/ProfileContext";
 import { useTheme } from "@/components/ThemeContext";
+import HelpModal from "@/components/HelpModal";
+import { fetchUserProfile } from "@/app/actions/jobActions";
 
 const primaryNavItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/" },
@@ -58,6 +61,37 @@ export default function Sidebar() {
     const role = getCookie("auth_role");
     setIsAdmin(role === "admin");
   }, [pathname]);
+
+  const [showHelpModal, setShowHelpModal] = useState(false);
+
+  useEffect(() => {
+    if (!activeProfileId || pathname === "/login") return;
+
+    const checkSetup = async () => {
+      try {
+        const profile = await fetchUserProfile(activeProfileId);
+        if (profile) {
+          const hasTitles = profile.targetTitles && profile.targetTitles.length > 0;
+          const hasLocations = profile.targetLocations && profile.targetLocations.length > 0;
+          const hasCookie = !!(profile.linkedinCookie || profile.linkedin_cookie);
+
+          if (!hasTitles || !hasLocations || !hasCookie) {
+            const alreadyShown = localStorage.getItem(`job_sentinel_setup_shown_${activeProfileId}`);
+            if (!alreadyShown) {
+              setShowHelpModal(true);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to verify user setup status:", err);
+      }
+    };
+    
+    const timer = setTimeout(() => {
+      checkSetup();
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [activeProfileId, pathname]);
 
   const activeProfile = profiles.find(p => p.id === activeProfileId);
 
@@ -124,6 +158,14 @@ export default function Sidebar() {
 
       {/* Secondary Navigation Group (Bottom) */}
       <div className="space-y-1 mb-4 border-t border-card-border/40 pt-4">
+        <button
+          onClick={() => setShowHelpModal(true)}
+          className={`w-full flex items-center ${isCollapsed ? "justify-center" : "gap-3 px-4"} py-3 rounded-xl transition-all duration-200 group text-text-muted hover:bg-foreground/5 hover:text-foreground cursor-pointer`}
+          title={isCollapsed ? "How to Use & Setup" : ""}
+        >
+          <HelpCircle className="w-5 h-5 flex-shrink-0 text-text-muted group-hover:text-foreground" />
+          {!isCollapsed && <span className="font-medium animate-in fade-in slide-in-from-left-2 duration-300 text-sm">How to Use & Setup</span>}
+        </button>
         {secondaryNavItems.map((item) => {
           const isActive = pathname === item.href;
           return (
@@ -204,6 +246,11 @@ export default function Sidebar() {
           </Link>
         </div>
       )}
+      <HelpModal 
+        isOpen={showHelpModal} 
+        onClose={() => setShowHelpModal(false)} 
+        activeProfileId={activeProfileId} 
+      />
     </div>
   );
 }

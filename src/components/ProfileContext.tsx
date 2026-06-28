@@ -3,6 +3,8 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { getActiveProfileId, setActiveProfileId } from "@/app/actions/profileSwitch";
 import { listAllProfilesWithData } from "@/app/actions/jobActions";
+import { Cpu } from "lucide-react";
+import { usePathname } from "next/navigation";
 
 type Profile = {
   id: string;
@@ -24,8 +26,11 @@ const ProfileContext = createContext<ProfileContextType | undefined>(undefined);
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const [activeProfileId, setActiveProfileIdState] = useState("default");
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const pathname = usePathname();
 
   const refreshProfiles = async () => {
+    setIsLoading(true);
     try {
       let urlProfileId = null;
       if (typeof window !== "undefined") {
@@ -51,6 +56,8 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       setProfiles(all);
     } catch (error) {
       console.error("Failed to load profiles in context:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -115,6 +122,23 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     
     await refreshProfiles();
   };
+
+  if (isLoading && pathname !== "/login") {
+    return (
+      <div className="min-h-screen w-screen flex items-center justify-center bg-[#0a0a0c] text-white font-mono flex-col gap-4">
+        <div className="relative">
+          <div className="w-16 h-16 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center animate-pulse">
+            <Cpu className="w-6 h-6 text-indigo-400" />
+          </div>
+        </div>
+        <div className="text-center space-y-2 mt-4">
+          <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-400 animate-pulse">Initializing Console</h3>
+          <p className="text-xs text-slate-400">Verifying secure keys and checking profile setup...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <ProfileContext.Provider value={{ activeProfileId, profiles, switchProfile, refreshProfiles, createProfile }}>

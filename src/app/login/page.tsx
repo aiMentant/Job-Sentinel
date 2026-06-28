@@ -105,10 +105,10 @@ export default function LoginPage() {
             {isLoading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Authenticating...
+                Logging In...
               </>
             ) : (
-              "Initialize Console"
+              "Log In"
             )}
           </button>
         </form>
