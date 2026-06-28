@@ -290,7 +290,13 @@ export async function runJobSearch(
             
             // Split by words/regions but allow shorter state abbreviations/components (length >= 2)
             const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length >= 2);
-            return targetWords.length > 0 && targetWords.some(word => jobLocLower.includes(word));
+            return targetWords.length > 0 && targetWords.some(word => {
+              if (word.length === 2) {
+                const regex = new RegExp(`\\b${word}\\b`, 'i');
+                return regex.test(jobLocLower);
+              }
+              return jobLocLower.includes(word);
+            });
           });
 
           if (!isLocationMatch) {
