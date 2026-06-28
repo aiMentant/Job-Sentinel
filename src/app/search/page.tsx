@@ -458,19 +458,20 @@ export default function SearchPage() {
     setShowDismissModal(false);
   };
 
-  const handleBulkAnalyze = async () => {
-    if (isBulkAnalyzing || selectedIds.length === 0) return;
+  const handleBulkAnalyze = async (ids?: string[]) => {
+    const targetIds = ids || selectedIds;
+    if (isBulkAnalyzing || targetIds.length === 0) return;
     setIsBulkAnalyzing(true);
-    setStatus(`AI is analyzing ${selectedIds.length} matches...`);
+    setStatus(`AI is analyzing ${targetIds.length} matches...`);
 
-    for (let i = 0; i < selectedIds.length; i++) {
-      const jobId = selectedIds[i];
+    for (let i = 0; i < targetIds.length; i++) {
+      const jobId = targetIds[i];
       const existing = results.find(j => j.id === jobId);
       if (existing && existing.score && existing.score > 0) {
         continue;
       }
 
-      setResults(prev => prev.map(j => j.id === jobId ? { ...j, reason: `AI is analyzing (${i + 1}/${selectedIds.length})...` } : j));
+      setResults(prev => prev.map(j => j.id === jobId ? { ...j, reason: `AI is analyzing (${i + 1}/${targetIds.length})...` } : j));
 
       try {
         const result = await analyzeSingleJob(jobId, activeProfileId);
@@ -485,7 +486,9 @@ export default function SearchPage() {
 
     setStatus("Bulk AI analysis completed.");
     setIsBulkAnalyzing(false);
-    setSelectedIds([]);
+    if (!ids) {
+      setSelectedIds([]);
+    }
     setTimeout(() => setStatus(""), 3000);
   };
 
@@ -1115,6 +1118,14 @@ export default function SearchPage() {
                   title="Select or deselect all visible jobs on the current tab for bulk actions"
                 >
                   {selectedIds.length === filteredResults.length ? "Deselect All" : "Select All"}
+                </button>
+                <button 
+                  onClick={() => handleBulkAnalyze(filteredResults.map(j => j.id))}
+                  disabled={isBulkAnalyzing || filteredResults.length === 0}
+                  className={`btn-secondary py-1 px-2.5 text-[9px] font-bold uppercase tracking-wider cursor-pointer bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all ${isBulkAnalyzing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title="Analyze all currently visible jobs sequentially using Gemini AI"
+                >
+                  {isBulkAnalyzing ? "Analyzing..." : `AI Analyze All (${filteredResults.length})`}
                 </button>
                 <button 
                   onClick={() => setShowHighScoresOnly(!showHighScoresOnly)}
@@ -2287,7 +2298,7 @@ export default function SearchPage() {
               ) : "Move to Pipeline"}
             </button>
             <button 
-              onClick={handleBulkAnalyze}
+              onClick={() => handleBulkAnalyze()}
               disabled={isBulkAnalyzing}
               className={`px-4 py-1.5 bg-emerald-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-500/20 flex items-center gap-1.5 ${isBulkAnalyzing ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
