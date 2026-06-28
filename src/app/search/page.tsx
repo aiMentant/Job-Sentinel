@@ -2,6 +2,7 @@
 
 
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 import { 
   Search, 
@@ -74,6 +75,11 @@ const detectJobType = (title: string, description: string) => {
 export default function SearchPage() {
   const { activeProfileId } = useProfile();
   const [isSearching, setIsSearching] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
   const [results, setResults] = useState<Job[]>([]);
   const [isMovingToPipeline, setIsMovingToPipeline] = useState(false);
   const [isBulkAnalyzing, setIsBulkAnalyzing] = useState(false);
@@ -2319,8 +2325,8 @@ export default function SearchPage() {
       )}
 
       {/* Quick Review Modal */}
-      {reviewingJob && (
-        <div className="fixed inset-0 z-50 p-[2px] bg-[#0a0a0c]/80 backdrop-blur-sm animate-in fade-in duration-200 flex">
+      {mounted && reviewingJob && createPortal(
+        <div className="fixed inset-0 z-50 p-5 bg-[#0a0a0c]/80 backdrop-blur-sm animate-in fade-in duration-200 flex">
           <div className="glass-card w-full h-full relative z-10 animate-in zoom-in-95 duration-200 flex flex-col p-6 rounded-2xl overflow-hidden border-card-border bg-card">
             <div className="flex justify-between items-start mb-6 shrink-0">
               <div>
@@ -2389,10 +2395,11 @@ export default function SearchPage() {
               &times;
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
       {/* Dismiss Confirmation Modal */}
-      {showDismissModal && (
+      {mounted && showDismissModal && createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
           <div className="glass-card w-full max-w-md p-8 space-y-6 border-red-500/30">
             <div className="flex items-center gap-4 text-red-600 dark:text-red-400">
@@ -2410,12 +2417,13 @@ export default function SearchPage() {
               <button onClick={handleBulkDelete} className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-black text-sm transition-all shadow-lg shadow-red-600/20">Confirm Dismiss</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Missing Parameters Modal */}
-      {showMissingParamsModal && (
-        <div className="fixed inset-0 z-[100] p-[2px] bg-black/80 backdrop-blur-md animate-in fade-in duration-300 flex">
+      {mounted && showMissingParamsModal && createPortal(
+        <div className="fixed inset-0 z-[100] p-5 bg-black/80 backdrop-blur-md animate-in fade-in duration-300 flex">
           <div className="glass-card w-full h-full border-indigo-500/30 flex flex-col items-center justify-center rounded-2xl overflow-hidden p-8 bg-card">
             <div className="w-full max-w-md space-y-6">
               <div className="flex items-center gap-4 text-indigo-600 dark:text-indigo-400">
@@ -2529,7 +2537,8 @@ export default function SearchPage() {
             </div>
             </div> {/* closing max-w-md wrapper */}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

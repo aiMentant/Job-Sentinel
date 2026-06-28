@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { 
   X, 
   User, 
@@ -22,6 +23,12 @@ type HelpModalProps = {
 
 export default function HelpModal({ isOpen, onClose, activeProfileId, type }: HelpModalProps) {
   const [currentStep, setCurrentStep] = useState(1);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
+  }, []);
 
   if (!isOpen) return null;
 
@@ -44,8 +51,8 @@ export default function HelpModal({ isOpen, onClose, activeProfileId, type }: He
 
   const titleText = type === "setup" ? "Account Setup Guide" : "Job Search & AI Guide";
 
-  return (
-    <div className="fixed inset-0 z-50 p-[2px] bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 flex">
+  const modalContent = (
+    <div className="fixed inset-0 z-[9999] p-5 bg-[#0a0a0c]/80 backdrop-blur-sm animate-in fade-in duration-200 flex">
       <div className="glass-card w-full h-full relative z-10 animate-in zoom-in-95 duration-200 flex flex-col overflow-hidden bg-card border-card-border p-6 shadow-2xl rounded-2xl">
         
         {/* Header */}
@@ -291,4 +298,7 @@ export default function HelpModal({ isOpen, onClose, activeProfileId, type }: He
       </div>
     </div>
   );
+
+  if (!mounted) return null;
+  return createPortal(modalContent, document.body);
 }
