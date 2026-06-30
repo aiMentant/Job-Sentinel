@@ -167,6 +167,149 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
   }
 }
 
+async function fetchAdzunaJobs(title: string, location: string, radius: number): Promise<Job[]> {
+  const appId = process.env.ADZUNA_APP_ID;
+  const appKey = process.env.ADZUNA_APP_KEY;
+  if (!appId || !appKey) {
+    console.log("[Adzuna] Missing ADZUNA_APP_ID or ADZUNA_APP_KEY. Skipping.");
+    return [];
+  }
+
+  try {
+    const isUK = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln/i.test(location);
+    const country = isUK ? "gb" : "us";
+    const radiusKm = Math.ceil(radius * 1.60934);
+    
+    const url = `https://api.adzuna.com/v1/api/jobs/${country}/search/1?app_id=${appId}&app_key=${appKey}&results_per_page=15&what=${encodeURIComponent(title)}&where=${encodeURIComponent(location)}&distance=${radiusKm}`;
+    console.log(`[Adzuna] Querying: ${url}`);
+    
+    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!res.ok) {
+      console.warn(`[Adzuna] API responded with status ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+    const results = data.results || [];
+    
+    return results.map((j: any) => {
+      const titleClean = (j.title || "").replace(/<\/?[^>]+(>|$)/g, "").trim();
+      const descClean = (j.description || "").replace(/<\/?[^>]+(>|$)/g, "").trim();
+      return {
+        id: `adzuna-${j.id}`,
+        title: titleClean || title,
+        company: j.company?.display_name || "Enterprise Partner",
+        location: j.location?.display_name || location,
+        description: descClean || "Job listing on Adzuna.",
+        score: 0,
+        reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
+        status: 'Discovery',
+        url: j.redirect_url,
+        source: 'Adzuna',
+        createdAt: j.created || new Date().toISOString()
+      };
+    });
+  } catch (err) {
+    console.error("[Adzuna] Fetch failed:", err);
+    return [];
+  }
+}
+
+async function fetchJSearchJobs(title: string, location: string): Promise<Job[]> {
+  const apiKey = process.env.RAPIDAPI_KEY || process.env.JSEARCH_API_KEY;
+  if (!apiKey) {
+    console.log("[JSearch] Missing RAPIDAPI_KEY or JSEARCH_API_KEY. Skipping.");
+    return [];
+  }
+
+  try {
+    const query = `${title} in ${location}`;
+    const url = `https://jsearch.p.rapidapi.com/search?query=${encodeURIComponent(query)}&num_pages=1&page=1`;
+    console.log(`[JSearch] Querying JSearch for: ${query}`);
+    
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "x-rapidapi-key": apiKey,
+        "x-rapidapi-host": "jsearch.p.rapidapi.com",
+        "Accept": "application/json"
+      }
+    });
+    if (!res.ok) {
+      console.warn(`[JSearch] API responded with status ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+    const results = data.data || [];
+    
+    return results.map((j: any) => ({
+      id: `jsearch-${j.job_id}`,
+      title: j.job_title || title,
+      company: j.employer_name || "Enterprise Partner",
+      location: `${j.job_city || ''} ${j.job_state || ''} ${j.job_country || ''}`.trim() || location,
+      description: j.job_description || "Job listing on JSearch.",
+      score: 0,
+      reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
+      status: 'Discovery',
+      url: j.job_apply_link || j.job_google_link,
+      source: 'JSearch',
+      createdAt: j.job_posted_at_datetime_utc || new Date().toISOString()
+    }));
+  } catch (err) {
+    console.error("[JSearch] Fetch failed:", err);
+    return [];
+  }
+}
+
+async function fetchUSAJobs(title: string, location: string, radius: number): Promise<Job[]> {
+  const apiKey = process.env.USAJOBS_API_KEY;
+  const userEmail = process.env.USAJOBS_USER_EMAIL;
+  if (!apiKey || !userEmail) {
+    console.log("[USAJobs] Missing USAJOBS_API_KEY or USAJOBS_USER_EMAIL. Skipping.");
+    return [];
+  }
+
+  try {
+    const url = `https://data.usajobs.gov/api/search?Keyword=${encodeURIComponent(title)}&LocationName=${encodeURIComponent(location)}&Radius=${radius}`;
+    console.log(`[USAJobs] Querying: ${url}`);
+    
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "User-Agent": userEmail,
+        "Authorization-Key": apiKey,
+        "Accept": "application/json"
+      }
+    });
+    if (!res.ok) {
+      console.warn(`[USAJobs] API responded with status ${res.status}`);
+      return [];
+    }
+    const data = await res.json();
+    const items = data.SearchResult?.SearchResultItems || [];
+    
+    return items.map((item: any) => {
+      const desc = item.MatchedObjectDescriptor;
+      const jobLoc = desc.PositionLocation?.[0]?.LocationName || location;
+      return {
+        id: `usajobs-${desc.PositionID}`,
+        title: desc.PositionTitle || title,
+        company: desc.OrganizationName || "U.S. Government",
+        location: jobLoc,
+        description: desc.QualificationSummary || desc.UserArea?.Details?.JobSummary || "Federal job listing.",
+        score: 0,
+        reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
+        status: 'Discovery',
+        url: desc.PositionURI,
+        source: 'USAJobs',
+        createdAt: new Date().toISOString()
+      };
+    });
+  } catch (err) {
+    console.error("[USAJobs] Fetch failed:", err);
+    return [];
+  }
+}
+
 export async function runJobSearch(
   targetTitles: string[],
   targetLocations: string[],
@@ -216,15 +359,27 @@ export async function runJobSearch(
           resultsFound: allResults.length 
         });
         
-        // Only run direct LinkedIn scan if linkedin.com is in targetSites or no targetSites are specified
-        let linkedinJobs: any[] = [];
-        if (!targetSites || targetSites.length === 0 || targetSites.some(s => s.toLowerCase().includes("linkedin"))) {
-          linkedinJobs = await searchLinkedInJobs(title, location, radius);
+        // Try free aggregated API stack first (JSearch, Adzuna, USAJobs)
+        const [adzunaJobs, jsearchJobs, usajobsJobs] = await Promise.all([
+          fetchAdzunaJobs(title, location, radius),
+          fetchJSearchJobs(title, location),
+          fetchUSAJobs(title, location, radius)
+        ]);
+
+        let rawJobs = [...adzunaJobs, ...jsearchJobs, ...usajobsJobs];
+
+        if (rawJobs.length === 0) {
+          console.log(`[Search] No API results found or credentials missing. Falling back to local browser scraper...`);
+          let linkedinJobs: any[] = [];
+          if (!targetSites || targetSites.length === 0 || targetSites.some(s => s.toLowerCase().includes("linkedin"))) {
+            linkedinJobs = await searchLinkedInJobs(title, location, radius);
+          }
+          
+          const multiJobs = await searchMultiPlatformJobs(title, location, targetSites, targetTitles, alternativeTitles);
+          rawJobs = [...linkedinJobs, ...multiJobs];
         }
-        
-        const multiJobs = await searchMultiPlatformJobs(title, location, targetSites, targetTitles, alternativeTitles);
-        let rawJobs = [...linkedinJobs, ...multiJobs];
-        if (!rawJobs || rawJobs.length === 0) {
+
+        if (rawJobs.length === 0) {
           rawJobs = await fetchPublicFallbackJobs(title, location, targetTitles, alternativeTitles);
         }
         
