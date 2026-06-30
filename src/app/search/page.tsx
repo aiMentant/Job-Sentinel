@@ -2086,6 +2086,25 @@ export default function SearchPage() {
               </div>
             </div>
 
+            {/* Primary Search CTA — sits above the fold */}
+            <button 
+              onClick={() => handleSearch()}
+              disabled={isSearching}
+              className={`w-full btn-primary justify-center disabled:opacity-50 !py-4 transition-all ${searchMode === 'deep' ? '!bg-emerald-600 hover:!bg-emerald-500 shadow-emerald-600/20 shadow-xl' : ''}`}
+            >
+              {isSearching ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Agent Scanning...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 fill-current" />
+                  Search Jobs
+                </>
+              )}
+            </button>
+
             {/* AI Suggestion Button */}
             <button 
               onClick={handleRegenerate}
@@ -2162,24 +2181,7 @@ export default function SearchPage() {
               </div>
             </div>
 
-            <button 
-              onClick={() => handleSearch()}
-              disabled={isSearching}
-              className={`w-full btn-primary justify-center disabled:opacity-50 !py-4 transition-all ${searchMode === 'deep' ? '!bg-emerald-600 !hover:bg-emerald-500 shadow-emerald-600/20 shadow-xl' : ''}`}
-            >
-              {isSearching ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Agent Scanning...
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 fill-current" />
-                  {searchMode === 'deep' ? 'Trigger Precision Scan' : 'Start Standard Agent'}
-                </>
-              )}
-            </button>
-            
+            {/* Search button moved above fold — renders above Suggest Smart Targets */}
             {searchMode === 'deep' && (
                <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10 space-y-2 animate-in slide-in-from-top-2 duration-300">
                   <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-[10px] uppercase tracking-widest">
