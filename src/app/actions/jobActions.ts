@@ -229,11 +229,14 @@ export async function runJobSearch(
         }
         
         // KEYWORD GUARDRAIL: Adhere to target roles depending on matchStrictness setting
-        const genericWords = ["senior", "junior", "lead", "staff", "principal", "manager", "director", "designer", "developer", "engineer", "associate", "intern", "creative", "digital", "motion", "co-op", "contractor"];
-        
+        // NOTE: genericWords intentionally excludes logistics/ops domain terms like "logistics",
+        // "warehouse", "inventory", "supply" so they remain as meaningful discriminators.
+        const genericWords = ["senior", "junior", "lead", "staff", "principal", "associate", "intern", "creative", "digital", "motion", "co-op", "contractor"];
+        const prefixStrip = /^(senior|junior|lead|staff|principal|associate|creative|digital|entry-level|mid-weight|contract|freelance|certified)\s+/gi;
+
         for (const raw of rawJobs) {
           const titleLower = raw.title.toLowerCase();
-          
+
           let isTargetMatch = false;
           const allAcceptedTitles = [...targetTitles, ...(alternativeTitles || [])];
           if (allAcceptedTitles.length === 0) {
@@ -241,12 +244,31 @@ export async function runJobSearch(
           } else {
             isTargetMatch = allAcceptedTitles.some(target => {
               const targetLower = target.toLowerCase();
-              
+
               if (matchStrictness === 'exact') {
-                // Exact match: Clean target string must match clean title string
-                const cleanTarget = targetLower.replace(/^(senior|junior|lead|staff|principal|associate|creative|digital|entry-level|mid-weight|contract|freelance)\s+/g, "").trim();
-                const cleanJobTitle = titleLower.replace(/^(senior|junior|lead|staff|principal|associate|creative|digital|entry-level|mid-weight|contract|freelance)\s+/g, "").trim();
-                return cleanJobTitle.includes(cleanTarget);
+                // Exact mode: all MEANINGFUL words in the target must appear in the job title
+                // (order-independent). This handles compound titles like "Logistics Operations Manager"
+                // matching a scraped "Operations Manager – Logistics & Supply Chain".
+                const cleanTarget = targetLower.replace(prefixStrip, "").trim();
+                const cleanJobTitle = titleLower.replace(prefixStrip, "").trim();
+
+                // First: try direct substring (catches perfect matches fast)
+                if (cleanJobTitle.includes(cleanTarget)) return true;
+
+                // Second: every significant word in target must appear somewhere in title
+                const significantWords = cleanTarget
+                  .split(/[\s&,/\-]+/)
+                  .map(w => w.trim())
+                  .filter(w => w.length > 3 && !genericWords.includes(w));
+
+                if (significantWords.length === 0) {
+                  // Fall back to any word match if all words were stripped
+                  return cleanTarget.split(/\s+/).some(w => cleanJobTitle.includes(w));
+                }
+
+                // All significant words must appear (any order)
+                return significantWords.every(word => cleanJobTitle.includes(word));
+
               } else if (matchStrictness === 'strong') {
                 // Strong match: requires all non-generic words in target to be present
                 const targetWords = targetLower.split(/\s+/).filter(w => w.length > 2 && !genericWords.includes(w));
@@ -272,32 +294,36 @@ export async function runJobSearch(
              continue;
           }
 
-          // LOCATION GUARDRAIL: Adhere to user's target locations
-          const jobLocLower = raw.location.toLowerCase();
-          const isLocationMatch = targetLocations.length === 0 || targetLocations.some(target => {
-            const cleanTarget = target.toLowerCase().trim();
-            if (!cleanTarget) return false;
-            
-            // Check direct inclusion first
-            if (jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower)) {
-              return true;
-            }
-            
-            const isRemoteTarget = cleanTarget.includes("remote");
-            if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere") || jobLocLower.includes("worldwide"))) {
-              return true;
-            }
-            
-            // Split by words/regions but allow shorter state abbreviations/components (length >= 2)
-            const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length >= 2);
-            return targetWords.length > 0 && targetWords.some(word => {
-              if (word.length === 2) {
-                const regex = new RegExp(`\\b${word}\\b`, 'i');
-                return regex.test(jobLocLower);
-              }
-              return jobLocLower.includes(word);
-            });
-          });
+          // LOCATION GUARDRAIL: Check job location against user's target locations.
+          // The scraper already searched the target location, so we trust the source
+          // and apply a lenient check — any meaningful word overlap is a pass.
+          // This prevents over-filtering for multi-word logistics roles where job boards
+          // return e.g. "Nottingham, East Midlands" for a search for "Nottingham, UK".
+          const jobLocLower = (raw.location || "").toLowerCase().trim();
+          const isLocationMatch = targetLocations.length === 0 || (
+            // Pass-through: if job location is empty or generic ("United Kingdom", "United States", "Nationwide"), allow it
+            !jobLocLower ||
+            jobLocLower.includes("united kingdom") ||
+            jobLocLower.includes("united states") ||
+            jobLocLower.includes("nationwide") ||
+            jobLocLower.includes("national") ||
+            targetLocations.some(target => {
+              const cleanTarget = target.toLowerCase().trim();
+              if (!cleanTarget) return false;
+
+              // Direct inclusion check (both directions)
+              if (jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower)) return true;
+
+              // Remote/anywhere pass-through
+              const isRemoteTarget = cleanTarget.includes("remote");
+              if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere") || jobLocLower.includes("worldwide"))) return true;
+
+              // Word-level match — only for words longer than 3 chars to avoid
+              // false matches on 2-char tokens like "fl", "uk", "in", "or"
+              const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length > 3);
+              return targetWords.length > 0 && targetWords.some(word => jobLocLower.includes(word));
+            })
+          );
 
           if (!isLocationMatch) {
              console.log(`[Guardrail] Skipping location as it doesn't match Target Locations: ${raw.location}`);
