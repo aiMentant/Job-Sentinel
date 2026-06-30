@@ -70,6 +70,10 @@ export default function Sidebar() {
 
     const checkSetup = async () => {
       try {
+        // Guard immediately — don't re-run if already acknowledged for this profile
+        const alreadyShown = localStorage.getItem(`job_sentinel_setup_shown_${activeProfileId}`);
+        if (alreadyShown) return;
+
         const profile = await fetchUserProfile(activeProfileId);
         if (profile) {
           const hasTitles = profile.targetTitles && profile.targetTitles.length > 0;
@@ -77,22 +81,23 @@ export default function Sidebar() {
           const hasCookie = !!(profile.linkedinCookie || profile.linkedin_cookie);
 
           if (!hasTitles || !hasLocations || !hasCookie) {
-            const alreadyShown = localStorage.getItem(`job_sentinel_setup_shown_${activeProfileId}`);
-            if (!alreadyShown) {
-              setShowSetupModal(true);
-            }
+            // Mark as shown immediately so navigating pages never re-triggers it
+            localStorage.setItem(`job_sentinel_setup_shown_${activeProfileId}`, "pending");
+            setShowSetupModal(true);
           }
         }
       } catch (err) {
         console.error("Failed to verify user setup status:", err);
       }
     };
-    
+
     const timer = setTimeout(() => {
       checkSetup();
     }, 800);
     return () => clearTimeout(timer);
-  }, [activeProfileId, pathname]);
+  // Only re-run when the active profile changes, NOT on every page navigation
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProfileId]);
 
   const activeProfile = profiles.find(p => p.id === activeProfileId);
 
