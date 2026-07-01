@@ -1405,7 +1405,7 @@ export async function findReferralRoutes(companyName: string, profile: UserProfi
   }
 }
 
-export async function rankTargetRoles(profileIdOverride?: string) {
+export async function rankTargetRoles(profileIdOverride?: string): Promise<{ roles: Array<{ title: string; score: number; reason: string }>; primaryActiveArchetype: string }> {
   try {
     const profileId = profileIdOverride || await getActiveProfileId();
     const profile = await getProfile(profileId);
@@ -1413,28 +1413,35 @@ export async function rankTargetRoles(profileIdOverride?: string) {
 
     const targetTitles = profile.targetTitles || [];
     if (targetTitles.length === 0) {
-      return { roles: [] };
+      return { roles: [], primaryActiveArchetype: "" };
     }
 
     const skills = profile.skills || [];
     const experience = profile.experience || [];
     const summary = profile.resumeText || "";
+    const targetPay = profile.salaryExpectations 
+      ? `${profile.salaryExpectations.currency} ${profile.salaryExpectations.minimumAcceptable} - ${profile.salaryExpectations.targetSalary}`
+      : "Not specified";
 
     const prompt = `
-      You are an expert AI HR assistant.
+      You are an expert AI HR assistant and Job Market Analyst.
       
       CANDIDATE PROFILE:
       - SUMMARY/RESUME: ${summary.substring(0, 4000)}
       - SKILLS: ${skills.join(", ")}
       - EXPERIENCE: ${JSON.stringify(experience).substring(0, 2000)}
+      - TARGET PAY RANGE: ${targetPay}
       
       TARGET ROLES TO EVALUATE:
       ${targetTitles.map((t: string) => `- ${t}`).join("\n")}
       
       TASK:
-      For each target role, evaluate how well the candidate's profile matches the typical market requirements for that title.
-      1. Provide a score from 0 to 100 representing the match fit.
-      2. Provide a 1-2 sentence reason detailing why the candidate fits or what gaps exist.
+      For each target role, evaluate:
+      1. EXPERIENCE MATCH (40% weight): Profile fit to role requirements.
+      2. MARKET DEMAND (40% weight): General hiring volume and open postings in the market.
+      3. COMPENSATION RANGE ALIGNMENT (20% weight): Target pay vs. typical market pay.
+      
+      Assign a composite score (0-100) and identify the single absolute "Primary Active Archetype" (highest overall score).
       
       RETURN JSON FORMAT EXACTLY:
       {
@@ -1442,17 +1449,18 @@ export async function rankTargetRoles(profileIdOverride?: string) {
           {
             "title": "Target Role Title",
             "score": 85,
-            "reason": "Explain match/gaps based on candidate's skills and experience."
+            "reason": "Explain match/gaps based on candidate's skills, experience, market demand, and compensation."
           }
-        ]
+        ],
+        "primaryActiveArchetype": "Target Role Title"
       }
     `;
 
     const response = await generateWithAI(prompt, { jsonMode: true, profileIdOverride: profileId });
-    return response as { roles: Array<{ title: string; score: number; reason: string }> };
+    return response as { roles: Array<{ title: string; score: number; reason: string }>; primaryActiveArchetype: string };
   } catch (error) {
     console.error("rankTargetRoles server error:", error);
-    return { roles: [] };
+    return { roles: [], primaryActiveArchetype: "" };
   }
 }
 

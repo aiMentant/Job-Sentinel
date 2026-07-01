@@ -207,12 +207,8 @@ export default function SearchPage() {
           if (paramRole && roles.includes(paramRole)) {
             setActiveRole(paramRole);
             setSelectedTabRole(paramRole);
-          } else if (ranked.length > 0) {
-            const sortedRanked = [...ranked].sort((a, b) => b.score - a.score);
-            setActiveRole(sortedRanked[0].title);
-            setSelectedTabRole("all");
-          } else if (roles.length > 0) {
-            setActiveRole(roles[0]);
+          } else {
+            setActiveRole("");
             setSelectedTabRole("all");
           }
 
@@ -297,6 +293,12 @@ export default function SearchPage() {
   }, [activeProfileId, searchMode]);
 
 
+
+  const sortedTabs = [...targetTitles].sort((a, b) => {
+    const scoreA = rankedRoles.find(r => r.title.toLowerCase().trim() === a.toLowerCase().trim())?.score || 0;
+    const scoreB = rankedRoles.find(r => r.title.toLowerCase().trim() === b.toLowerCase().trim())?.score || 0;
+    return scoreB - scoreA;
+  });
 
   const toggleSelection = (id: string) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -389,7 +391,7 @@ export default function SearchPage() {
     }
 
     // Filter by selected tab role (support legacy matches via title keyword check)
-    if (selectedTabRole !== "all") {
+    if (selectedTabRole) {
       const roleLower = selectedTabRole.toLowerCase().trim();
       const matchesMeta = j.matchedRole && j.matchedRole.toLowerCase().trim() === roleLower;
       const matchesTitle = (j.title || "").toLowerCase().includes(roleLower);
@@ -772,7 +774,15 @@ export default function SearchPage() {
   };
 
   const handleSearch = async (titlesOverride?: string[], locationsOverride?: string[]) => {
-    const titles = titlesOverride || (activeRole ? [activeRole] : targetTitles.slice(0, 1));
+    let titles = titlesOverride;
+    if (!titles) {
+      if (activeRole) {
+        titles = [activeRole];
+      } else {
+        // If on the "All Roles" tab, search all roles sequentially
+        titles = targetTitles;
+      }
+    }
     const locations = (locationsOverride || targetLocations).filter(isValidLocation);
 
     if (titles.length === 0 || locations.length === 0) {
@@ -828,6 +838,7 @@ export default function SearchPage() {
         const initialScans = titles.map((t, idx) => ({ title: t, status: (idx === 0 ? 'scanning' : 'pending') as any }));
         setScanningTitles(initialScans);
 
+        let activeRadius = radius;
         for (let i = 0; i < titles.length; i++) {
           const currentTitle = titles[i];
           
@@ -840,16 +851,44 @@ export default function SearchPage() {
           setStatus(`Scanning for "${currentTitle}"...`);
           
           try {
-            const newJobs = await runJobSearch(
+            let newJobs = await runJobSearch(
               [currentTitle], 
               locations, 
-              radius, 
+              activeRadius, 
               profile.resumeText || "",
               targetSites,
               activeProfileId,
               profile.matchStrictness || 'exact',
               alternativeTitles
             );
+
+            // Auto-Expansion Fallback if 0 results found
+            if (newJobs.length === 0) {
+              const expandedRadius = activeRadius + 20;
+              activeRadius = expandedRadius;
+              setRadius(expandedRadius); // Sync state so slider/input updates
+
+              // Set global status so the background status poller broadcasts this update
+              await setAgentStatus({
+                isSearching: true,
+                status: `No matches found within ${activeRadius - 20} miles for "${currentTitle}". Auto-expanding search radius by 20 miles to check for wider openings...`,
+                resultsFound: totalFound
+              });
+
+              // Pause to allow the status banner to display
+              await new Promise(resolve => setTimeout(resolve, 2500));
+
+              newJobs = await runJobSearch(
+                [currentTitle],
+                locations,
+                activeRadius,
+                profile.resumeText || "",
+                targetSites,
+                activeProfileId,
+                profile.matchStrictness || 'exact',
+                alternativeTitles
+              );
+            }
 
             totalFound += newJobs.length;
 
@@ -1273,17 +1312,21 @@ export default function SearchPage() {
           {/* Role Filtering Tabs */}
           {activeTab === 'live' && (
             <div className="flex flex-wrap gap-2 border-b border-card-border pb-3 mb-4">
-              <button 
-                onClick={() => setSelectedTabRole("all")}
+              {/* All Roles Tab */}
+              <button
+                onClick={() => {
+                  setSelectedTabRole("all");
+                  setActiveRole("");
+                }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  selectedTabRole === 'all' 
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' 
+                  selectedTabRole === "all"
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/10'
                     : 'bg-black/5 dark:bg-white/5 border border-card-border text-text-muted hover:text-foreground'
                 }`}
               >
                 All Roles ({results.length})
               </button>
-              {targetTitles.map((role, idx) => {
+              {sortedTabs.map((role, idx) => {
                 const count = results.filter(j => {
                   const roleLower = role.toLowerCase().trim();
                   return (j.matchedRole && j.matchedRole.toLowerCase().trim() === roleLower) || 
@@ -2049,11 +2092,12 @@ export default function SearchPage() {
             <div>
               <label className="text-xs text-text-muted font-bold uppercase tracking-wider mb-2 block">Target Roles</label>
               <div className="flex flex-col gap-1.5 mb-2">
-                {(showAllRoles ? targetTitles : targetTitles.slice(0, 5)).map((title, i) => {
+                {(showAllRoles ? sortedTabs : sortedTabs.slice(0, 5)).map((title, i) => {
                   const rank = rankedRoles.find(r => r.title.toLowerCase().trim() === title.toLowerCase().trim());
                   const score = rank?.score;
                   const reason = rank?.reason;
                   const isActive = activeRole === title;
+                  const originalIndex = targetTitles.indexOf(title);
 
                   return (
                     <div 
@@ -2108,7 +2152,7 @@ export default function SearchPage() {
                           <ExternalLink size={10} />
                         </a>
                         <button 
-                          onClick={() => removeArrayItem('targetTitles', i)} 
+                          onClick={() => removeArrayItem('targetTitles', originalIndex)} 
                           className="p-1 hover:text-rose-500 cursor-pointer"
                           title="Delete role"
                         >
