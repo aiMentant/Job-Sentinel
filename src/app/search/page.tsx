@@ -391,7 +391,7 @@ export default function SearchPage() {
     }
 
     // Filter by selected tab role (support legacy matches via title keyword check)
-    if (selectedTabRole) {
+    if (selectedTabRole && selectedTabRole !== "all") {
       const roleLower = selectedTabRole.toLowerCase().trim();
       const matchesMeta = j.matchedRole && j.matchedRole.toLowerCase().trim() === roleLower;
       const matchesTitle = (j.title || "").toLowerCase().includes(roleLower);
