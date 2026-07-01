@@ -406,7 +406,15 @@ export async function runJobSearch(
   await setAgentStatus({ isSearching: true, status: "Initializing stealth scan...", resultsFound: 0 });
 
   try {
-    const titles = targetTitles.length > 0 ? targetTitles : ["Product Designer"];
+    let titles = targetTitles;
+    if (titles.length === 0) {
+      const pastRoles = (profile?.experience || []).map((e: any) => e.role).filter(Boolean);
+      if (pastRoles.length > 0) {
+        titles = [pastRoles[0]];
+      } else {
+        titles = ["Logistics Operations Manager"];
+      }
+    }
     const locations = targetLocations.length > 0 
       ? targetLocations 
       : (profile?.location ? [profile.location] : ["United States"]);

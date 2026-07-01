@@ -718,10 +718,6 @@ export default function SearchPage() {
 
   const [isRegenerating, setIsRegenerating] = useState(false);
   const handleRegenerate = async () => {
-    if (!(profile as any).geminiApiKey) {
-      alert("Gemini API Key missing! Please navigate to Agent Settings to add your key.");
-      return;
-    }
     if (!profile.resumeText) {
       setStatus("No resume found. Please add one in Profile.");
       return;
