@@ -291,7 +291,7 @@ async function fetchJSearchJobs(title: string, location: string): Promise<Job[]>
 
   try {
     const query = `${title} in ${location}`;
-    const url = `https://jsearch.p.rapidapi.com/search?query=${encodeURIComponent(query)}&num_pages=1&page=1`;
+    const url = `https://jsearch.p.rapidapi.com/search-v2?query=${encodeURIComponent(query)}&num_pages=1&page=1`;
     console.log(`[JSearch] Querying JSearch for: ${query}`);
     
     const res = await fetch(url, {
