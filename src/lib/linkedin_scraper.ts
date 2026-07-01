@@ -8,9 +8,15 @@ async function getBrowserInstance(chromium: any) {
     try {
       console.log("Connecting to Cloud Chromium via Browserless...");
       return await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`);
-    } catch (wsErr) {
-      console.warn("Browserless connection failed, falling back to local launch:", wsErr);
+    } catch (wsErr: any) {
+      console.warn("Browserless connection failed, falling back to local launch:", wsErr.message || wsErr);
+      if (process.env.NETLIFY === "true") {
+        throw new Error(`Browserless connection failed in production: ${wsErr.message || wsErr}`);
+      }
     }
+  }
+  if (process.env.NETLIFY === "true") {
+    throw new Error("Browserless API Key is missing in production Netlify environment. Browser-based scraping is disabled.");
   }
   console.log("Launching Local Headless Chromium...");
   return await chromium.launch({ headless: true });

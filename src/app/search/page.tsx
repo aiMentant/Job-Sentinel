@@ -1768,6 +1768,24 @@ export default function SearchPage() {
                 </div>
               );
               })}
+              {isSearching && (
+                <div className="glass-card flex items-center justify-between p-6 border-indigo-500/20 bg-indigo-500/5 shadow-lg shadow-indigo-500/5 animate-pulse rounded-[2rem] gap-4">
+                  <div className="flex-grow space-y-2 min-w-0">
+                    <div className="flex items-center gap-3">
+                      <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shrink-0" />
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                          Agent crawling platforms for more roles...
+                        </h4>
+                        <p className="text-[10px] text-text-muted font-black uppercase tracking-wider">
+                          Retrieving real-time listings from JSearch, USAJobs, and fallback ATS boards
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="bg-slate-200 dark:bg-white/5 h-8 w-24 rounded-lg shrink-0" />
+                </div>
+              )}
             </div>
           )}
         </div>

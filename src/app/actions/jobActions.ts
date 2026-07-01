@@ -127,7 +127,7 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
   try {
     console.log(`[Fallback] Scraping Remotive for fallback results matching: ${query}`);
     const url = `https://remotive.com/api/remote-jobs?search=${encodeURIComponent(query)}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(6000) });
     if (response.ok) {
       const data = await response.json();
       const rawList = data.jobs || [];
@@ -174,7 +174,7 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
   try {
     console.log(`[Fallback] Fetching key-less US jobs from The Muse for location: ${location}`);
     const museUrl = `https://www.themuse.com/api/public/jobs?location=${encodeURIComponent(location)}&page=1&descending=true`;
-    const museRes = await fetch(museUrl);
+    const museRes = await fetch(museUrl, { signal: AbortSignal.timeout(6000) });
     let results: any[] = [];
     if (museRes.ok) {
       const museData = await museRes.json();
@@ -201,7 +201,7 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
         const fullState = stateNames[statePart.toUpperCase()] || statePart;
         console.log(`[Fallback] Retrying The Muse with expanded state location: ${fullState}`);
         const museUrl2 = `https://www.themuse.com/api/public/jobs?location=${encodeURIComponent(fullState)}&page=1&descending=true`;
-        const museRes2 = await fetch(museUrl2);
+        const museRes2 = await fetch(museUrl2, { signal: AbortSignal.timeout(6000) });
         if (museRes2.ok) {
           const museData2 = await museRes2.json();
           results = museData2.results || [];
@@ -251,7 +251,7 @@ async function fetchAdzunaJobs(title: string, location: string, radius: number):
     const url = `https://api.adzuna.com/v1/api/jobs/${country}/search/1?app_id=${appId}&app_key=${appKey}&results_per_page=15&what=${encodeURIComponent(title)}&where=${encodeURIComponent(location)}&distance=${radiusKm}`;
     console.log(`[Adzuna] Querying: ${url}`);
     
-    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+    const res = await fetch(url, { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(6000) });
     if (!res.ok) {
       console.warn(`[Adzuna] API responded with status ${res.status}`);
       return [];
@@ -300,7 +300,8 @@ async function fetchJSearchJobs(title: string, location: string): Promise<Job[]>
         "x-rapidapi-key": apiKey,
         "x-rapidapi-host": "jsearch.p.rapidapi.com",
         "Accept": "application/json"
-      }
+      },
+      signal: AbortSignal.timeout(6000)
     });
     if (!res.ok) {
       console.warn(`[JSearch] API responded with status ${res.status}`);
@@ -346,7 +347,8 @@ async function fetchUSAJobs(title: string, location: string, radius: number): Pr
         "User-Agent": userEmail,
         "Authorization-Key": apiKey,
         "Accept": "application/json"
-      }
+      },
+      signal: AbortSignal.timeout(6000)
     });
     if (!res.ok) {
       console.warn(`[USAJobs] API responded with status ${res.status}`);
@@ -1049,9 +1051,15 @@ async function getBrowserInstance(chromium: any) {
     try {
       console.log("Connecting to Cloud Chromium via Browserless...");
       return await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`);
-    } catch (wsErr) {
-      console.warn("Browserless connection failed, falling back to local launch:", wsErr);
+    } catch (wsErr: any) {
+      console.warn("Browserless connection failed, falling back to local launch:", wsErr.message || wsErr);
+      if (process.env.NETLIFY === "true") {
+        throw new Error(`Browserless connection failed in production: ${wsErr.message || wsErr}`);
+      }
     }
+  }
+  if (process.env.NETLIFY === "true") {
+    throw new Error("Browserless API Key is missing in production Netlify environment. Browser-based scraping is disabled.");
   }
   console.log("Launching Local Headless Chromium...");
   return await chromium.launch({ headless: true });
