@@ -251,7 +251,7 @@ async function fetchAdzunaJobs(title: string, location: string, radius: number):
     const url = `https://api.adzuna.com/v1/api/jobs/${country}/search/1?app_id=${appId}&app_key=${appKey}&results_per_page=15&what=${encodeURIComponent(title)}&where=${encodeURIComponent(location)}&distance=${radiusKm}`;
     console.log(`[Adzuna] Querying: ${url}`);
     
-    const res = await fetch(url, { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(6000) });
+    const res = await fetch(url, { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) });
     if (!res.ok) {
       console.warn(`[Adzuna] API responded with status ${res.status}`);
       return [];
@@ -301,7 +301,7 @@ async function fetchJSearchJobs(title: string, location: string): Promise<Job[]>
         "x-rapidapi-host": "jsearch.p.rapidapi.com",
         "Accept": "application/json"
       },
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(15000)
     });
     if (!res.ok) {
       console.warn(`[JSearch] API responded with status ${res.status}`);
@@ -348,7 +348,7 @@ async function fetchUSAJobs(title: string, location: string, radius: number): Pr
         "Authorization-Key": apiKey,
         "Accept": "application/json"
       },
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(15000)
     });
     if (!res.ok) {
       console.warn(`[USAJobs] API responded with status ${res.status}`);
@@ -1462,6 +1462,15 @@ export async function rankTargetRoles(profileIdOverride?: string): Promise<{ rol
     console.error("rankTargetRoles server error:", error);
     return { roles: [], primaryActiveArchetype: "" };
   }
+}
+
+export async function checkApiKeysStatus() {
+  return {
+    jsearch: !!(process.env.RAPIDAPI_KEY || process.env.JSEARCH_API_KEY),
+    adzuna: !!(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY),
+    usajobs: !!(process.env.USAJOBS_API_KEY && process.env.USAJOBS_USER_EMAIL),
+    browserless: !!process.env.BROWSERLESS_API_KEY
+  };
 }
 
 

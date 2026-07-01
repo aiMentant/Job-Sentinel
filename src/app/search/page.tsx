@@ -77,6 +77,7 @@ export default function SearchPage() {
   const [rankedRoles, setRankedRoles] = useState<Array<{ title: string; score: number; reason: string }>>([]);
   const [activeRole, setActiveRole] = useState<string>("");
   const [selectedTabRole, setSelectedTabRole] = useState<string>("all");
+  const [apiKeysStatus, setApiKeysStatus] = useState<{ jsearch: boolean; adzuna: boolean; usajobs: boolean; browserless: boolean } | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -201,6 +202,10 @@ export default function SearchPage() {
           const ranking = await rankTargetRoles(activeProfileId);
           const ranked = ranking?.roles || [];
           setRankedRoles(ranked);
+
+          const { checkApiKeysStatus } = await import("@/app/actions/jobActions");
+          const keysStatus = await checkApiKeysStatus();
+          setApiKeysStatus(keysStatus);
 
           const urlParams = new URLSearchParams(window.location.search);
           const paramRole = urlParams.get('activeRole');
@@ -1308,6 +1313,25 @@ export default function SearchPage() {
           </div>
 
 
+
+          {/* API Credentials Warning Banner */}
+          {apiKeysStatus && (!apiKeysStatus.jsearch || !apiKeysStatus.adzuna || !apiKeysStatus.usajobs) && (
+            <div className="mb-6 p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400 text-xs flex items-start gap-3 animate-in fade-in duration-300">
+              <span className="text-base leading-none">⚠️</span>
+              <div className="space-y-1">
+                <p className="font-bold uppercase tracking-wider text-[10px]">Scraper APIs Offline / Missing Credentials</p>
+                <p className="text-text-muted leading-relaxed">
+                  The agent is running in key-less fallback mode because credentials are not configured in your Netlify Dashboard. 
+                  To unlock hundreds of real-time listings, please configure these environment variables in your Netlify settings:
+                </p>
+                <div className="flex flex-wrap gap-2 pt-1.5">
+                  {!apiKeysStatus.jsearch && <span className="bg-black/10 dark:bg-white/5 border border-amber-500/30 px-2 py-0.5 rounded font-mono text-[10px]">RAPIDAPI_KEY (JSearch)</span>}
+                  {!apiKeysStatus.adzuna && <span className="bg-black/10 dark:bg-white/5 border border-amber-500/30 px-2 py-0.5 rounded font-mono text-[10px]">ADZUNA_APP_ID & ADZUNA_APP_KEY</span>}
+                  {!apiKeysStatus.usajobs && <span className="bg-black/10 dark:bg-white/5 border border-amber-500/30 px-2 py-0.5 rounded font-mono text-[10px]">USAJOBS_API_KEY</span>}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Role Filtering Tabs */}
           {activeTab === 'live' && (
