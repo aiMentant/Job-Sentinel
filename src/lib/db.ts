@@ -10,6 +10,7 @@ export type Job = {
   url: string;
   source: string;
   createdAt: string;
+  matchedRole?: string;
   // Enrichment fields
   isFavourite?: boolean;
   salaryRange?: string;           // e.g. "£70,000 – £90,000" or null if not listed

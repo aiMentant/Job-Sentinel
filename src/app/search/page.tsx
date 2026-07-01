@@ -74,6 +74,9 @@ const detectJobType = (title: string, description: string) => {
 
 export default function SearchPage() {
   const { activeProfileId } = useProfile();
+  const [rankedRoles, setRankedRoles] = useState<Array<{ title: string; score: number; reason: string }>>([]);
+  const [activeRole, setActiveRole] = useState<string>("");
+  const [selectedTabRole, setSelectedTabRole] = useState<string>("all");
   const [isSearching, setIsSearching] = useState(false);
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -193,6 +196,26 @@ export default function SearchPage() {
             setShowMissingParamsModal(true);
           }
 
+          // AI Alignment Fit Ranking
+          const { rankTargetRoles } = await import("@/app/actions/jobActions");
+          const ranking = await rankTargetRoles(activeProfileId);
+          const ranked = ranking?.roles || [];
+          setRankedRoles(ranked);
+
+          const urlParams = new URLSearchParams(window.location.search);
+          const paramRole = urlParams.get('activeRole');
+          if (paramRole && roles.includes(paramRole)) {
+            setActiveRole(paramRole);
+            setSelectedTabRole(paramRole);
+          } else if (ranked.length > 0) {
+            const sortedRanked = [...ranked].sort((a, b) => b.score - a.score);
+            setActiveRole(sortedRanked[0].title);
+            setSelectedTabRole("all");
+          } else if (roles.length > 0) {
+            setActiveRole(roles[0]);
+            setSelectedTabRole("all");
+          }
+
           // Check for background search
           const agent = await getAgentStatus();
           let backgroundSearching = agent.isSearching;
@@ -229,16 +252,26 @@ export default function SearchPage() {
   }, [savedConfigs, activeProfileId]);
 
   useEffect(() => {
+    let active = true;
     const interval = setInterval(async () => {
       const agent = await getAgentStatus();
+      if (!active) return;
       if (agent.isSearching) {
         setIsSearching(true);
         setStatus(`${agent.status} (Found ${agent.resultsFound || 0} matches so far)`);
+        
+        import("@/app/actions/jobActions").then(({ fetchJobs }) => {
+          fetchJobs(activeProfileId).then(allJobs => {
+            if (!active) return;
+            setResults(allJobs.filter((j: any) => j.status === 'Discovery'));
+          });
+        });
       } else {
         setIsSearching(prev => {
           if (prev) {
             import("@/app/actions/jobActions").then(({ fetchJobs }) => {
               fetchJobs(activeProfileId).then(allJobs => {
+                if (!active) return;
                 setResults(allJobs.filter((j: any) => j.status === 'Discovery'));
               });
             });
@@ -249,8 +282,11 @@ export default function SearchPage() {
       }
     }, 3000);
 
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [activeProfileId]);
 
   // Reset active filter dropdown states when profile or search mode changes
   useEffect(() => {
@@ -350,6 +386,14 @@ export default function SearchPage() {
     if (hideGhostJobs) {
       const ghostScore = j.ghostScore ?? computeGhostScore(j);
       if (ghostScore >= 80) return false;
+    }
+
+    // Filter by selected tab role (support legacy matches via title keyword check)
+    if (selectedTabRole !== "all") {
+      const roleLower = selectedTabRole.toLowerCase().trim();
+      const matchesMeta = j.matchedRole && j.matchedRole.toLowerCase().trim() === roleLower;
+      const matchesTitle = (j.title || "").toLowerCase().includes(roleLower);
+      if (!matchesMeta && !matchesTitle) return false;
     }
 
     if (activeTab === 'live') {
@@ -728,7 +772,7 @@ export default function SearchPage() {
   };
 
   const handleSearch = async (titlesOverride?: string[], locationsOverride?: string[]) => {
-    const titles = titlesOverride || targetTitles;
+    const titles = titlesOverride || (activeRole ? [activeRole] : targetTitles.slice(0, 1));
     const locations = (locationsOverride || targetLocations).filter(isValidLocation);
 
     if (titles.length === 0 || locations.length === 0) {
@@ -1225,6 +1269,76 @@ export default function SearchPage() {
           </div>
 
 
+
+          {/* Role Filtering Tabs */}
+          {activeTab === 'live' && (
+            <div className="flex flex-wrap gap-2 border-b border-card-border pb-3 mb-4">
+              <button 
+                onClick={() => setSelectedTabRole("all")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  selectedTabRole === 'all' 
+                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' 
+                    : 'bg-black/5 dark:bg-white/5 border border-card-border text-text-muted hover:text-foreground'
+                }`}
+              >
+                All Roles ({results.length})
+              </button>
+              {targetTitles.map((role, idx) => {
+                const count = results.filter(j => {
+                  const roleLower = role.toLowerCase().trim();
+                  return (j.matchedRole && j.matchedRole.toLowerCase().trim() === roleLower) || 
+                         (j.title || "").toLowerCase().includes(roleLower);
+                }).length;
+                
+                const rank = rankedRoles.find(r => r.title.toLowerCase().trim() === role.toLowerCase().trim());
+                const score = rank?.score;
+                const reason = rank?.reason;
+                
+                return (
+                  <div key={idx} className="flex items-center">
+                    <button
+                      onClick={() => {
+                        setSelectedTabRole(role);
+                        setActiveRole(role);
+                      }}
+                      title={reason}
+                      className={`px-3 py-1.5 rounded-l-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        selectedTabRole === role 
+                          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/10' 
+                          : 'bg-black/5 dark:bg-white/5 border border-card-border border-r-0 text-text-muted hover:text-foreground'
+                      }`}
+                    >
+                      {role} ({count})
+                      {score !== undefined && (
+                        <span className={`text-[9px] px-1 py-0.5 rounded font-black ${
+                          score >= 80 
+                            ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
+                            : score >= 50 
+                              ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' 
+                              : 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
+                        }`}>
+                          {score}%
+                        </span>
+                      )}
+                    </button>
+                    <a 
+                      href={`/search?activeRole=${encodeURIComponent(role)}`} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className={`p-1.5 rounded-r-lg border text-xs flex items-center justify-center transition-all ${
+                        selectedTabRole === role
+                          ? 'bg-indigo-700 border-indigo-700 text-white hover:bg-indigo-800'
+                          : 'bg-black/5 dark:bg-white/5 border-card-border text-text-muted hover:text-foreground hover:bg-black/10 dark:hover:bg-white/10'
+                      }`}
+                      title="Open this role feed in a new tab"
+                    >
+                      <ExternalLink size={12} />
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Metadata bar: Count, Last Searched, Refresh */}
           {(activeTab === 'live' || activeTab === 'ghost') && (
@@ -1769,21 +1883,38 @@ export default function SearchPage() {
               );
               })}
               {isSearching && (
-                <div className="glass-card flex items-center justify-between p-6 border-indigo-500/20 bg-indigo-500/5 shadow-lg shadow-indigo-500/5 animate-pulse rounded-[2rem] gap-4">
-                  <div className="flex-grow space-y-2 min-w-0">
-                    <div className="flex items-center gap-3">
-                      <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shrink-0" />
-                      <div className="min-w-0">
-                        <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
-                          Agent crawling platforms for more roles...
-                        </h4>
-                        <p className="text-[10px] text-text-muted font-black uppercase tracking-wider">
-                          Retrieving real-time listings from JSearch, USAJobs, and fallback ATS boards
-                        </p>
+                <div className="space-y-3 w-full">
+                  {/* Status Indicator Card */}
+                  <div className="glass-card flex items-center justify-between p-6 border-indigo-500/20 bg-indigo-500/5 shadow-lg shadow-indigo-500/5 animate-pulse rounded-xl gap-4">
+                    <div className="flex-grow space-y-2 min-w-0">
+                      <div className="flex items-center gap-3">
+                        <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shrink-0" />
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                            Agent crawling platforms for more roles...
+                          </h4>
+                          <p className="text-[10px] text-text-muted font-black uppercase tracking-wider">
+                            Retrieving real-time listings from JSearch, USAJobs, and fallback ATS boards
+                          </p>
+                        </div>
                       </div>
                     </div>
+                    <div className="bg-slate-200 dark:bg-white/5 h-8 w-24 rounded-lg shrink-0" />
                   </div>
-                  <div className="bg-slate-200 dark:bg-white/5 h-8 w-24 rounded-lg shrink-0" />
+
+                  {/* Pulsing Skeleton Opportunities */}
+                  {[1, 2].map((i) => (
+                    <div key={i} className="glass-card p-6 border-card-border/40 bg-card/30 animate-pulse rounded-xl space-y-4">
+                      <div className="flex justify-between items-start">
+                        <div className="space-y-2 w-2/3">
+                          <div className="h-3 bg-foreground/10 rounded w-1/4"></div>
+                          <div className="h-5 bg-foreground/10 rounded w-full"></div>
+                          <div className="h-4 bg-foreground/5 rounded w-1/2"></div>
+                        </div>
+                        <div className="h-10 w-24 bg-foreground/5 rounded-lg"></div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -1917,17 +2048,80 @@ export default function SearchPage() {
             {/* Target Roles */}
             <div>
               <label className="text-xs text-text-muted font-bold uppercase tracking-wider mb-2 block">Target Roles</label>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {(showAllRoles ? targetTitles : targetTitles.slice(0, 5)).map((title, i) => (
-                  <span key={i} className="px-2 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded text-[11px] text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5 font-semibold">
-                    {title}
-                    <button onClick={() => removeArrayItem('targetTitles', i)} className="hover:text-white cursor-pointer">&times;</button>
-                  </span>
-                ))}
+              <div className="flex flex-col gap-1.5 mb-2">
+                {(showAllRoles ? targetTitles : targetTitles.slice(0, 5)).map((title, i) => {
+                  const rank = rankedRoles.find(r => r.title.toLowerCase().trim() === title.toLowerCase().trim());
+                  const score = rank?.score;
+                  const reason = rank?.reason;
+                  const isActive = activeRole === title;
+
+                  return (
+                    <div 
+                      key={i} 
+                      title={reason}
+                      className={`group/role flex items-center justify-between p-2 rounded-lg border transition-all text-xs font-semibold ${
+                        isActive 
+                          ? 'bg-indigo-600/10 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-extrabold shadow' 
+                          : 'bg-card border-card-border text-text-muted hover:text-foreground hover:bg-card-hover'
+                      }`}
+                    >
+                      <button 
+                        onClick={() => {
+                          setActiveRole(title);
+                          setSelectedTabRole(title);
+                        }}
+                        className="flex-grow text-left truncate flex items-center gap-1.5 cursor-pointer"
+                      >
+                        {title}
+                        {score !== undefined && (
+                          <span className={`text-[9px] px-1 py-0.5 rounded font-black shrink-0 ${
+                            score >= 80 
+                              ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
+                              : score >= 50 
+                                ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' 
+                                : 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
+                          }`}>
+                            {score}%
+                          </span>
+                        )}
+                      </button>
+                      
+                      <div className="flex items-center gap-1 opacity-60 group-hover/role:opacity-100 transition-opacity shrink-0">
+                        <button
+                          onClick={() => {
+                            setActiveRole(title);
+                            setSelectedTabRole(title);
+                            handleSearch([title]);
+                          }}
+                          className="p-1 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
+                          title="Trigger search for this role"
+                        >
+                          <Play size={10} className="fill-current" />
+                        </button>
+                        <a 
+                          href={`/search?activeRole=${encodeURIComponent(title)}`} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="p-1 hover:text-indigo-600 dark:hover:text-indigo-400"
+                          title="Open in new tab"
+                        >
+                          <ExternalLink size={10} />
+                        </a>
+                        <button 
+                          onClick={() => removeArrayItem('targetTitles', i)} 
+                          className="p-1 hover:text-rose-500 cursor-pointer"
+                          title="Delete role"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
                 {!showAllRoles && targetTitles.length > 5 && (
                   <button 
                     onClick={() => setShowAllRoles(true)}
-                    className="px-2 py-1 bg-indigo-500/20 border border-indigo-500/40 rounded text-[11px] text-indigo-600 dark:text-indigo-300 font-bold hover:bg-indigo-500/30 hover:text-white transition-all cursor-pointer"
+                    className="px-2 py-1 bg-indigo-500/20 border border-indigo-500/40 rounded text-[11px] text-indigo-600 dark:text-indigo-300 font-bold hover:bg-indigo-500/30 hover:text-white transition-all cursor-pointer w-full text-center"
                   >
                     + {targetTitles.length - 5} Show More
                   </button>
@@ -1935,7 +2129,7 @@ export default function SearchPage() {
                 {showAllRoles && targetTitles.length > 5 && (
                   <button 
                     onClick={() => setShowAllRoles(false)}
-                    className="px-2 py-1 bg-indigo-500/20 border border-indigo-500/40 rounded text-[11px] text-indigo-600 dark:text-indigo-300 font-bold hover:bg-indigo-500/30 hover:text-white transition-all cursor-pointer"
+                    className="px-2 py-1 bg-indigo-500/20 border border-indigo-500/40 rounded text-[11px] text-indigo-600 dark:text-indigo-300 font-bold hover:bg-indigo-500/30 hover:text-white transition-all cursor-pointer w-full text-center"
                   >
                     - Show Less
                   </button>

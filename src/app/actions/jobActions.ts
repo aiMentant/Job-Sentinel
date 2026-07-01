@@ -459,6 +459,7 @@ export async function runJobSearch(
         const genericWords = ["senior", "junior", "lead", "staff", "principal", "associate", "intern", "creative", "digital", "motion", "co-op", "contractor"];
         const prefixStrip = /^(senior|junior|lead|staff|principal|associate|creative|digital|entry-level|mid-weight|contract|freelance|certified)\s+/gi;
 
+        const newJobsFound: Job[] = [];
         for (const raw of rawJobs) {
           const titleLower = raw.title.toLowerCase();
 
@@ -573,13 +574,17 @@ export async function runJobSearch(
           };
           
           allResults.push(job);
+          newJobsFound.push(job);
           await setAgentStatus({ resultsFound: allResults.length });
+        }
+        if (newJobsFound.length > 0) {
+          // Tag jobs with the matched title query
+          const jobsWithMeta = newJobsFound.map(j => ({ ...j, matchedRole: title }));
+          await addJobs(jobsWithMeta, profileId);
         }
       }
     }
     
-    const updatedJobs = [...allResults, ...jobStore];
-    await saveJobs(updatedJobs, profileId);
     await setAgentStatus({ isSearching: false, status: `Complete. Found ${allResults.length} new matches.` });
     await logActivity(email, "Job Search Completed", { 
       profile_id: profileId, 
@@ -1397,6 +1402,57 @@ export async function findReferralRoutes(companyName: string, profile: UserProfi
     return [];
   } finally {
     if (browser) await browser.close();
+  }
+}
+
+export async function rankTargetRoles(profileIdOverride?: string) {
+  try {
+    const profileId = profileIdOverride || await getActiveProfileId();
+    const profile = await getProfile(profileId);
+    if (!profile) throw new Error("Profile not found");
+
+    const targetTitles = profile.targetTitles || [];
+    if (targetTitles.length === 0) {
+      return { roles: [] };
+    }
+
+    const skills = profile.skills || [];
+    const experience = profile.experience || [];
+    const summary = profile.resumeText || "";
+
+    const prompt = `
+      You are an expert AI HR assistant.
+      
+      CANDIDATE PROFILE:
+      - SUMMARY/RESUME: ${summary.substring(0, 4000)}
+      - SKILLS: ${skills.join(", ")}
+      - EXPERIENCE: ${JSON.stringify(experience).substring(0, 2000)}
+      
+      TARGET ROLES TO EVALUATE:
+      ${targetTitles.map((t: string) => `- ${t}`).join("\n")}
+      
+      TASK:
+      For each target role, evaluate how well the candidate's profile matches the typical market requirements for that title.
+      1. Provide a score from 0 to 100 representing the match fit.
+      2. Provide a 1-2 sentence reason detailing why the candidate fits or what gaps exist.
+      
+      RETURN JSON FORMAT EXACTLY:
+      {
+        "roles": [
+          {
+            "title": "Target Role Title",
+            "score": 85,
+            "reason": "Explain match/gaps based on candidate's skills and experience."
+          }
+        ]
+      }
+    `;
+
+    const response = await generateWithAI(prompt, { jsonMode: true, profileIdOverride: profileId });
+    return response as { roles: Array<{ title: string; score: number; reason: string }> };
+  } catch (error) {
+    console.error("rankTargetRoles server error:", error);
+    return { roles: [] };
   }
 }
 
