@@ -121,50 +121,118 @@ export async function listAllProfilesWithData() {
 
 
 export async function fetchPublicFallbackJobs(query: string, location: string, targetTitlesOverride?: string[], alternativeTitlesOverride?: string[]): Promise<Job[]> {
+  const allFallbackJobs: Job[] = [];
+
+  // 1. Remotive Scraper (Tech / Remote jobs)
   try {
     console.log(`[Fallback] Scraping Remotive for fallback results matching: ${query}`);
     const url = `https://remotive.com/api/remote-jobs?search=${encodeURIComponent(query)}`;
     const response = await fetch(url);
-    if (!response.ok) return [];
-    const data = await response.json();
-    const rawList = data.jobs || [];
-    
-    const targetLocLower = location.toLowerCase();
-    const isTargetUS = targetLocLower.includes("fl") || targetLocLower.includes("florida") || targetLocLower.includes("usa") || targetLocLower.includes("united states") || targetLocLower.includes("us") || targetLocLower.includes("communities");
-    const isTargetUK = targetLocLower.includes("uk") || targetLocLower.includes("united kingdom") || targetLocLower.includes("london") || targetLocLower.includes("england") || targetLocLower.includes("nottingham") || targetLocLower.includes("lincoln");
+    if (response.ok) {
+      const data = await response.json();
+      const rawList = data.jobs || [];
+      
+      const targetLocLower = location.toLowerCase();
+      const isTargetUS = targetLocLower.includes("fl") || targetLocLower.includes("florida") || targetLocLower.includes("usa") || targetLocLower.includes("united states") || targetLocLower.includes("us") || targetLocLower.includes("communities");
+      const isTargetUK = targetLocLower.includes("uk") || targetLocLower.includes("united kingdom") || targetLocLower.includes("london") || targetLocLower.includes("england") || targetLocLower.includes("nottingham") || targetLocLower.includes("lincoln");
 
-    const filteredList = rawList.filter((j: any) => {
-      const reqLoc = (j.candidate_required_location || "").toLowerCase().trim();
-      if (!reqLoc) return true;
-      if (reqLoc.includes("worldwide") || reqLoc.includes("anywhere")) return true;
-      
-      const isJobUS = reqLoc.includes("us") || reqLoc.includes("united states") || reqLoc.includes("america") || reqLoc.includes("usa") || reqLoc.includes("fl") || reqLoc.includes("florida");
-      const isJobUK = reqLoc.includes("uk") || reqLoc.includes("united kingdom") || reqLoc.includes("london") || reqLoc.includes("europe") || reqLoc.includes("gb") || reqLoc.includes("england");
-      
-      if (isTargetUS && isJobUK && !isJobUS) return false;
-      if (isTargetUK && isJobUS && !isJobUK) return false;
-      
-      return true;
-    });
+      const filteredList = rawList.filter((j: any) => {
+        const reqLoc = (j.candidate_required_location || "").toLowerCase().trim();
+        if (!reqLoc) return true;
+        if (reqLoc.includes("worldwide") || reqLoc.includes("anywhere")) return true;
+        
+        const isJobUS = reqLoc.includes("us") || reqLoc.includes("united states") || reqLoc.includes("america") || reqLoc.includes("usa") || reqLoc.includes("fl") || reqLoc.includes("florida");
+        const isJobUK = reqLoc.includes("uk") || reqLoc.includes("united kingdom") || reqLoc.includes("london") || reqLoc.includes("europe") || reqLoc.includes("gb") || reqLoc.includes("england");
+        
+        if (isTargetUS && isJobUK && !isJobUS) return false;
+        if (isTargetUK && isJobUS && !isJobUK) return false;
+        
+        return true;
+      });
 
-    return filteredList.map((j: any) => ({
-      id: String(j.id) || Math.random().toString(36).substring(7),
-      title: j.title || query,
-      company: j.company_name || "Enterprise Partner",
-      location: j.candidate_required_location || "Remote",
-      description: j.description || `Public Remote role.`,
-      score: 0,
-      reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
-      status: 'Discovery',
-      url: j.url,
-      source: 'Remotive',
-      createdAt: new Date().toISOString(),
-      salaryRange: j.salary || undefined
-    }));
+      const mappedRemotive = filteredList.map((j: any) => ({
+        id: `remotive-${j.id}` || Math.random().toString(36).substring(7),
+        title: j.title || query,
+        company: j.company_name || "Enterprise Partner",
+        location: j.candidate_required_location || "Remote",
+        description: j.description || `Public Remote role.`,
+        score: 0,
+        reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
+        status: 'Discovery',
+        url: j.url,
+        source: 'Remotive',
+        createdAt: new Date().toISOString(),
+        salaryRange: j.salary || undefined
+      }));
+      allFallbackJobs.push(...mappedRemotive);
+    }
   } catch (e) {
-    console.error("Public fallback failed:", e);
-    return [];
+    console.error("Public Remotive fallback failed:", e);
   }
+
+  // 2. The Muse API (Key-less US location jobs)
+  try {
+    console.log(`[Fallback] Fetching key-less US jobs from The Muse for location: ${location}`);
+    const museUrl = `https://www.themuse.com/api/public/jobs?location=${encodeURIComponent(location)}&page=1&descending=true`;
+    const museRes = await fetch(museUrl);
+    let results: any[] = [];
+    if (museRes.ok) {
+      const museData = await museRes.json();
+      results = museData.results || [];
+    }
+
+    // State abbreviation/name expansion fallback if direct search yield nothing
+    if (results.length === 0) {
+      const parts = location.split(",");
+      const statePart = parts[parts.length - 1]?.trim();
+      if (statePart && statePart.length === 2) {
+        const stateNames: Record<string, string> = {
+          "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+          "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "FL": "Florida", "GA": "Georgia",
+          "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa",
+          "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+          "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri",
+          "MT": "Montana", "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey",
+          "NM": "New Mexico", "NY": "New York", "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio",
+          "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
+          "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont",
+          "VA": "Virginia", "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming"
+        };
+        const fullState = stateNames[statePart.toUpperCase()] || statePart;
+        console.log(`[Fallback] Retrying The Muse with expanded state location: ${fullState}`);
+        const museUrl2 = `https://www.themuse.com/api/public/jobs?location=${encodeURIComponent(fullState)}&page=1&descending=true`;
+        const museRes2 = await fetch(museUrl2);
+        if (museRes2.ok) {
+          const museData2 = await museRes2.json();
+          results = museData2.results || [];
+        }
+      }
+    }
+
+    if (results.length > 0) {
+      const mappedMuse = results.map((j: any) => {
+        const jobLoc = j.locations?.map((l: any) => l.name).join(", ") || location;
+        return {
+          id: `themuse-${j.id}`,
+          title: j.name || query,
+          company: j.company?.name || "Enterprise Partner",
+          location: jobLoc,
+          description: j.contents || "Public job listing on The Muse.",
+          score: 0,
+          reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
+          status: 'Discovery',
+          url: j.refs?.landing_page,
+          source: 'The Muse',
+          createdAt: new Date().toISOString()
+        };
+      });
+      allFallbackJobs.push(...mappedMuse);
+    }
+  } catch (e) {
+    console.error("Public The Muse fallback failed:", e);
+  }
+
+  return allFallbackJobs;
 }
 
 async function fetchAdzunaJobs(title: string, location: string, radius: number): Promise<Job[]> {

@@ -3,7 +3,7 @@
 ## ⚠️ Session Startup Reminder: API Credentials Pending
 
 When beginning the next agent session, check if the user has finished adding the external job discovery API keys:
-1. **JSearch (via RapidAPI)**: (Hobby tier key, $10/mo)
+1. **JSearch (via RapidAPI)**: (Basic tier key, 200 reqs/mo)
 2. **Adzuna**: (Free credentials)
 3. **USAJobs**: (Free credentials)
 

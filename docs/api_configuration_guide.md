@@ -7,10 +7,10 @@ Follow these step-by-step instructions to get your API credentials for JSearch, 
 ## 1. JSearch API (Primary Scraper Aggregator)
 Provides real-time results from LinkedIn, Indeed, Glassdoor, and ZipRecruiter.
 
-1. Go to the [JSearch Page on RapidAPI](https://rapidapi.com/letscrape-6577-6577/api/jsearch).
+1. Go to the [JSearch Page on RapidAPI](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch).
 2. If you don't have a RapidAPI account, sign up for a free account.
 3. Click on the **Pricing** tab.
-4. Select the **Hobby ($10.00/mo)** plan. This includes **1,000 requests/month**, which is more than enough for two active users running daily job searches.
+4. Select the **Basic** plan (200 requests/month) to start and test the integration. You can upgrade to **Pro** (10,000 requests/month) later if you need more volume.
 5. Click **Subscribe** and complete checkout.
 6. Once subscribed, go back to the **Endpoints** tab.
 7. In the middle pane under the **Header Parameters** section, look for **`x-rapidapi-key`**.
