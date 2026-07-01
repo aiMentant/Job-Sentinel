@@ -158,7 +158,7 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
         description: j.description || `Public Remote role.`,
         score: 0,
         reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
-        status: 'Discovery',
+        status: 'Discovery' as const,
         url: j.url,
         source: 'Remotive',
         createdAt: new Date().toISOString(),
@@ -220,7 +220,7 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
           description: j.contents || "Public job listing on The Muse.",
           score: 0,
           reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
-          status: 'Discovery',
+          status: 'Discovery' as const,
           url: j.refs?.landing_page,
           source: 'The Muse',
           createdAt: new Date().toISOString()
