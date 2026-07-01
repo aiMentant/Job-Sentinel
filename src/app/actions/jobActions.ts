@@ -320,7 +320,7 @@ async function fetchJSearchJobs(title: string, location: string): Promise<Job[]>
       reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
       status: 'Discovery',
       url: j.job_apply_link || j.job_google_link,
-      source: 'JSearch',
+      source: j.job_publisher || 'JSearch',
       createdAt: j.job_posted_at_datetime_utc || new Date().toISOString()
     }));
   } catch (err) {
