@@ -308,7 +308,7 @@ async function fetchJSearchJobs(title: string, location: string): Promise<Job[]>
       return [];
     }
     const data = await res.json();
-    const results = data.data || [];
+    const results = data.data?.jobs || (Array.isArray(data.data) ? data.data : []);
     
     return results.map((j: any) => ({
       id: `jsearch-${j.job_id}`,
