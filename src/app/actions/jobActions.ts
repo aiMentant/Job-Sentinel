@@ -529,31 +529,35 @@ export async function runJobSearch(
           }
 
           // LOCATION GUARDRAIL: Check job location against user's target locations.
-          // The scraper already searched the target location, so we trust the source
-          // and apply a lenient check — any meaningful word overlap is a pass.
-          // This prevents over-filtering for multi-word logistics roles where job boards
-          // return e.g. "Nottingham, East Midlands" for a search for "Nottingham, UK".
           const jobLocLower = (raw.location || "").toLowerCase().trim();
+
+          const getStateCode = (locStr: string) => {
+            const matches = locStr.match(/\b(al|ak|az|ar|ca|co|ct|de|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|ma|mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy|florida|london|uk|gb)\b/i);
+            return matches ? matches[1].toLowerCase() : null;
+          };
+
+          const targetState = targetLocations.length > 0 ? getStateCode(targetLocations[0]) : null;
+          const jobState = getStateCode(jobLocLower);
+
           const isLocationMatch = targetLocations.length === 0 || (
-            // Pass-through: if job location is empty or generic ("United Kingdom", "United States", "Nationwide"), allow it
             !jobLocLower ||
             jobLocLower.includes("united kingdom") ||
             jobLocLower.includes("united states") ||
             jobLocLower.includes("nationwide") ||
             jobLocLower.includes("national") ||
+            jobLocLower.includes("remote") ||
+            jobLocLower.includes("anywhere") ||
+            jobLocLower.includes("worldwide") ||
+            (targetState && jobState && targetState === jobState) ||
             targetLocations.some(target => {
               const cleanTarget = target.toLowerCase().trim();
               if (!cleanTarget) return false;
 
-              // Direct inclusion check (both directions)
               if (jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower)) return true;
 
-              // Remote/anywhere pass-through
               const isRemoteTarget = cleanTarget.includes("remote");
               if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere") || jobLocLower.includes("worldwide"))) return true;
 
-              // Word-level match — only for words longer than 3 chars to avoid
-              // false matches on 2-char tokens like "fl", "uk", "in", "or"
               const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length > 3);
               return targetWords.length > 0 && targetWords.some(word => jobLocLower.includes(word));
             })
@@ -574,7 +578,7 @@ export async function runJobSearch(
           // NEW MODEL: Don't auto-analyze. Scrape first, analyze on demand.
           const job: Job = {
             ...raw,
-            description: "Details fetched during search.",
+            description: raw.description || "Details fetched during search.",
             score: 0,
             reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
             status: 'Discovery',

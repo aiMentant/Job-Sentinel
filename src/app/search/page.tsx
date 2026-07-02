@@ -643,6 +643,22 @@ export default function SearchPage() {
     return `Closes in ${daysRemaining}d`;
   };
 
+  const stripHtml = (htmlStr: string) => {
+    if (!htmlStr) return "";
+    return htmlStr
+      .replace(/<style([\s\S]*?)<\/style>/gi, '')
+      .replace(/<script([\s\S]*?)<\/script>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .trim();
+  };
+
   const highlightKeywords = (text: string, keywords: string[]) => {
     if (!text || !keywords || keywords.length === 0) return text;
     
@@ -2635,7 +2651,7 @@ export default function SearchPage() {
                     Job Description
                   </h4>
                   <div className="overflow-y-auto text-text-muted text-[11px] leading-relaxed whitespace-pre-wrap flex-1 pr-1.5 scrollbar-thin scrollbar-thumb-indigo-500">
-                    {highlightKeywords(reviewingJob.description || "No description provided.", [
+                    {highlightKeywords(stripHtml(reviewingJob.description || "No description provided."), [
                       ...(profile.skills || []),
                       ...targetTitles,
                       ...(profile.alternativeTitles || [])
