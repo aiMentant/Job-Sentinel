@@ -61,6 +61,17 @@ export async function fetchFullJobDescription(jobId: string, url: string, profil
   return description;
 }
 
+export async function fetchJobDetails(jobId: string, profileIdOverride?: string) {
+  try {
+    const profileId = profileIdOverride || await getActiveProfileId();
+    const { getJobDetails } = await import("@/lib/storage");
+    return await getJobDetails(jobId, profileId);
+  } catch (e) {
+    console.error("fetchJobDetails server error:", e);
+    return null;
+  }
+}
+
 export async function updateJobStatus(id: string, status: Job['status'], profileIdOverride?: string) {
   const profileId = profileIdOverride || await getActiveProfileId();
   return await dbUpdateStatus(id, status, profileId);

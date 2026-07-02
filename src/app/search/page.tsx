@@ -95,6 +95,7 @@ export default function SearchPage() {
   const [radius, setRadius] = useState<number>(25);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [reviewingJob, setReviewingJob] = useState<Job | null>(null);
+  const [isLoadingDescription, setIsLoadingDescription] = useState(false);
   const [showHighScoresOnly, setShowHighScoresOnly] = useState(false);
   const [searchMode, setSearchMode] = useState<'standard' | 'deep'>('standard');
   const [showDismissModal, setShowDismissModal] = useState(false);
@@ -251,6 +252,38 @@ export default function SearchPage() {
       localStorage.setItem(localStorageKey, JSON.stringify(customConfigs));
     }
   }, [savedConfigs, activeProfileId]);
+
+  useEffect(() => {
+    if (!reviewingJob) return;
+
+    const isPlaceholder = 
+      !reviewingJob.description || 
+      reviewingJob.description === "Details fetched during search." || 
+      reviewingJob.description.startsWith("Job listing on") || 
+      reviewingJob.description.length < 150;
+
+    if (isPlaceholder) {
+      setIsLoadingDescription(true);
+      import("@/app/actions/jobActions").then(async ({ fetchJobDetails }) => {
+        try {
+          const details = await fetchJobDetails(reviewingJob.id, activeProfileId);
+          if (details && details.description) {
+            setReviewingJob(prev => prev && prev.id === reviewingJob.id ? { ...prev, description: details.description } : prev);
+            setResults(prev => prev.map(j => j.id === reviewingJob.id ? { ...j, description: details.description } : j));
+          } else {
+            const { fetchFullJobDescription } = await import("@/app/actions/jobActions");
+            const fullDesc = await fetchFullJobDescription(reviewingJob.id, reviewingJob.url, activeProfileId);
+            setReviewingJob(prev => prev && prev.id === reviewingJob.id ? { ...prev, description: fullDesc } : prev);
+            setResults(prev => prev.map(j => j.id === reviewingJob.id ? { ...j, description: fullDesc } : j));
+          }
+        } catch (err) {
+          console.error("Auto-description extraction failed:", err);
+        } finally {
+          setIsLoadingDescription(false);
+        }
+      });
+    }
+  }, [reviewingJob?.id, activeProfileId]);
 
   useEffect(() => {
     let active = true;
@@ -2651,11 +2684,25 @@ export default function SearchPage() {
                     Job Description
                   </h4>
                   <div className="overflow-y-auto text-text-muted text-[11px] leading-relaxed whitespace-pre-wrap flex-1 pr-1.5 scrollbar-thin scrollbar-thumb-indigo-500">
-                    {highlightKeywords(stripHtml(reviewingJob.description || "No description provided."), [
-                      ...(profile.skills || []),
-                      ...targetTitles,
-                      ...(profile.alternativeTitles || [])
-                    ])}
+                    {isLoadingDescription ? (
+                      <div className="space-y-3 animate-pulse">
+                        <div className="h-4 bg-black/10 dark:bg-white/10 rounded w-3/4" />
+                        <div className="h-4 bg-black/10 dark:bg-white/10 rounded w-5/6" />
+                        <div className="h-4 bg-black/10 dark:bg-white/10 rounded" />
+                        <div className="h-4 bg-black/10 dark:bg-white/10 rounded w-2/3" />
+                        <div className="space-y-2 pt-4">
+                          <div className="h-3 bg-black/10 dark:bg-white/10 rounded w-1/2" />
+                          <div className="h-3 bg-black/10 dark:bg-white/10 rounded w-5/6" />
+                          <div className="h-3 bg-black/10 dark:bg-white/10 rounded w-3/4" />
+                        </div>
+                      </div>
+                    ) : (
+                      highlightKeywords(stripHtml(reviewingJob.description || "No description provided."), [
+                        ...(profile.skills || []),
+                        ...targetTitles,
+                        ...(profile.alternativeTitles || [])
+                      ])
+                    )}
                   </div>
                 </div>
               </div>
