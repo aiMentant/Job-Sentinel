@@ -289,7 +289,7 @@ export default function SearchPage() {
   // Background AI Salary Estimation — runs lazily for any new job missing salary data
   useEffect(() => {
     const jobsNeedingSalary = results.filter(
-      j => !j.salaryRange && !j.salary_range && !j.aiSalaryEstimate && !estimatingSalaryIds.has(j.id)
+      j => j.score >= 75 && !j.salaryRange && !j.salary_range && !j.aiSalaryEstimate && !estimatingSalaryIds.has(j.id)
     );
     if (jobsNeedingSalary.length === 0) return;
 
@@ -332,7 +332,7 @@ export default function SearchPage() {
         });
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [results.length, activeProfileId]);
+  }, [results.map(j => `${j.id}:${j.score}`).join(','), activeProfileId]);
 
   useEffect(() => {
     let active = true;
@@ -1962,7 +1962,7 @@ export default function SearchPage() {
                             <Sparkles className="w-2.5 h-2.5 text-indigo-400" />
                             AI Est. {job.aiSalaryEstimate}
                           </span>
-                        ) : estimatingSalaryIds.has(job.id) ? (
+                        ) : (estimatingSalaryIds.has(job.id) && job.score >= 75) ? (
                           <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 animate-pulse">
                             <Sparkles className="w-2.5 h-2.5" />
                             Estimating salary...
