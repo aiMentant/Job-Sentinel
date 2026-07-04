@@ -13,7 +13,9 @@ export type Job = {
   matchedRole?: string;
   // Enrichment fields
   isFavourite?: boolean;
-  salaryRange?: string;           // e.g. "£70,000 – £90,000" or null if not listed
+  salaryRange?: string;           // e.g. "$70,000 – $90,000" or null if not listed
+  aiSalaryEstimate?: string;      // AI-estimated salary range, e.g. "$55,000 – $70,000"
+  aiSalaryBasis?: string;         // Brief source note e.g. "Based on BLS data for FL logistics roles"
   postedAt?: string;              // ISO date string from listing, if available
   ghostScore?: number;            // 0–100, higher = more likely a ghost/recurring post
   applicationStatus?: ApplicationStatus;

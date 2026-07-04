@@ -36,6 +36,61 @@ AI DETECTION BYPASS — HUMAN CADENCE RULES (MANDATORY):
 `.trim();
 
 // ────────────────────────────────────────────────────────
+// 0. AI Salary Estimator
+// Estimates a realistic salary range when no salary is listed.
+// Returns { estimate: "$XX,XXX – $XX,XXX", basis: "..." }
+// ────────────────────────────────────────────────────────
+export async function estimateAISalary(
+  jobTitle: string,
+  company: string,
+  location: string,
+  descriptionSnippet?: string
+): Promise<{ estimate: string; basis: string } | null> {
+  try {
+    const locationHint = location || "United States";
+    const descHint = descriptionSnippet
+      ? `\nJob description excerpt: ${descriptionSnippet.slice(0, 400)}`
+      : "";
+
+    const prompt = `You are a compensation research specialist. Estimate a realistic market-rate annual salary range for the following job posting. Base your estimate on publicly available data sources such as BLS Occupational Employment Statistics, Glassdoor, LinkedIn Salary Insights, and Indeed for this specific role, seniority level inferred from the title, and geographic location.
+
+Job Title: ${jobTitle}
+Company: ${company}
+Location: ${locationHint}${descHint}
+
+Respond ONLY with a JSON object in this exact format (no markdown, no explanation outside the JSON):
+{
+  "estimate": "$XX,XXX – $XX,XXX",
+  "basis": "Brief 1-sentence note on the data source or reasoning, max 12 words"
+}
+
+Rules:
+- Use USD for US locations. Use the currency appropriate for the country if non-US.
+- The range should be realistic — not aspirational, not lowball.
+- If it is a senior role, reflect that in the range.
+- basis must be concise, factual, and reference a source type (e.g., "BLS data for FL logistics operations roles" or "Glassdoor data for warehouse supervisors in Central FL").
+- If you cannot make a reliable estimate (e.g., very niche role with no data), return null for both fields.`;
+
+    const raw = await generateWithAI(prompt, { jsonMode: true });
+    if (!raw) return null;
+
+    let parsed: any;
+    if (typeof raw === "string") {
+      const cleaned = raw.replace(/```json|```/g, "").trim();
+      parsed = JSON.parse(cleaned);
+    } else {
+      parsed = raw;
+    }
+
+    if (!parsed?.estimate || parsed.estimate === "null") return null;
+    return { estimate: parsed.estimate, basis: parsed.basis || "" };
+  } catch (err) {
+    console.error("[estimateAISalary] error:", err);
+    return null;
+  }
+}
+
+// ────────────────────────────────────────────────────────
 // 1. Resume Conversion Fixer
 // Rewrites resume for maximum interview callbacks.
 // ────────────────────────────────────────────────────────

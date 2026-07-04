@@ -139,6 +139,7 @@ export default function SearchPage() {
   const [showPresetHelp, setShowPresetHelp] = useState(false);
   const [hoveredGhostJobId, setHoveredGhostJobId] = useState<string | null>(null);
   const [hoveredPendingJobId, setHoveredPendingJobId] = useState<string | null>(null);
+  const [estimatingSalaryIds, setEstimatingSalaryIds] = useState<Set<string>>(new Set());
   const lastSearchedProfileId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -284,6 +285,54 @@ export default function SearchPage() {
       });
     }
   }, [reviewingJob?.id, activeProfileId]);
+
+  // Background AI Salary Estimation — runs lazily for any new job missing salary data
+  useEffect(() => {
+    const jobsNeedingSalary = results.filter(
+      j => !j.salaryRange && !j.salary_range && !j.aiSalaryEstimate && !estimatingSalaryIds.has(j.id)
+    );
+    if (jobsNeedingSalary.length === 0) return;
+
+    // Rate-limit: process max 3 at a time to avoid hammering Gemini
+    const batch = jobsNeedingSalary.slice(0, 3);
+
+    batch.forEach(job => {
+      setEstimatingSalaryIds(prev => new Set([...prev, job.id]));
+
+      import("@/app/actions/careerTools").then(async ({ estimateAISalary }) => {
+          try {
+            const result = await estimateAISalary(
+              job.title,
+              job.company,
+              job.location,
+              job.description?.slice(0, 400)
+            );
+            if (result?.estimate) {
+              // Update local state immediately for instant UI feedback
+              setResults(prev => prev.map(j => j.id === job.id
+                ? { ...j, aiSalaryEstimate: result.estimate, aiSalaryBasis: result.basis }
+                : j
+              ));
+              // Also update reviewingJob if this job is open in the modal
+              setReviewingJob(prev => prev?.id === job.id
+                ? { ...prev, aiSalaryEstimate: result.estimate, aiSalaryBasis: result.basis }
+                : prev
+              );
+              // Persist to DB so it doesn't re-estimate on next load
+              try {
+                const { updateJob } = await import("@/app/actions/jobActions");
+                await updateJob(job.id, { aiSalaryEstimate: result.estimate, aiSalaryBasis: result.basis }, activeProfileId);
+              } catch (_) {}
+            }
+          } catch (err) {
+            console.error("[AISalary] estimation failed for", job.id, err);
+          } finally {
+            setEstimatingSalaryIds(prev => { const n = new Set(prev); n.delete(job.id); return n; });
+          }
+        });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results.length, activeProfileId]);
 
   useEffect(() => {
     let active = true;
@@ -1901,9 +1950,26 @@ export default function SearchPage() {
                           <MapPin className="w-3.5 h-3.5 text-text-muted" />
                           {job.location}
                         </div>
-                        <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold">
-                          {job.salaryRange || "Salary not disclosed"}
-                        </span>
+                        {(job.salaryRange || job.salary_range) ? (
+                          <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold">
+                            {job.salaryRange || job.salary_range}
+                          </span>
+                        ) : job.aiSalaryEstimate ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-1.5 py-0.5 rounded cursor-help"
+                            title={`AI Salary Estimate — not posted by employer. ${job.aiSalaryBasis || 'Based on market data for this role and location.'}`}
+                          >
+                            <Sparkles className="w-2.5 h-2.5 text-indigo-400" />
+                            AI Est. {job.aiSalaryEstimate}
+                          </span>
+                        ) : estimatingSalaryIds.has(job.id) ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 animate-pulse">
+                            <Sparkles className="w-2.5 h-2.5" />
+                            Estimating salary...
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 dark:text-slate-500 text-xs italic">Salary not disclosed</span>
+                        )}
                       </div>
                     
                     {/* AI Insights / Status Message */}
