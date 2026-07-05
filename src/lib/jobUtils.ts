@@ -108,3 +108,56 @@ export const getGhostBadge = (score: number) => {
   }
   return null;
 };
+
+export function calculateJaccardSimilarity(str1: string, str2: string): number {
+  const getTokens = (s: string) => s.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
+  const t1 = getTokens(str1);
+  const t2 = getTokens(str2);
+  if (t1.length === 0 || t2.length === 0) return 0;
+  const s1 = new Set(t1);
+  const s2 = new Set(t2);
+  const intersection = new Set([...s1].filter(x => s2.has(x)));
+  const union = new Set([...s1, ...s2]);
+  return intersection.size / union.size;
+}
+
+export function getJaccardSimilarity(a: string, b: string): number {
+  const setA = new Set(a.split(''));
+  const setB = new Set(b.split(''));
+  const intersection = new Set([...setA].filter(x => setB.has(x)));
+  const union = new Set([...setA, ...setB]);
+  return intersection.size / union.size;
+}
+
+export function heuristicMatchScore(jobTitle: string, targetTitles: string[], alternativeTitles: string[] = []): number {
+  let maxScore = 0;
+  
+  // Score against primary titles (full weight)
+  for (const target of targetTitles) {
+    if (jobTitle.toLowerCase().trim() === target.toLowerCase().trim()) {
+      return 100;
+    }
+    if (jobTitle.toLowerCase().includes(target.toLowerCase()) || target.toLowerCase().includes(jobTitle.toLowerCase())) {
+      maxScore = Math.max(maxScore, 90);
+    }
+    const sim = calculateJaccardSimilarity(jobTitle, target);
+    const score = Math.round(sim * 100);
+    maxScore = Math.max(maxScore, score);
+  }
+  
+  // Score against alternative titles (capped at 85)
+  for (const alt of alternativeTitles) {
+    if (jobTitle.toLowerCase().trim() === alt.toLowerCase().trim()) {
+      maxScore = Math.max(maxScore, 85);
+      continue;
+    }
+    if (jobTitle.toLowerCase().includes(alt.toLowerCase()) || alt.toLowerCase().includes(jobTitle.toLowerCase())) {
+      maxScore = Math.max(maxScore, 80);
+    }
+    const sim = calculateJaccardSimilarity(jobTitle, alt);
+    const score = Math.round(sim * 85); // Penalty factor for alternative titles
+    maxScore = Math.max(maxScore, score);
+  }
+  
+  return maxScore;
+}

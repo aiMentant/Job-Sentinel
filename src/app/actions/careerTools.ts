@@ -431,37 +431,46 @@ ${ANTI_DETECTION_RULES}
 // 9. Dream Company Researcher
 // Researches and lists top-tier companies within a radius for the user's background.
 // ────────────────────────────────────────────────────────
-export async function generateDreamCompanies(locations: string[], radius: number, roles?: string[], profileIdOverride?: string): Promise<Array<{ name: string; industry: string; reasoning: string; careerUrl?: string }>> {
+export async function generateDreamCompanies(locations: string[], radius: number, roles?: string[], profileIdOverride?: string): Promise<Array<{ name: string; industry: string; reasoning: string; localPresence: string; commuteDistance: string; typicalRoles: string[]; careerUrl?: string; recruiterSearchUrl?: string }>> {
   const context = await getProfileContext(profileIdOverride);
   if (!context) return [];
 
   const rolesQuery = roles && roles.length > 0 ? roles : [];
+  const targetLocationsText = locations.length > 0 ? locations.join(", ") : "Edgewater, FL";
 
   const prompt = `
   Context:
   ${context}
   
   Active Target Roles to prioritize: ${rolesQuery.join(", ")}
-  Target Locations: ${locations.join(", ")}
+  Target Locations: ${targetLocationsText}
   Search Radius: ${radius} miles
   
-  TASK: Research and identify 15-20 "Dream Companies" within these locations (or globally if they hire remote for these roles) that are a high-value match for this person's career and actively hire for the target roles: ${rolesQuery.join(", ")}.
-  Include:
-  - Big Tech / Enterprises (if applicable)
-  - High-growth startups
-  - Industry leaders specific to their background
+  TASK: Identify 10-15 "Dream Companies" that have a physical facility, warehouse, distribution center, port terminal, manufacturing plant, hospitality operations, or local branch office within ${radius} miles of ${targetLocationsText}. 
+  CRITICAL: This professional is in logistics, operations, warehousing, safety compliance, and training. Do NOT suggest remote software companies or generic tech startups unless they have a massive physical footprint in the area (like Amazon Logistics hubs or theme parks). Prioritize real local operations employers:
+  - 3PL and Warehousing providers (e.g., FedEx, UPS, local logistics firms)
+  - Manufacturing/industrial plants (e.g., Boston Whaler/Brunswick in Edgewater, local aviation/defense builders)
+  - Distribution centers & retail hubs (e.g., Amazon, major retail supply chains)
+  - Marine and aerospace logistics
+  - Hospitality operations hubs (e.g., Disney, Universal in Orlando)
+  
+  For each company, return the following details. Estimate commute distance and pre-build search URLs:
   
   Return ONLY a JSON array (no markdown):
   [
     { 
       "name": "Company Name", 
       "industry": "Industry Type", 
-      "reasoning": "One sentence why this is a strategic target for this professional.",
-      "careerUrl": "Best guess at their greenhouse/lever board or career page domain"
+      "reasoning": "One sentence stating why this is a strategic match for this professional's skills.",
+      "localPresence": "Specific details of their local physical facility or operations in this area (e.g., 'Large manufacturing plant in Edgewater' or 'Distributor center near Daytona airport').",
+      "commuteDistance": "Estimated road distance in miles from the center of the target location (e.g., '12 miles'). Make it realistic.",
+      "typicalRoles": ["Warehouse Lead", "Safety Specialist", "Logistics Operations Lead"],
+      "careerUrl": "Best guess Greenhouse/Lever board URL (e.g., boards.greenhouse.io/company) or main career domain",
+      "recruiterSearchUrl": "A pre-built LinkedIn search URL to find recruiting/talent acquisition contacts for this company in Florida. Format: https://www.linkedin.com/search/results/people/?keywords=recruiter%20[Company%20Name]%20Florida"
     }
   ]
   
-  CRITICAL GUARDRAIL: For the 'careerUrl' field, return a URL only if you are highly confident it matches a standard, public career page or main company domain; otherwise, return null. Do not invent fictional URL paths.
+  CRITICAL GUARDRAIL: Do not invent fictional URL paths. If you are not highly confident in the Greenhouse/Lever URL, return null for careerUrl.
   `;
 
   try {

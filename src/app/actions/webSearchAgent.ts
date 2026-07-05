@@ -1,306 +1,233 @@
 "use server";
 
-// import stealth from "puppeteer-extra-plugin-stealth";
-
 import { Job } from "@/lib/db";
 import crypto from "crypto";
 import { setAgentStatus } from "./agentStatus";
+import { fetchJSearchJobs } from "@/app/actions/jobActions";
+import { heuristicMatchScore } from "@/lib/jobUtils";
 
-// chromium.use(stealth()); // Removed to fix utils.typeOf runtime error
+/**
+ * Checks if a job URL or publisher indicates a direct-apply / ATS landing page
+ * rather than a generic aggregate job board.
+ */
+function isDeepWebMatch(url: string, publisher: string): boolean {
+  if (!url) return false;
+  const lowerUrl = url.toLowerCase();
+  const lowerPub = (publisher || "").toLowerCase();
 
-
-async function getBrowserInstance() {
-  const { chromium } = await import("playwright");
-  const browserlessKey = process.env.BROWSERLESS_API_KEY;
-  if (browserlessKey && browserlessKey !== "") {
-    try {
-      console.log("Connecting to Cloud Chromium via Browserless...");
-      return await chromium.connectOverCDP(`wss://chrome.browserless.io?token=${browserlessKey}`);
-    } catch (wsErr: any) {
-      console.warn("Browserless connection failed, falling back to local launch:", wsErr.message || wsErr);
-      if (process.env.NETLIFY === "true") {
-        throw new Error(`Browserless connection failed in production: ${wsErr.message || wsErr}`);
-      }
-    }
-  }
-  if (process.env.NETLIFY === "true") {
-    throw new Error("Browserless API Key is missing in production Netlify environment. Browser-based scraping is disabled.");
-  }
-  console.log("Launching Local Headless Chromium...");
-  return await chromium.launch({ headless: true });
-}
-
-export async function runWebDiscovery(targetTitles: string[], targetLocations: string[], radius: number = 25): Promise<Job[]> {
-  const browser = await getBrowserInstance();
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-  });
-  const page = await context.newPage();
-  
-  // Manual Stealth Injection: Overrides native browser properties to mask automation
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-    // @ts-ignore
-    window.chrome = { runtime: {} };
-  });
-
-  
-  const results: Job[] = [];
-  const platforms = [
-    { site: 'lever.co', selector: 'lever' },
-    { site: 'greenhouse.io', selector: 'greenhouse' },
-    { site: 'workable.com', selector: 'workable' }
+  // Direct ATS matches
+  const directAtsKeywords = [
+    "greenhouse.io",
+    "lever.co",
+    "workable.com",
+    "bamboohr.com",
+    "recruitee.com",
+    "smartrecruiters.com",
+    "myworkdayjobs.com",
+    "applytojob.com",
+    "ashbyhq.com",
+    "rippling.com"
   ];
 
-  try {
-    console.log(`[Discovery] Starting optimized search for ${targetTitles.length} roles...`);
-    
-    // Group titles into chunks of 3 to reduce Google requests
-    const titleChunks: string[][] = [];
-    for (let i = 0; i < targetTitles.length; i += 3) {
-      titleChunks.push(targetTitles.slice(i, i + 3));
-    }
+  if (directAtsKeywords.some(keyword => lowerUrl.includes(keyword) || lowerPub.includes(keyword.split('.')[0]))) {
+    return true;
+  }
 
-    for (const chunk of titleChunks) {
-      for (const rawLocation of targetLocations) {
-        let searchLocation = rawLocation;
+  // Major aggregators we want to FILTER OUT
+  const aggregators = [
+    "indeed.com",
+    "ziprecruiter.com",
+    "linkedin.com",
+    "glassdoor.com",
+    "monster.com",
+    "careerbuilder.com",
+    "simplyhired.com",
+    "snagajob.com",
+    "jooble.org",
+    "lensa.com",
+    "jobrapido",
+    "talent.com",
+    "salary.com",
+    "geebo.com"
+  ];
 
-        for (const platform of platforms) {
-          const chunkQuery = chunk.map(t => t.includes(' ') ? `"${t}"` : t).join(' OR ');
-          await setAgentStatus({ status: `Deep Discovery: Scanning ${platform.site} for matches...` });
-        
-          const query = `site:${platform.site} (${chunkQuery}) ${searchLocation} -site:linkedin.com -site:indeed.com`;
-          const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-          
-          console.log(`[Discovery] Optimized Query: ${query}`);
-          await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 30000 });
+  if (aggregators.some(agg => lowerUrl.includes(agg) || lowerPub.includes(agg.split('.')[0]))) {
+    return false;
+  }
 
+  // If it's not a known aggregator and points to a generic company domain (like BostonWhaler.com/careers or UniversalOrlando.com)
+  // it is a highly valuable direct-employer listing!
+  return true;
+}
 
+export async function runWebDiscovery(
+  targetTitles: string[],
+  targetLocations: string[],
+  radius: number = 25,
+  dreamCompanies: Array<{ name: string; careerUrl?: string }> = []
+): Promise<Job[]> {
+  const results: Job[] = [];
+  const seenUrls = new Set<string>();
 
-        // Check for CAPTCHA or 'Unusual Traffic'
-        const isBlocked = await page.evaluate(() => {
-          return document.body.innerText.includes('unusual traffic') || 
-                 document.body.innerText.includes('not a robot') ||
-                 !!document.querySelector('#captcha-form');
-        });
+  console.log(`[Deep Search] Starting direct ATS scan for ${targetTitles.length} roles...`);
+  await setAgentStatus({ status: "Deep Scan: Scanning Direct ATS boards...", resultsFound: 0 });
 
-        if (isBlocked) {
-          console.error("GOOGLE BLOCK DETECTED");
-          await setAgentStatus({ status: "Discovery Paused: Google detected automated traffic. Cooling down..." });
-          await page.waitForTimeout(10000); // Cool down
-          break; 
-        }
-        
-        // Human-like Interaction: Scroll down to simulate reading
-        await page.evaluate(() => window.scrollTo({ top: Math.random() * 500, behavior: 'smooth' }));
-        await page.waitForTimeout(1500);
-
-        // Robust result extraction using modern Google selectors
-        const entries = await page.evaluate((site) => {
-          // Modern Google uses various classes for result blocks
-          const blocks = Array.from(document.querySelectorAll('div.g, div.MjjYud, div.v7W49e, div.tF2Cxc'));
-          return blocks.map(div => {
-            const link = div.querySelector('a') as HTMLAnchorElement | null;
-            const h3 = div.querySelector('h3') as HTMLElement | null;
-            // Extract snippet from common Google containers
-            const snippet = div.querySelector('div.VwiC3b, div.yXK7Cc, span.aCOpRe, div.MU19be') as HTMLElement | null;
-            
-            return {
-              href: link?.href || "",
-              title: h3?.textContent || link?.textContent || "",
-              snippet: snippet?.textContent || ""
-            };
-          }).filter(e => e.href.includes(site) && !e.href.includes('google.com') && e.title);
-        }, platform.site);
-
-
-        console.log(`[Discovery] Found ${entries.length} raw results for ${platform.site}`);
-
-        for (const entry of entries.slice(0, 5)) { 
-          // Extract company from URL
-          let company = "Independent";
-          let location = targetLocations[0] || "Remote"; 
-          
-          try {
-            const url = new URL(entry.href);
-            const domainParts = url.hostname.split('.');
-            // Greenhouse: boards.greenhouse.io/company
-            // Lever: jobs.lever.co/company
-            // Workable: apply.workable.com/company
-            const pathParts = url.pathname.split('/').filter(p => p);
-            
-            if (url.hostname.includes('lever.co')) company = pathParts[0] || "Lever";
-            else if (url.hostname.includes('greenhouse.io')) company = pathParts[0] || "Greenhouse";
-            else if (url.hostname.includes('workable.com')) company = pathParts[0] || "Workable";
-            
-            company = company.charAt(0).toUpperCase() + company.slice(1);
-
-            // Attempt to find a more specific location in the snippet
-            const snippetLower = entry.snippet.toLowerCase();
-            const locationMatches = entry.snippet.match(/([A-Z][a-z]+(?: [A-Z][a-z]+)*), (?:UK|United Kingdom|England|US|USA|London)/);
-            if (locationMatches) {
-              location = locationMatches[0];
-            } else if (snippetLower.includes('remote')) {
-              location = "Remote";
-            }
-          } catch (e) {}
-
-          // Prevent duplicates in current session
-          if (results.some(r => r.url === entry.href)) continue;
-
-          const titleLower = entry.title.toLowerCase();
-          const genericWords = ["senior", "junior", "lead", "staff", "principal", "manager", "director", "designer", "developer", "engineer", "associate", "intern", "creative", "digital", "motion"];
-          
-          const isTitleMatch = targetTitles.length === 0 || targetTitles.some(target => {
-            const targetWords = target.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-            const nonGenericTargetWords = targetWords.filter(w => !genericWords.includes(w));
-            
-            if (nonGenericTargetWords.length > 0) {
-              return nonGenericTargetWords.some(word => titleLower.includes(word));
-            } else {
-              return targetWords.some(word => titleLower.includes(word));
-            }
-          });
-
-          if (!isTitleMatch) {
-             console.log(`[Deep Discovery] Skipping title due to guardrail: ${entry.title}`);
-             continue;
+  // 1. Scan Greenhouse & Lever boards of the user's Dream Companies directly (No browser needed)
+  if (dreamCompanies && dreamCompanies.length > 0) {
+    for (const company of dreamCompanies) {
+      if (!company.careerUrl) continue;
+      const lowerUrl = company.careerUrl.toLowerCase();
+      
+      try {
+        // Greenhouse direct board API scan
+        if (lowerUrl.includes("greenhouse.io")) {
+          let companyToken = "";
+          const match = company.careerUrl.match(/boards\.greenhouse\.io\/([^/?#]+)/);
+          if (match && match[1]) {
+            companyToken = match[1];
+          } else {
+            const urlObj = new URL(company.careerUrl.startsWith("http") ? company.careerUrl : `https://${company.careerUrl}`);
+            const parts = urlObj.pathname.split("/").filter(Boolean);
+            companyToken = parts[parts.length - 1] || "";
           }
 
-          const jobLocLower = location.toLowerCase();
-          const isLocationMatch = targetLocations.length === 0 || targetLocations.some(target => {
-            const cleanTarget = target.toLowerCase().trim();
-            if (!cleanTarget) return false;
-            
-            // Check direct inclusion first
-            if (jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower)) {
-              return true;
+          if (companyToken && companyToken !== "embed" && companyToken !== "job_board") {
+            console.log(`[Deep Search] Scanning Greenhouse directly: ${company.name} (${companyToken})`);
+            const res = await fetch(`https://boards-api.greenhouse.io/v1/boards/${companyToken}/jobs`);
+            if (res.ok) {
+              const data = await res.json();
+              const jobsList = data.jobs || [];
+              for (const j of jobsList) {
+                const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles) : 75;
+                if (score >= 60 && !seenUrls.has(j.absolute_url)) {
+                  seenUrls.add(j.absolute_url);
+                  results.push({
+                    id: `ats-${j.id}`,
+                    title: j.title,
+                    company: company.name,
+                    location: j.location?.name || targetLocations[0] || "Local Presence",
+                    description: `Direct ATS role at ${company.name}. Department: ${j.departments?.[0]?.name || 'N/A'}.`,
+                    score: score,
+                    reason: `Direct Greenhouse ATS scan (Match fit: ${score}%)`,
+                    status: 'Discovery',
+                    url: j.absolute_url,
+                    source: 'Greenhouse',
+                    createdAt: new Date().toISOString()
+                  });
+                }
+              }
             }
-            
-            const isRemoteTarget = cleanTarget.includes("remote");
-            if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere") || jobLocLower.includes("worldwide"))) {
-              return true;
-            }
-            
-            // Split by words/regions but allow shorter state abbreviations/components (length >= 2)
-            const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length >= 2);
-            return targetWords.length > 0 && targetWords.some(word => jobLocLower.includes(word));
-          });
+          }
+        }
 
-          if (!isLocationMatch) {
-             console.log(`[Deep Discovery] Skipping location due to guardrail: ${location}`);
-             continue;
+        // Lever direct board API scan
+        if (lowerUrl.includes("lever.co")) {
+          let companyToken = "";
+          const match = company.careerUrl.match(/jobs\.lever\.co\/([^/?#]+)/);
+          if (match && match[1]) {
+            companyToken = match[1];
+          } else {
+            const urlObj = new URL(company.careerUrl.startsWith("http") ? company.careerUrl : `https://${company.careerUrl}`);
+            const parts = urlObj.pathname.split("/").filter(Boolean);
+            companyToken = parts[0] || "";
           }
 
-          results.push({
-            id: crypto.randomUUID(),
-            title: entry.title.split(' - ')[0] || chunk[0] || "Staff Designer", 
-            company: company,
-            location: location,
-            description: entry.snippet || `Deep web match on ${platform.site}`,
-            score: 0,
-            reason: "",
-            status: 'Discovery',
-            url: entry.href,
-            source: platform.site,
-            createdAt: new Date().toISOString()
-          });
-
-          await setAgentStatus({ resultsFound: results.length });
+          if (companyToken) {
+            console.log(`[Deep Search] Scanning Lever directly: ${company.name} (${companyToken})`);
+            const res = await fetch(`https://api.lever.co/v0/postings/${companyToken}?mode=json`);
+            if (res.ok) {
+              const jobsList = await res.json();
+              for (const j of jobsList) {
+                const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles) : 75;
+                if (score >= 60 && !seenUrls.has(j.hostedUrl)) {
+                  seenUrls.add(j.hostedUrl);
+                  results.push({
+                    id: `ats-${j.id}`,
+                    title: j.title,
+                    company: company.name,
+                    location: j.categories?.location || targetLocations[0] || "Local Presence",
+                    description: j.description || `Direct ATS role at ${company.name}.`,
+                    score: score,
+                    reason: `Direct Lever ATS scan (Match fit: ${score}%)`,
+                    status: 'Discovery',
+                    url: j.hostedUrl,
+                    source: 'Lever',
+                    createdAt: new Date().toISOString()
+                  });
+                }
+              }
+            }
+          }
         }
-        
-        // Longer Human-like delay (3-7 seconds)
-        const delay = Math.floor(Math.random() * 4000) + 3000;
-        await page.waitForTimeout(delay);
+      } catch (err) {
+        console.warn(`[Deep Search] Failed to scan direct board for ${company.name}:`, err);
       }
     }
   }
-  } catch (error) {
-    console.error("Web discovery failed:", error);
-  } finally {
-    await browser.close();
-  }
 
-  // Fallback if Google CAPTCHA block occurred
-  if (results.length === 0) {
-    console.log("[Discovery] Google block occurred or no results. Activating Deep Fallback search via Remotive Index...");
-    await setAgentStatus({ status: "Google limit reached. Running Deep Fallback search..." });
-    try {
-      const searchTitle = targetTitles[0] || "Designer";
-      const url = `https://remotive.com/api/remote-jobs?search=${encodeURIComponent(searchTitle)}`;
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
-        const rawList = data.jobs || [];
-        
-        for (const j of rawList) {
-          const titleLower = j.title.toLowerCase();
-          const genericWords = ["senior", "junior", "lead", "staff", "principal", "manager", "director", "designer", "developer", "engineer", "associate", "intern", "creative", "digital", "motion"];
-          
-          const isTitleMatch = targetTitles.length === 0 || targetTitles.some(target => {
-            const targetWords = target.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-            const nonGenericTargetWords = targetWords.filter(w => !genericWords.includes(w));
-            
-            if (nonGenericTargetWords.length > 0) {
-              return nonGenericTargetWords.some(word => titleLower.includes(word));
-            } else {
-              return targetWords.some(word => titleLower.includes(word));
-            }
-          });
-          if (!isTitleMatch) continue;
+  await setAgentStatus({ resultsFound: results.length });
 
-          const jobLocLower = (j.candidate_required_location || "").toLowerCase();
-          const isLocationMatch = targetLocations.length === 0 || targetLocations.some(target => {
-            const cleanTarget = target.toLowerCase().trim();
-            if (!cleanTarget) return false;
-            
-            // Check direct inclusion first
-            if (jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower)) {
-              return true;
-            }
-            
-            const isRemoteTarget = cleanTarget.includes("remote");
-            if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere") || jobLocLower.includes("worldwide"))) {
-              return true;
-            }
-            
-            // Split by words/regions but allow shorter state abbreviations/components (length >= 2)
-            const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length >= 2);
-            return targetWords.length > 0 && targetWords.some(word => jobLocLower.includes(word));
-          });
-          if (!isLocationMatch) continue;
+  // 2. Query JSearch with target titles & locations, and filter for direct employer/ATS URLs
+  console.log("[Deep Search] Searching web indexes for direct apply listings...");
+  for (const title of targetTitles) {
+    for (const location of targetLocations) {
+      await setAgentStatus({ status: `Deep Search: Crawling direct listings for "${title}"...` });
+      try {
+        const jsearchJobs = await fetchJSearchJobs(title, location);
+        for (const j of jsearchJobs) {
+          if (seenUrls.has(j.url)) continue;
 
-          // Check if this job redirects to Greenhouse/Lever/Workable
-          let source = "Deep Index";
-          if (j.url.includes("lever.co")) source = "lever.co";
-          else if (j.url.includes("greenhouse.io")) source = "greenhouse.io";
-          else if (j.url.includes("workable.com")) source = "workable.com";
-          
-          results.push({
-            id: crypto.randomUUID(),
-            title: j.title,
-            company: j.company_name || "Enterprise Partner",
-            location: j.candidate_required_location || "Remote",
-            description: j.description ? j.description.substring(0, 300) + "..." : "Deep web fallback match.",
-            score: 0,
-            reason: "Fetched via Deep Web Fallback index.",
-            status: 'Discovery',
-            url: j.url,
-            source: source,
-            createdAt: new Date().toISOString()
-          });
-          
-          if (results.length >= 10) break; // Limit to 10 fallback results
+          // Filter strictly for Deep Web (direct apply / ATS)
+          if (isDeepWebMatch(j.url, j.source)) {
+            seenUrls.add(j.url);
+            
+            // Score the job title
+            const score = heuristicMatchScore(j.title, targetTitles);
+            
+            results.push({
+              ...j,
+              score: score,
+              reason: `Direct Apply / ATS source discovered: ${j.source}`,
+              status: 'Discovery'
+            });
+          }
         }
+      } catch (err) {
+        console.error(`[Deep Search] Failed search for "${title}" in "${location}":`, err);
       }
-    } catch (fallbackError) {
-      console.error("Deep fallback failed:", fallbackError);
     }
   }
 
-  console.log(`[Discovery] Completed. Found ${results.length} unique matches.`);
+  // 3. Fallback: if results are low (< 5), broaden to return direct employer links regardless of publisher
+  if (results.length < 5) {
+    console.log("[Deep Search] Broadening search to capture additional local listings...");
+    for (const title of targetTitles) {
+      for (const location of targetLocations) {
+        try {
+          const jsearchJobs = await fetchJSearchJobs(title, location);
+          for (const j of jsearchJobs) {
+            if (seenUrls.has(j.url)) continue;
+            
+            // Broad matching: accept any listing that isn't on a giant aggregator
+            const isAggregator = ["indeed.com", "linkedin.com", "ziprecruiter.com"].some(agg => j.url.toLowerCase().includes(agg));
+            if (!isAggregator) {
+              seenUrls.add(j.url);
+              const score = heuristicMatchScore(j.title, targetTitles);
+              results.push({
+                ...j,
+                score: score,
+                reason: `Direct employer listing found via local index.`,
+                status: 'Discovery'
+              });
+            }
+          }
+        } catch (e) {}
+      }
+    }
+  }
+
+  console.log(`[Deep Search] Completed. Discovered ${results.length} total direct-apply roles.`);
+  await setAgentStatus({ status: `Deep Search complete. Found ${results.length} direct openings.` });
   return results;
 }
 

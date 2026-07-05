@@ -29,7 +29,9 @@ import {
   ChevronDown,
   ChevronUp,
   HelpCircle,
-  X
+  X,
+  Users,
+  Building
 } from "lucide-react";
 
 import { 
@@ -900,7 +902,7 @@ export default function SearchPage() {
         setStatus("Precision Mode: Scanning ATS Platforms...");
         setScanningTitles(titles.slice(0, 3).map((t, idx) => ({ title: t, status: idx === 0 ? 'scanning' : 'pending' })));
         const precisionTitles = titles.slice(0, 3);
-        const newJobs = await runWebDiscovery(precisionTitles, locations.length > 0 ? locations : (profile.location ? [profile.location] : ["USA"]), radius);
+        const newJobs = await runWebDiscovery(precisionTitles, locations.length > 0 ? locations : (profile.location ? [profile.location] : ["USA"]), radius, dreamCompanies);
         
         await addJobs(newJobs, activeProfileId);
         setResults(prev => {
@@ -1660,34 +1662,78 @@ export default function SearchPage() {
                        <p className="text-text-muted font-medium italic">No research data yet. Trigger the AI to find companies.</p>
                     </div>
                   ) : dreamCompanies.map((company, i) => (
-                    <div key={i} className={`glass-card hover:border-indigo-500/30 transition-all group ${company.scanningStatus === 'scanning' ? 'border-indigo-500/50 bg-indigo-500/5' : ''}`}>
-                       <div className="flex justify-between items-start mb-2">
-                          <h4 className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors flex items-center gap-2">
-                            {company.name}
-                            {company.scanningStatus === 'scanning' && (
-                              <span className="inline-block w-3 h-3 border-2 border-indigo-600 dark:border-indigo-400 border-t-transparent rounded-full animate-spin" />
-                            )}
-                            {company.scanningStatus === 'done' && (
-                              <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold" title={`Scanned: Found ${company.jobsFoundCount || 0} openings`}>✓</span>
-                            )}
-                            {company.scanningStatus === 'failed' && (
-                              <span className="text-rose-600 dark:text-rose-400 text-xs" title="Scan failed">⚠️</span>
-                            )}
-                          </h4>
-                          <span className="text-[9px] font-black uppercase tracking-widest bg-black/5 dark:bg-white/5 px-2 py-0.5 rounded text-text-muted">{company.industry}</span>
+                    <div key={i} className={`glass-card p-5 hover:border-indigo-500/30 transition-all group relative flex flex-col justify-between ${company.scanningStatus === 'scanning' ? 'border-indigo-500/50 bg-indigo-500/5' : ''}`}>
+                       <div>
+                         <div className="flex justify-between items-start mb-2">
+                            <h4 className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors flex items-center gap-2 text-base">
+                              <Building className="w-4 h-4 text-indigo-500 shrink-0 animate-pulse" />
+                              {company.name}
+                              {company.scanningStatus === 'scanning' && (
+                                <span className="inline-block w-3 h-3 border-2 border-indigo-600 dark:border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                              )}
+                              {company.scanningStatus === 'done' && (
+                                <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold" title={`Scanned: Found ${company.jobsFoundCount || 0} openings`}>✓</span>
+                              )}
+                              {company.scanningStatus === 'failed' && (
+                                <span className="text-rose-600 dark:text-rose-400 text-xs" title="Scan failed">⚠️</span>
+                              )}
+                            </h4>
+                            <span className="text-[9px] font-black uppercase tracking-widest bg-indigo-500/10 dark:bg-indigo-500/20 px-2 py-0.5 rounded text-indigo-600 dark:text-indigo-400 border border-indigo-500/10">{company.industry}</span>
+                         </div>
+                         
+                         {/* Local Presence & Commute */}
+                         <div className="flex items-center gap-3 mt-1.5 mb-3">
+                           {company.commuteDistance && (
+                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-2 py-0.5 rounded">
+                               🚗 {company.commuteDistance} commute
+                             </span>
+                           )}
+                           <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                             ⚡ High Match Probability
+                           </span>
+                         </div>
+
+                         <p className="text-xs text-text-muted leading-relaxed mb-3 italic">"{company.reasoning}"</p>
+                         
+                         {company.localPresence && (
+                           <div className="mb-3 text-[11px] leading-relaxed text-slate-700 dark:text-slate-400 bg-black/5 dark:bg-white/5 p-2 rounded border border-card-border/50">
+                             <strong className="text-slate-800 dark:text-slate-200">Local Footprint:</strong> {company.localPresence}
+                           </div>
+                         )}
+
+                         {company.typicalRoles && company.typicalRoles.length > 0 && (
+                           <div className="mb-4 text-[10px] text-text-muted flex items-center gap-1.5 flex-wrap">
+                             <span className="font-bold text-slate-800 dark:text-slate-200">Hires for:</span>
+                             {company.typicalRoles.map((role: string, idx: number) => (
+                               <span key={idx} className="bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded border border-card-border/50">{role}</span>
+                             ))}
+                           </div>
+                         )}
                        </div>
-                       <p className="text-xs text-text-muted leading-relaxed mb-4 italic">"{company.reasoning}"</p>
-                       <div className="flex gap-2">
+
+                       <div className="flex gap-2 mt-auto">
                            <button 
                              onClick={() => handleScanCompany(i, company.name, company.careerUrl)}
                              disabled={isSearching || company.scanningStatus === 'scanning'}
-                             className="flex-1 py-2 bg-indigo-500/10 hover:bg-indigo-50 dark:hover:bg-indigo-950 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest disabled:opacity-50 cursor-pointer text-center"
+                             className="flex-1 py-2 bg-indigo-500/10 hover:bg-indigo-500 hover:text-white dark:hover:bg-indigo-950 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest disabled:opacity-50 cursor-pointer text-center border border-indigo-500/20"
                            >
                              {company.scanningStatus === 'scanning' ? 'Scanning...' : 
                               company.scanningStatus === 'done' ? `Scan Openings (${company.jobsFoundCount || 0} Found)` : 'Scan Openings'}
                            </button>
+                           {company.recruiterSearchUrl && (
+                             <a 
+                               href={company.recruiterSearchUrl} 
+                               target="_blank" 
+                               rel="noopener noreferrer"
+                               className="py-2 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 hover:text-indigo-500 rounded-lg text-text-muted border border-card-border flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-widest"
+                               title="Search local recruiters on LinkedIn"
+                             >
+                               <Users className="w-3.5 h-3.5 shrink-0 text-indigo-500" />
+                               Recruiters ↗
+                             </a>
+                           )}
                            {company.careerUrl && (
-                             <a href={company.careerUrl} target="_blank" className="p-2 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 rounded-lg text-text-muted hover:text-foreground border border-card-border flex items-center justify-center">
+                             <a href={company.careerUrl} target="_blank" rel="noopener noreferrer" className="p-2 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 rounded-lg text-text-muted hover:text-foreground border border-card-border flex items-center justify-center" title="Go to Careers Page">
                                <ExternalLink className="w-4 h-4" />
                              </a>
                            )}
@@ -2909,7 +2955,7 @@ export default function SearchPage() {
                     if (searchMode === 'deep') {
                       setStatus("Precision Mode: Scanning ATS Platforms...");
                       const precisionTitles = roles.slice(0, 3);
-                      newJobs = await runWebDiscovery(precisionTitles, locs, radius);
+                      newJobs = await runWebDiscovery(precisionTitles, locs, radius, dreamCompanies);
                     } else {
                       newJobs = await runJobSearch(
                         roles, 
