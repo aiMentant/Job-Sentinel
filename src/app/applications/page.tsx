@@ -42,6 +42,7 @@ export default function ApplicationsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [jobToDelete, setJobToDelete] = useState<string | null>(null);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
     loadJobs();
@@ -118,6 +119,8 @@ export default function ApplicationsPage() {
             <Search className="w-4 h-4 absolute left-4 top-3 text-slate-500" />
             <input 
               type="text" 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search by company, role or location..." 
               className="input-field w-full pl-12 text-sm" 
             />
@@ -158,12 +161,26 @@ export default function ApplicationsPage() {
               </tr>
             </thead>
             <tbody className="text-sm divide-y divide-white/5">
-              {isLoading ? (
-                <tr><td colSpan={7} className="p-12 text-center text-slate-500">Loading your applications...</td></tr>
-              ) : jobs.length === 0 ? (
-                <tr><td colSpan={7} className="p-12 text-center text-slate-500">No applications found. Start a search to find roles!</td></tr>
-              ) : jobs.map((job) => {
-                const config = statusConfig[job.status as keyof typeof statusConfig] || statusConfig.Discovery;
+              {(() => {
+                const filteredJobs = jobs.filter((j: any) => {
+                  const term = searchTerm.toLowerCase().trim();
+                  if (!term) return true;
+                  return (
+                    (j.company || "").toLowerCase().includes(term) ||
+                    (j.title || "").toLowerCase().includes(term) ||
+                    (j.location || "").toLowerCase().includes(term)
+                  );
+                });
+
+                if (isLoading) {
+                  return <tr><td colSpan={7} className="p-12 text-center text-slate-500">Loading your applications...</td></tr>;
+                }
+                if (filteredJobs.length === 0) {
+                  return <tr><td colSpan={7} className="p-12 text-center text-slate-500">No applications found matching search criteria.</td></tr>;
+                }
+
+                return filteredJobs.map((job) => {
+                  const config = statusConfig[job.status as keyof typeof statusConfig] || statusConfig.Discovery;
                 const isSelected = selectedJobs.includes(job.id);
                 const isMenuOpen = activeMenu === job.id;
 
@@ -196,7 +213,7 @@ export default function ApplicationsPage() {
                       {job.location}
                     </td>
                     <td className="px-6 py-4 text-slate-500 text-xs">
-                      {new Date(job.date).toLocaleDateString()}
+                      {job.submittedAt || job.createdAt ? new Date(job.submittedAt || job.createdAt).toLocaleDateString() : "Pending"}
                     </td>
                     <td className="px-6 py-4 text-right relative">
                       <div className="flex items-center justify-end gap-2">
@@ -252,7 +269,8 @@ export default function ApplicationsPage() {
                     </td>
                   </tr>
                 );
-              })}
+              })
+            })()}
             </tbody>
           </table>
         </div>

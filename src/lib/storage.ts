@@ -373,3 +373,33 @@ export async function updateJobField(id: string, fields: Record<string, any>, pr
 
   return updated.find((j: any) => j.id === id);
 }
+
+export async function bulkDeleteJobs(ids: string[], profileId: string = 'default') {
+  const safeId = (typeof profileId === 'string' && profileId.trim()) ? profileId.trim() : 'default';
+
+  if (isSupabaseEnabled()) {
+    try {
+      await supabase!.from('job_details').delete().in('job_id', ids);
+    } catch (supabaseError: any) {
+      console.warn("Supabase bulkDeleteJob details failed:", supabaseError.message || supabaseError);
+    }
+  }
+
+  // Fallback to local files & memory
+  try {
+    const fs = await import("fs/promises");
+    for (const id of ids) {
+      const detailPath = path.join(BASE_DATA_PATH, safeId, 'jobs_details', `${id}.json`);
+      try {
+        await fs.unlink(detailPath);
+      } catch (err) {}
+      memoryJobDetails.delete(id);
+    }
+  } catch (err) {}
+
+  const jobs = await getJobs(profileId);
+  const filtered = jobs.filter((j: any) => !ids.includes(j.id));
+  await saveJobs(filtered, profileId);
+  return filtered;
+}
+

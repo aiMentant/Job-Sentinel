@@ -30,6 +30,16 @@ import { generateInterviewPrepMaterial } from "@/app/actions/careerTools";
 import { Job } from "@/lib/db";
 import { useProfile } from "@/components/ProfileContext";
 
+// Converts **bold** and *italic* markdown to HTML spans safely (no DOMParser needed)
+function renderMarkdown(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/^#{1,3}\s+(.+)$/gm, '<span class="font-bold text-foreground">$1</span>')
+    .replace(/\n/g, '<br />');
+}
+
 function InterviewHubContent() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,6 +52,8 @@ function InterviewHubContent() {
   // Refine text hook states
   const [refineInstructions, setRefineInstructions] = useState<Record<string, string>>({});
   const [isRefining, setIsRefining] = useState<Record<string, boolean>>({});
+  // Which answer block is currently in text-edit mode (null = all in rendered view)
+  const [editingKey, setEditingKey] = useState<string | null>(null);
 
   const { activeProfileId } = useProfile();
   const searchParams = useSearchParams();
@@ -536,20 +548,35 @@ function InterviewHubContent() {
                                     </button>
                                   </div>
                                   
-                                  <textarea
-                                    value={item.a}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      const prep = selectedJob?.interviewPrepData;
-                                      if (!prep?.behavioralQuestions) return;
-                                      const list = [...prep.behavioralQuestions];
-                                      list[idx] = { ...list[idx], a: val };
-                                      setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, behavioralQuestions: list } });
-                                    }}
-                                    className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-xl p-3 stepper-textarea focus:border-indigo-500/50 outline-none font-sans resize-none overflow-hidden"
-                                    placeholder="STAR Method Answer Guide"
-                                    rows={computedRows}
-                                  />
+                                  {/* Answer: rendered markdown preview, click to edit */}
+                                  {editingKey === key ? (
+                                    <textarea
+                                      autoFocus
+                                      value={item.a}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        const prep = selectedJob?.interviewPrepData;
+                                        if (!prep?.behavioralQuestions) return;
+                                        const list = [...prep.behavioralQuestions];
+                                        list[idx] = { ...list[idx], a: val };
+                                        setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, behavioralQuestions: list } });
+                                      }}
+                                      onBlur={() => setEditingKey(null)}
+                                      className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-indigo-500/50 rounded-xl p-4 stepper-textarea focus:outline-none font-sans resize-none overflow-hidden"
+                                      placeholder="STAR Method Answer Guide"
+                                      rows={computedRows}
+                                    />
+                                  ) : (
+                                    <div
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={() => setEditingKey(key)}
+                                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setEditingKey(key); }}
+                                      title="Click to edit"
+                                      className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-card-border hover:border-indigo-500/40 rounded-xl p-4 stepper-textarea font-sans cursor-text leading-relaxed text-sm min-h-[3rem] transition-colors"
+                                      dangerouslySetInnerHTML={{ __html: renderMarkdown(item.a) || '<span class="opacity-40">STAR Method Answer Guide...</span>' }}
+                                    />
+                                  )}
 
                                   {/* Inline AI Tweak */}
                                   <div className="flex gap-2 items-center w-full max-w-2xl">
@@ -630,20 +657,35 @@ function InterviewHubContent() {
                                     </button>
                                   </div>
                                   
-                                  <textarea
-                                    value={item.a}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      const prep = selectedJob?.interviewPrepData;
-                                      if (!prep?.technicalQuestions) return;
-                                      const list = [...prep.technicalQuestions];
-                                      list[idx] = { ...list[idx], a: val };
-                                      setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, technicalQuestions: list } });
-                                    }}
-                                    className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-xl p-3 stepper-textarea focus:border-indigo-500/50 outline-none font-sans resize-none overflow-hidden"
-                                    placeholder="Technical Guidelines"
-                                    rows={computedRows}
-                                  />
+                                  {/* Answer: rendered markdown preview, click to edit */}
+                                  {editingKey === key ? (
+                                    <textarea
+                                      autoFocus
+                                      value={item.a}
+                                      onChange={(e) => {
+                                        const val = e.target.value;
+                                        const prep = selectedJob?.interviewPrepData;
+                                        if (!prep?.technicalQuestions) return;
+                                        const list = [...prep.technicalQuestions];
+                                        list[idx] = { ...list[idx], a: val };
+                                        setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, technicalQuestions: list } });
+                                      }}
+                                      onBlur={() => setEditingKey(null)}
+                                      className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-indigo-500/50 rounded-xl p-4 stepper-textarea focus:outline-none font-sans resize-none overflow-hidden"
+                                      placeholder="Technical Guidelines"
+                                      rows={computedRows}
+                                    />
+                                  ) : (
+                                    <div
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={() => setEditingKey(key)}
+                                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setEditingKey(key); }}
+                                      title="Click to edit"
+                                      className="w-full bg-black/[0.02] dark:bg-white/[0.02] border border-card-border hover:border-indigo-500/40 rounded-xl p-4 stepper-textarea font-sans cursor-text leading-relaxed text-sm min-h-[3rem] transition-colors"
+                                      dangerouslySetInnerHTML={{ __html: renderMarkdown(item.a) || '<span class="opacity-40">Technical Guidelines...</span>' }}
+                                    />
+                                  )}
 
                                   {/* Inline AI Tweak */}
                                   <div className="flex gap-2 items-center w-full max-w-2xl">
@@ -698,12 +740,11 @@ function InterviewHubContent() {
                           
                           <div className="space-y-4">
                             {selectedJob.interviewPrepData?.reverseQuestions?.map((q, idx) => (
-                              <div key={idx} className="flex gap-3 items-center group/qta">
-                                <span className="w-6 h-6 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/25 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                              <div key={idx} className="flex gap-3 items-start group/qta">
+                                <span className="w-6 h-6 mt-2 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/25 flex items-center justify-center text-xs font-bold flex-shrink-0">
                                   {idx + 1}
                                 </span>
-                                <input
-                                  type="text"
+                                <textarea
                                   value={q}
                                   onChange={(e) => {
                                     const val = e.target.value;
@@ -713,7 +754,8 @@ function InterviewHubContent() {
                                     list[idx] = val;
                                     setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, reverseQuestions: list } });
                                   }}
-                                  className="flex-1 input-field stepper-textarea text-xs py-2 bg-card border-card-border"
+                                  rows={Math.max(2, Math.ceil(q.length / 80))}
+                                  className="flex-1 input-field stepper-textarea text-sm py-2 bg-card border-card-border resize-none leading-relaxed overflow-hidden"
                                 />
                                 <button
                                   onClick={() => {
@@ -722,7 +764,7 @@ function InterviewHubContent() {
                                     const list = prep.reverseQuestions.filter((_, i) => i !== idx);
                                     setSelectedJob({ ...selectedJob, interviewPrepData: { ...prep, reverseQuestions: list } });
                                   }}
-                                  className="p-1.5 text-rose-500 hover:bg-rose-500/10 rounded-lg opacity-0 group-hover/qta:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                                  className="p-1.5 mt-1.5 text-rose-500 hover:bg-rose-500/10 rounded-lg opacity-0 group-hover/qta:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
                                   title="Delete Question"
                                 >
                                   <Trash2 className="w-4 h-4" />

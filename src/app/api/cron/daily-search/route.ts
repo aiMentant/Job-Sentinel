@@ -26,7 +26,12 @@ async function handleDailySearch(request: Request) {
     const profileIds = await listAllProfiles();
     const summaryReports: any[] = [];
 
+    const startTime = Date.now();
     for (const profileId of profileIds) {
+      if (Date.now() - startTime > 22000) {
+        console.warn("[Cron] Approaching execution timeout (22s). Exiting daily search profile loop early.");
+        break;
+      }
       const profile = await getProfile(profileId);
       if (!profile || !profile.dailySearchEnabled) {
         console.log(`[Cron] Daily search disabled for profile: ${profileId}`);

@@ -161,3 +161,77 @@ export function heuristicMatchScore(jobTitle: string, targetTitles: string[], al
   
   return maxScore;
 }
+
+export type AlignedRow = {
+  original: string | null;
+  tailored: string | null;
+  status: 'modified' | 'added' | 'removed' | 'unchanged';
+};
+
+export function alignResumeBullets(originalText: string, tailoredText: string, approvedLines: string[] = []): AlignedRow[] {
+  const cleanLine = (l: string) => l.replace(/\*\*/g, '').trim().replace(/^[•\-\*\s\d\.\)]+/, '').trim();
+  const cleanApproved = approvedLines.map(line => line.trim().replace(/^[•\-\*\s]+/, '').toLowerCase());
+  
+  const origLines = (originalText || "").split('\n').map((l, i) => ({ raw: l, clean: cleanLine(l), index: i }));
+  const tailLines = (tailoredText || "").split('\n').map((l, i) => ({ raw: l, clean: cleanLine(l), index: i }));
+
+  const rows: AlignedRow[] = [];
+  const matchedOrigIndices = new Set<number>();
+
+  for (const t of tailLines) {
+    if (!t.clean) {
+      continue;
+    }
+
+    const isApproved = cleanApproved.includes(t.clean.toLowerCase());
+
+    let bestMatchIdx = -1;
+    let bestSim = 0;
+
+    for (let i = 0; i < origLines.length; i++) {
+      const o = origLines[i];
+      if (!o.clean) continue;
+      
+      const sim = calculateJaccardSimilarity(t.clean, o.clean);
+      if (sim > bestSim) {
+        bestSim = sim;
+        bestMatchIdx = i;
+      }
+    }
+
+    if (bestMatchIdx !== -1 && bestSim >= 0.22) {
+      matchedOrigIndices.add(bestMatchIdx);
+      const originalRaw = origLines[bestMatchIdx].raw;
+      const status = isApproved 
+        ? 'unchanged' 
+        : (t.clean.toLowerCase() === origLines[bestMatchIdx].clean.toLowerCase() ? 'unchanged' : 'modified');
+      rows.push({
+        original: originalRaw,
+        tailored: t.raw,
+        status: status
+      });
+    } else {
+      rows.push({
+        original: null,
+        tailored: t.raw,
+        status: isApproved ? 'unchanged' : 'added'
+      });
+    }
+  }
+
+  // Any original lines that weren't matched are marked as removed
+  for (let i = 0; i < origLines.length; i++) {
+    const o = origLines[i];
+    if (o.clean && !matchedOrigIndices.has(i)) {
+      rows.push({
+        original: o.raw,
+        tailored: null,
+        status: 'removed'
+      });
+    }
+  }
+
+  return rows;
+}
+
+

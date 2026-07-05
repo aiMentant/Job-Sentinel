@@ -32,15 +32,17 @@ import {
   Edit2,
   AlertCircle,
   AlertTriangle,
+  Star,
 } from "lucide-react";
-import { fetchJobs, updateJobStatus, deleteJob, generateCoverLetter, updateJob, saveApplicationDraft, markApplicationReady, fetchFullJobDescription } from "@/app/actions/jobActions";
+import { fetchJobs, updateJobStatus, deleteJob, generateCoverLetter, updateJob, saveApplicationDraft, markApplicationReady, fetchFullJobDescription, toggleJobFavourite } from "@/app/actions/jobActions";
 
 import { resolveApproval } from "@/app/actions/agentStatus";
 
 import { personalizeCoverLetter, generateRecruiterMessage, matchToJobDescription, optimizeApplicationPackage, refineTailoredMaterial } from "@/app/actions/careerTools";
 import { Job } from "@/lib/db";
 import { useProfile } from "@/components/ProfileContext";
-import { getSourceBadgeClass, computeGhostScore, getGhostBadge } from "@/lib/jobUtils";
+import { getSourceBadgeClass, computeGhostScore, getGhostBadge, alignResumeBullets } from "@/lib/jobUtils";
+import { useTailoringProgress } from "@/hooks/useTailoringProgress";
 
 const statuses = [
   { id: 'Discovery', label: 'Discovery Inbox', color: 'bg-blue-500' },
@@ -103,17 +105,32 @@ export default function TrackerPage() {
 
   const [showCopilot, setShowCopilot] = useState(false);
   const [copilotTab, setCopilotTab] = useState<'qa' | 'docs'>('qa');
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [draftSavedToast, setDraftSavedToast] = useState(false);
   const [copilotQuestion, setCopilotQuestion] = useState("");
   const [copilotWordLimit, setCopilotWordLimit] = useState(150);
   const [isGeneratingCopilotAnswer, setIsGeneratingCopilotAnswer] = useState(false);
   const [copilotAnswers, setCopilotAnswers] = useState<Array<{ q: string; a: string }>>([]);
   const [approvedLines, setApprovedLines] = useState<string[]>([]);
+  
+  const {
+    currentStep: tailoringStep,
+    logs: tailoringLogs,
+    error: tailoringError,
+    result: tailoringResult,
+    isProcessing: isTailoringProcessing,
+    runTailoring,
+    resetState: resetTailoringState
+  } = useTailoringProgress();
+  const [tailoringInBackground, setTailoringInBackground] = useState(false);
 
   useEffect(() => {
     setCopilotQuestion("");
     setCopilotAnswers([]);
     setShowCopilot(false);
     setApprovedLines([]);
+    resetTailoringState();
+    setTailoringInBackground(false);
   }, [optimizeModal?.job?.id]);
 
 
@@ -163,6 +180,11 @@ export default function TrackerPage() {
     setJobs(data);
     setLoading(false);
   }
+
+  const handleToggleFavourite = async (id: string) => {
+    await toggleJobFavourite(id);
+    loadJobs();
+  };
 
   const toggleSelection = (id: string) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
@@ -369,10 +391,15 @@ export default function TrackerPage() {
     setTailoringJob(job);
     setIsGenerating(true);
     setCoverLetter("");
+    // Pre-fill JD from the stored job description so the user doesn't have to paste manually
+    const effectiveJd = jdInput.trim() || job.description || "";
+    if (!jdInput.trim() && job.description) {
+      setJdInput(job.description);
+    }
     try {
-      // Use personalizeCoverLetter if a JD is provided, else fall back to basic generation
-      const letter = jdInput.trim()
-        ? await personalizeCoverLetter(jdInput, job.title, job.company)
+      // Use personalizeCoverLetter if a JD is available, else fall back to basic generation
+      const letter = effectiveJd
+        ? await personalizeCoverLetter(effectiveJd, job.title, job.company)
         : await generateCoverLetter(job.id);
       setCoverLetter(letter);
     } catch (e) {
@@ -469,16 +496,21 @@ export default function TrackerPage() {
     }
     if (!optimizeModal || !optimizeModal.jd.trim()) return;
     setOptimizeModal(prev => prev ? { ...prev, isGenerating: true } : null);
+    setTailoringInBackground(false);
     try {
-      const { optimizeApplicationPackage } = await import("@/app/actions/careerTools");
-      const result = await optimizeApplicationPackage(
-        optimizeModal.jd, 
-        optimizeModal.job.title, 
-        optimizeModal.job.company
+      const result = await runTailoring(
+        optimizeModal.jd,
+        optimizeModal.job.title,
+        optimizeModal.job.company,
+        activeProfileId
       );
-      setOptimizeModal(prev => prev ? { ...prev, result, isGenerating: false } : null);
-    } catch (e) {
-      alert("AI Optimization failed. Quota reached?");
+      if (result) {
+        setOptimizeModal(prev => prev ? { ...prev, result, isGenerating: false } : null);
+      } else {
+        setOptimizeModal(prev => prev ? { ...prev, isGenerating: false } : null);
+      }
+    } catch (e: any) {
+      alert("AI Optimization failed: " + (e.message || e));
       setOptimizeModal(prev => prev ? { ...prev, isGenerating: false } : null);
     }
   };
@@ -518,6 +550,24 @@ export default function TrackerPage() {
     setOptimizeModal(null);
     setStepperStep(0);
     loadJobs();
+  };
+
+  const handleSaveDraftOnly = async () => {
+    if (!optimizeModal || !optimizeModal.result) return;
+    setIsSavingDraft(true);
+    const { job, result } = optimizeModal;
+    
+    await saveApplicationDraft(job.id, {
+      tailoredResumeText: result.tailoredResumeText,
+      coverLetterText: result.tailoredCoverLetter || result.coverLetterText,
+      applicationNotes: result.applicationStrategy || result.applicationNotes,
+      recruiterHookLinkedin: result.linkedinHook || result.recruiterHookLinkedin,
+      recruiterHookEmail: result.emailHook || result.recruiterHookEmail
+    });
+    
+    setIsSavingDraft(false);
+    setDraftSavedToast(true);
+    setTimeout(() => setDraftSavedToast(false), 2500);
   };
 
   const handleGenerateCopilotAnswer = async () => {
@@ -930,6 +980,16 @@ export default function TrackerPage() {
                               title="Click to quick review Job Description & match details"
                             >
                               <div className="font-bold text-sm text-foreground leading-tight group-hover/row:underline flex items-center gap-2">
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleFavourite(job.id);
+                                  }}
+                                  className="p-1 hover:bg-black/5 dark:hover:bg-white/5 rounded text-amber-500 transition-all shrink-0 cursor-pointer"
+                                  title={job.isFavourite ? "Un-favourite (Remove from Workshop)" : "Favourite"}
+                                >
+                                  <Star className={`w-3.5 h-3.5 ${job.isFavourite ? "fill-amber-500 text-amber-500" : "text-text-muted/65 hover:text-amber-500"}`} />
+                                </button>
                                 {job.company}
                                 {(() => {
                                   const score = job.ghostScore ?? computeGhostScore(job);
@@ -1299,7 +1359,7 @@ export default function TrackerPage() {
       {/* Cover Letter Modal */}
       {tailoringJob && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-[#0a0a0c]/90 backdrop-blur-md" onClick={() => setTailoringJob(null)} />
+          <div className="absolute inset-0 bg-[#0a0a0c]/90 backdrop-blur-md" onClick={() => { setTailoringJob(null); setJdInput(""); }} />
           <div className="glass-card w-full max-w-4xl max-h-[90vh] overflow-hidden relative z-10 animate-in zoom-in-95 duration-200 flex flex-col p-0 bg-card border border-card-border">
             <div className="p-6 border-b border-card-border flex justify-between items-center bg-black/5 dark:bg-white/5">
               <div className="flex items-center gap-4">
@@ -1337,7 +1397,7 @@ export default function TrackerPage() {
                         )}
                       </div>
                 <button 
-                  onClick={() => setTailoringJob(null)}
+                  onClick={() => { setTailoringJob(null); setJdInput(""); }}
                   className="p-2 text-text-muted hover:text-foreground"
                 >
                   &times;
@@ -1361,16 +1421,16 @@ export default function TrackerPage() {
               )}
             </div>
 
-            {/* JD input for personalization - tool 5 */}
+            {/* JD input for personalization - auto-filled from saved description */}
             <div className="px-8 pb-4 bg-card border-t border-card-border">
               <label className="text-[10px] text-text-muted uppercase font-bold tracking-widest mb-1 block mt-3">
-                ✦ Paste Job Description to Personalize (optional)
+                ✦ Job Description <span className="text-emerald-500">(Auto-filled from saved data — edit to customize)</span>
               </label>
               <textarea
-                className="w-full h-20 input-field font-mono text-xs resize-none"
+                className="w-full h-28 input-field font-mono text-xs resize-y"
                 value={jdInput}
                 onChange={(e) => setJdInput(e.target.value)}
-                placeholder="Paste the JD here, then click Regenerate to produce a role-specific cover letter..."
+                placeholder="Job description auto-fills here. Edit or paste a fresh copy to re-personalize the cover letter..."
               />
             </div>
 
@@ -1380,6 +1440,7 @@ export default function TrackerPage() {
                    if(confirm("Delete this draft?")) {
                       setCoverLetter("");
                       setTailoringJob(null);
+                      setJdInput("");
                    }
                 }}
                 className="text-rose-600 dark:text-rose-400 text-sm font-bold hover:text-rose-500 flex items-center gap-2"
@@ -1392,6 +1453,7 @@ export default function TrackerPage() {
                   onClick={async () => {
                     await saveApplicationDraft(tailoringJob.id, { coverLetterText: coverLetter });
                     setTailoringJob(null);
+                    setJdInput("");
                     loadJobs();
                   }}
                   className="btn-secondary py-2 px-6"
@@ -1403,6 +1465,7 @@ export default function TrackerPage() {
                     await saveApplicationDraft(tailoringJob.id, { coverLetterText: coverLetter });
                     await updateJobStatus(tailoringJob.id, 'Ready' as any);
                     setTailoringJob(null);
+                    setJdInput("");
                     loadJobs();
                   }}
                   className="btn-primary py-2 px-8 flex items-center gap-2"
@@ -1527,7 +1590,7 @@ export default function TrackerPage() {
             </div>
 
             {/* Steps Container */}
-            <div className="flex-1 overflow-hidden flex">
+            <div className="flex-1 overflow-hidden flex relative">
               <div className="flex-1 flex flex-col overflow-hidden">
                 {/* STEP 0: CALIBRATE */}
               {stepperStep === 0 && (
@@ -1589,7 +1652,94 @@ export default function TrackerPage() {
 
                   {/* Right Column: AI Output */}
                   <div className="flex-1 p-8 overflow-y-auto space-y-12 bg-foreground/[0.01]">
-                    {!optimizeModal.result ? (
+                    {optimizeModal.isGenerating && !tailoringInBackground ? (
+                      <div className="h-full flex flex-col space-y-6">
+                        <div className="flex justify-between items-center pb-2 border-b border-card-border/40">
+                          <h4 className="font-black text-xs uppercase tracking-widest text-foreground flex items-center gap-2">
+                            <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" /> 
+                            AI Multi-Agent Optimization
+                          </h4>
+                          <button
+                            onClick={() => setTailoringInBackground(true)}
+                            className="px-2.5 py-1 text-[9px] font-black uppercase tracking-widest bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-amber-500 hover:text-amber-600 rounded-lg transition-colors border border-card-border/50"
+                          >
+                            Run in Background
+                          </button>
+                        </div>
+
+                        {/* Stepper progress */}
+                        <div className="space-y-4 py-2">
+                          {[
+                            { key: 'DRAFTING', label: '1. Fact Extraction & Copywriting Draft', detail: 'Mapping history to job requirements' },
+                            { key: 'AUDITING', label: '2. Multi-LLM Fact Audit', detail: 'Compliance check (Anti-Hallucination Guard active)' },
+                            { key: 'REFINING', label: '3. Tone Humanizer & Cliché Sweep', detail: 'Polishing cadence and resolving discrepancies' },
+                          ].map((step, idx) => {
+                            const isCurrent = tailoringStep === step.key;
+                            const isPast = 
+                              (step.key === 'DRAFTING' && ['AUDITING', 'REFINING', 'COMPLETED'].includes(tailoringStep)) ||
+                              (step.key === 'AUDITING' && ['REFINING', 'COMPLETED'].includes(tailoringStep)) ||
+                              (step.key === 'REFINING' && tailoringStep === 'COMPLETED');
+                            const isFuture = !isCurrent && !isPast;
+
+                            return (
+                              <div key={step.key} className="flex items-start gap-3">
+                                <div className={`w-5 h-5 flex items-center justify-center rounded-full text-[9px] font-black shrink-0 border select-none ${
+                                  isCurrent ? 'bg-amber-500 border-amber-500 text-black animate-pulse' :
+                                  isPast ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-500' :
+                                  'bg-transparent border-card-border text-text-muted/60'
+                                }`}>
+                                  {isPast ? '✓' : idx + 1}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className={`text-xs font-bold ${
+                                    isCurrent ? 'text-foreground font-extrabold' : 
+                                    isPast ? 'text-emerald-600 dark:text-emerald-400' : 
+                                    'text-text-muted/60'
+                                  }`}>
+                                    {step.label}
+                                  </p>
+                                  {isCurrent && (
+                                    <p className="text-[10px] text-text-muted animate-pulse mt-0.5 font-sans font-semibold">
+                                      {step.detail}...
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Real-time agent collaboration feed */}
+                        <div className="flex-1 flex flex-col min-h-0 bg-black/10 dark:bg-black/35 rounded-2xl border border-card-border p-4 font-mono text-[9px] text-slate-300 dark:text-slate-400">
+                          <p className="font-bold border-b border-card-border/30 pb-1.5 mb-2 text-text-muted uppercase tracking-widest text-[8px] flex items-center gap-1.5 shrink-0 select-none">
+                            <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" />
+                            Peer Review Log Board
+                          </p>
+                          <div className="flex-1 overflow-y-auto space-y-1.5 pr-2 select-text selection:bg-amber-500/20 leading-normal">
+                            {tailoringLogs.map((log, lIdx) => {
+                              const isWarning = log.includes("WARNING");
+                              const isError = log.includes("ERROR");
+                              const isRefiner = log.includes("[Refiner]");
+                              const isAuditor = log.includes("[Auditor]");
+                              const isSystem = log.includes("[System]");
+
+                              let colorClass = "text-slate-400";
+                              if (isWarning) colorClass = "text-amber-500 font-semibold";
+                              else if (isError) colorClass = "text-red-500 font-bold animate-pulse";
+                              else if (isRefiner) colorClass = "text-blue-400";
+                              else if (isAuditor) colorClass = "text-teal-400";
+                              else if (isSystem) colorClass = "text-emerald-500 font-semibold";
+
+                              return (
+                                <div key={lIdx} className={`${colorClass} break-words`}>
+                                  {log}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    ) : !optimizeModal.result ? (
                       <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
                         <Sparkles className="w-12 h-12 mb-4 text-text-muted" />
                         <p className="text-lg font-bold text-text-muted">Ready to Transform</p>
@@ -1664,49 +1814,123 @@ export default function TrackerPage() {
                   </div>
 
                   {showCompare ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {/* Left Column: Original Resume */}
-                      <div className="w-full h-[45vh] overflow-y-auto bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 resume-pane-text leading-relaxed font-sans">
-                        <h5 className="font-bold text-slate-900 dark:text-slate-200 mb-3 uppercase tracking-wider text-[10px] sticky top-0 bg-card/95 py-1">Original Resume</h5>
-                        {isStructuringResume ? (
-                          <div className="flex flex-col items-center justify-center py-20 gap-2">
-                            <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
-                            <p className="text-[10px] text-text-muted animate-pulse">Structuring raw ATS resume...</p>
-                          </div>
-                        ) : (
-                          renderOriginalWithMatchingStyles(structuredResume || profile?.resumeText || "")
-                        )}
+                    <div className="w-full h-[45vh] overflow-y-auto bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 flex flex-col gap-4 font-sans text-xs">
+                      {/* Grid Header */}
+                      <div className="grid grid-cols-12 gap-4 pb-2 border-b border-card-border/60 sticky top-0 bg-card/95 z-10 font-bold uppercase tracking-wider text-[10px] text-text-muted select-none">
+                        <div className="col-span-5">Original Resume</div>
+                        <div className="col-span-2 text-center">Status</div>
+                        <div className="col-span-5">Tailored Modification</div>
                       </div>
-                      
-                      {/* Right Column: Standard Tailored Editor / Highlights Preview */}
-                      <div className="w-full h-[45vh] flex flex-col gap-2">
-                        <h5 className="font-bold text-slate-900 dark:text-slate-200 uppercase tracking-wider text-[10px] py-1">Tailored Resume Highlights</h5>
-                        {showUpdates ? (
-                          <div className="w-full flex-1 overflow-y-auto bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 resume-pane-text whitespace-pre-wrap leading-relaxed">
-                            {renderTailoredWithHighlights(
-                              profile?.resumeText || "", 
-                              optimizeModal.result.tailoredResumeText || "",
-                              approvedLines,
-                              handleRevertLine,
-                              () => setShowUpdates(false),
-                              (lineText) => setApprovedLines(prev => [...prev, lineText])
-                            )}
-                          </div>
-                        ) : (
-                          <textarea 
-                            value={optimizeModal.result.tailoredResumeText || ""}
-                            onChange={(e) => setOptimizeModal(prev => prev ? { ...prev, result: { ...prev.result, tailoredResumeText: e.target.value } } : null)}
-                            className="w-full flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none"
-                            placeholder="Tailored resume bullets..."
-                          />
-                        )}
+
+                      {/* Grid Rows */}
+                      <div className="space-y-4">
+                        {(() => {
+                          const alignedRows = alignResumeBullets(
+                            structuredResume || profile?.resumeText || "",
+                            optimizeModal.result.tailoredResumeText || "",
+                            approvedLines
+                          );
+                          const cleanLine = (l: string) => l.replace(/\*\*/g, '').trim().replace(/^[•\-\*\s\d\.\)]+/, '').trim();
+                          
+                          return alignedRows.map((row, rIdx) => {
+                            let statusText = "Unchanged";
+                            let badgeClass = "bg-black/5 dark:bg-white/5 text-text-muted/70";
+                            let origStyle = "text-slate-700 dark:text-slate-300";
+                            let tailStyle = "text-slate-700 dark:text-slate-300";
+
+                            if (row.status === 'modified') {
+                              statusText = "Modified 🔀";
+                              badgeClass = "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20";
+                              tailStyle = "bg-amber-500/10 dark:bg-amber-500/5 text-slate-800 dark:text-slate-100 font-medium px-1 py-0.5 rounded border border-amber-500/10";
+                            } else if (row.status === 'added') {
+                              statusText = "Added 🟢";
+                              badgeClass = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20";
+                              tailStyle = "bg-emerald-500/10 dark:bg-emerald-500/5 text-slate-800 dark:text-slate-100 font-semibold px-1 py-0.5 rounded border border-emerald-500/10";
+                            } else if (row.status === 'removed') {
+                              statusText = "Omitted 🔴";
+                              badgeClass = "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20";
+                              origStyle = "text-text-muted/60 line-through";
+                            }
+
+                            return (
+                              <div key={rIdx} className="grid grid-cols-12 gap-4 items-center group/row border-b border-card-border/10 pb-3 last:border-none">
+                                {/* Left Column: Original Bullet */}
+                                <div className={`col-span-5 leading-relaxed break-words whitespace-pre-wrap ${origStyle}`}>
+                                  {row.original ? row.original : (
+                                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400/80 font-black uppercase tracking-widest font-mono select-none">
+                                      [New Bullet Added]
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Middle Column: Status Badge */}
+                                <div className="col-span-2 flex justify-center select-none">
+                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${badgeClass}`}>
+                                    {statusText}
+                                  </span>
+                                </div>
+
+                                {/* Right Column: Tailored Bullet & Actions */}
+                                <div className="col-span-5 flex justify-between gap-4 items-start leading-relaxed min-w-0">
+                                  <div className={`flex-1 break-words whitespace-pre-wrap ${tailStyle}`}>
+                                    {row.tailored ? row.tailored : (
+                                      <span className="text-[10px] text-red-500/80 font-black uppercase tracking-widest font-mono select-none">
+                                        [Omitted for Relevance]
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Actions */}
+                                  {row.tailored && row.status !== 'unchanged' && (
+                                    <div className="flex items-center gap-1.5 shrink-0 select-none opacity-0 group-hover/row:opacity-100 transition-opacity pt-0.5">
+                                      {row.status === 'modified' && row.original && (
+                                        <button
+                                          onClick={() => {
+                                            const tailoredLines = (optimizeModal.result.tailoredResumeText || "").split('\n');
+                                            const idx = tailoredLines.findIndex((line: string) => line.trim() === row.tailored?.trim());
+                                            if (idx !== -1) {
+                                              tailoredLines[idx] = row.original!;
+                                              setOptimizeModal(prev => prev ? {
+                                                ...prev,
+                                                result: {
+                                                  ...prev.result,
+                                                  tailoredResumeText: tailoredLines.join('\n')
+                                                }
+                                              } : null);
+                                            }
+                                          }}
+                                          className="p-1 rounded bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-text-muted hover:text-amber-600 transition-all cursor-pointer border border-card-border/40 flex items-center justify-center"
+                                          title="Revert to original text"
+                                        >
+                                          <RotateCcw className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                      <button
+                                        onClick={() => {
+                                          const cleanText = cleanLine(row.tailored!);
+                                          if (cleanText) {
+                                            setApprovedLines(prev => [...prev, cleanText]);
+                                          }
+                                        }}
+                                        className="p-1 rounded bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-text-muted hover:text-emerald-600 transition-all cursor-pointer border border-card-border/40 flex items-center justify-center"
+                                        title="Accept changes and clear highlight"
+                                      >
+                                        <Check className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()}
                       </div>
                     </div>
                   ) : (
                     <textarea 
                       value={optimizeModal.result.tailoredResumeText || ""}
                       onChange={(e) => setOptimizeModal(prev => prev ? { ...prev, result: { ...prev.result, tailoredResumeText: e.target.value } } : null)}
-                      className="w-full h-[45vh] bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none"
+                      className="w-full h-[45vh] bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none font-sans leading-relaxed whitespace-pre-wrap text-xs text-slate-700 dark:text-slate-300"
                       placeholder="Tailored resume bullets..."
                     />
                   )}
@@ -1925,148 +2149,178 @@ export default function TrackerPage() {
               )}
               </div>
 
-              {/* AI COPILOT DRAWER */}
+              {/* AI COPILOT OVERLAY DRAWER */}
               {showCopilot && optimizeModal.result && (
-                <div className="w-96 border-l border-card-border bg-black/[0.01] dark:bg-white/[0.01] flex flex-col h-full overflow-hidden animate-in slide-in-from-right duration-300">
-                  {/* Drawer Header Tabs */}
-                  <div className="p-4 border-b border-card-border flex gap-2 bg-black/[0.02] dark:bg-white/[0.02]">
-                    <button 
-                      onClick={() => setCopilotTab('qa')}
-                      className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer ${copilotTab === 'qa' ? 'bg-amber-500 text-black shadow-sm' : 'text-text-muted hover:text-foreground'}`}
-                    >
-                      Q&A Assistant
-                    </button>
-                    <button 
-                      onClick={() => setCopilotTab('docs')}
-                      className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer ${copilotTab === 'docs' ? 'bg-amber-500 text-black shadow-sm' : 'text-text-muted hover:text-foreground'}`}
-                    >
-                      Quick Ref
-                    </button>
-                  </div>
-
-                  {/* Drawer Content */}
-                  <div className="flex-1 overflow-y-auto p-5 space-y-6 scrollbar-thin">
-                    {copilotTab === 'qa' ? (
-                      <div className="space-y-4">
-                        <div>
-                          <label className="stepper-label uppercase mb-1.5 block">Paste Application Question</label>
-                          <textarea 
-                            value={copilotQuestion}
-                            onChange={(e) => setCopilotQuestion(e.target.value)}
-                            placeholder="e.g. 'Why do you want to join our engineering team?' or 'Describe a time you overcame a technical challenge...'"
-                            className="w-full h-24 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-xl p-3 text-xs font-sans text-foreground focus:border-amber-500/50 outline-none transition-all resize-none"
-                          />
-                        </div>
-
-                        {/* Limit Slider */}
-                        <div className="space-y-1.5">
-                          <div className="flex justify-between stepper-label uppercase">
-                            <span>Answer Word Limit</span>
-                            <span className="text-amber-500 font-bold">{copilotWordLimit} words</span>
-                          </div>
-                          <input 
-                            type="range" 
-                            min="50" 
-                            max="400" 
-                            step="25"
-                            value={copilotWordLimit}
-                            onChange={(e) => setCopilotWordLimit(parseInt(e.target.value))}
-                            className="w-full accent-amber-500 cursor-pointer h-1 bg-black/10 dark:bg-white/10 rounded-lg appearance-none"
-                          />
-                        </div>
-
-                        <button
-                          onClick={handleGenerateCopilotAnswer}
-                          disabled={isGeneratingCopilotAnswer || !copilotQuestion.trim()}
-                          className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 text-white rounded-xl text-xs font-bold transition-all shrink-0 flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-indigo-600/10"
+                <>
+                  {/* Slide-over panel */}
+                  <div className="absolute right-0 top-0 bottom-0 z-50 w-96 bg-card/98 dark:bg-slate-950/98 backdrop-blur-md border-l border-card-border flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-right duration-200">
+                    {/* Floating Header with Tabs & Close button */}
+                    <div className="p-4 border-b border-card-border flex items-center justify-between gap-2 bg-black/[0.02] dark:bg-white/[0.02]">
+                      <div className="flex gap-2 flex-1">
+                        <button 
+                          onClick={() => setCopilotTab('qa')}
+                          className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer ${
+                            copilotTab === 'qa' ? 'bg-amber-500 text-black shadow-sm' : 'text-text-muted hover:text-foreground'
+                          }`}
                         >
-                          {isGeneratingCopilotAnswer ? (
-                            <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Generating...</>
-                          ) : (
-                            <><Sparkles className="w-3.5 h-3.5" /> Generate Tailored Answer</>
-                          )}
+                          Q&A Assistant
                         </button>
+                        <button 
+                          onClick={() => setCopilotTab('docs')}
+                          className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all cursor-pointer ${
+                            copilotTab === 'docs' ? 'bg-amber-500 text-black shadow-sm' : 'text-text-muted hover:text-foreground'
+                          }`}
+                        >
+                          Quick Ref
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => setShowCopilot(false)}
+                        className="p-1.5 hover:bg-black/5 dark:hover:bg-white/10 rounded-lg text-text-muted hover:text-foreground transition-all cursor-pointer"
+                        title="Close Copilot"
+                      >
+                        <XCircle className="w-5 h-5" />
+                      </button>
+                    </div>
 
-                        {/* Generated Answers List */}
-                        {copilotAnswers.length > 0 && (
-                          <div className="space-y-4 pt-4 border-t border-card-border">
-                            <h5 className="text-[9px] font-black text-text-muted uppercase tracking-widest">Generated Answers ({copilotAnswers.length})</h5>
-                            <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
-                              {copilotAnswers.map((ans, idx) => (
-                                <div key={idx} className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border/60 space-y-2">
-                                  <p className="text-[10px] font-bold text-foreground">Q: &quot;{ans.q}&quot;</p>
-                                  <div className="p-3 bg-black/10 dark:bg-white/5 border border-card-border/40 rounded-lg text-xs leading-relaxed text-slate-800 dark:text-slate-200 font-sans whitespace-pre-wrap select-text">
-                                    {ans.a}
+                    {/* Scrollable Content */}
+                    <div className="flex-1 overflow-y-auto p-5 space-y-6 scrollbar-thin">
+                      {copilotTab === 'qa' ? (
+                        <div className="space-y-4">
+                          <div>
+                            <label className="stepper-label uppercase mb-1.5 block">Paste Application Question</label>
+                            <textarea 
+                              value={copilotQuestion}
+                              onChange={(e) => setCopilotQuestion(e.target.value)}
+                              placeholder="e.g. 'Why do you want to join our engineering team?'"
+                              className="w-full h-24 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-xl p-3 text-xs font-sans text-foreground focus:border-amber-500/50 outline-none transition-all resize-none"
+                            />
+                          </div>
+
+                          {/* Limit Slider */}
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between stepper-label uppercase">
+                              <span>Answer Word Limit</span>
+                              <span className="text-amber-500 font-bold">{copilotWordLimit} words</span>
+                            </div>
+                            <input 
+                              type="range" 
+                              min="50" 
+                              max="400" 
+                              step="25"
+                              value={copilotWordLimit}
+                              onChange={(e) => setCopilotWordLimit(parseInt(e.target.value))}
+                              className="w-full accent-amber-500 cursor-pointer h-1 bg-black/10 dark:bg-white/10 rounded-lg appearance-none"
+                            />
+                          </div>
+
+                          <button
+                            onClick={handleGenerateCopilotAnswer}
+                            disabled={isGeneratingCopilotAnswer || !copilotQuestion.trim()}
+                            className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 text-white rounded-xl text-xs font-bold transition-all shrink-0 flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-indigo-600/10"
+                          >
+                            {isGeneratingCopilotAnswer ? (
+                              <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Generating...</>
+                            ) : (
+                              <><Sparkles className="w-3.5 h-3.5" /> Generate Tailored Answer</>
+                            )}
+                          </button>
+
+                          {/* Generated Answers List */}
+                          {copilotAnswers.length > 0 && (
+                            <div className="space-y-4 pt-4 border-t border-card-border">
+                              <h5 className="text-[9px] font-black text-text-muted uppercase tracking-widest font-sans">
+                                Generated Answers ({copilotAnswers.length})
+                              </h5>
+                              <div className="space-y-4 max-h-60 overflow-y-auto pr-1">
+                                {copilotAnswers.map((ans, idx) => (
+                                  <div key={idx} className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border/60 space-y-2">
+                                    <p className="text-[10px] font-bold text-foreground">Q: &quot;{ans.q}&quot;</p>
+                                    <div className="p-3 bg-black/10 dark:bg-white/5 border border-card-border/40 rounded-lg text-xs leading-relaxed text-slate-800 dark:text-slate-200 font-sans whitespace-pre-wrap select-text">
+                                      {ans.a}
+                                    </div>
+                                    <button
+                                      onClick={() => copyToClipboard(ans.a, "Answer copied!")}
+                                      className="text-[10px] font-bold text-amber-500 hover:underline uppercase tracking-wider block text-right w-full cursor-pointer"
+                                    >
+                                      Copy Answer
+                                    </button>
                                   </div>
-                                  <button
-                                    onClick={() => copyToClipboard(ans.a, "Answer copied!")}
-                                    className="text-[10px] font-bold text-amber-500 hover:underline uppercase tracking-wider block text-right w-full cursor-pointer"
-                                  >
-                                    Copy Answer
-                                  </button>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-5">
+                          <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="stepper-label uppercase">Resume Highlights</span>
+                              <button onClick={() => copyToClipboard(optimizeModal.result.tailoredResumeText || "", "Highlights copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
+                            </div>
+                            <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap">
+                              {optimizeModal.result.tailoredResumeText}
                             </div>
                           </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="space-y-5">
-                        <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="stepper-label uppercase">Resume Highlights</span>
-                            <button onClick={() => copyToClipboard(optimizeModal.result.tailoredResumeText || "", "Highlights copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
-                          </div>
-                          <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap">
-                            {optimizeModal.result.tailoredResumeText}
-                          </div>
-                        </div>
 
-                        <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="stepper-label uppercase">Cover Letter</span>
-                            <button onClick={() => copyToClipboard(optimizeModal.result.tailoredCoverLetter || optimizeModal.result.coverLetterText || "", "Cover letter copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
+                          <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="stepper-label uppercase">Cover Letter</span>
+                              <button onClick={() => copyToClipboard(optimizeModal.result.tailoredCoverLetter || optimizeModal.result.coverLetterText || "", "Cover letter copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
+                            </div>
+                            <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap italic">
+                              {optimizeModal.result.tailoredCoverLetter || optimizeModal.result.coverLetterText}
+                            </div>
                           </div>
-                          <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap italic">
-                            {optimizeModal.result.tailoredCoverLetter || optimizeModal.result.coverLetterText}
-                          </div>
-                        </div>
 
-                        <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="stepper-label uppercase">LinkedIn Outreach</span>
-                            <button onClick={() => copyToClipboard(optimizeModal.result.linkedinHook || "", "LinkedIn hook copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
+                          <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="stepper-label uppercase">LinkedIn Outreach</span>
+                              <button onClick={() => copyToClipboard(optimizeModal.result.linkedinHook || "", "LinkedIn hook copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
+                            </div>
+                            <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap italic">
+                              {optimizeModal.result.linkedinHook}
+                            </div>
                           </div>
-                          <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap italic">
-                            {optimizeModal.result.linkedinHook}
-                          </div>
-                        </div>
 
-                        <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="stepper-label uppercase">Cold Email Hook</span>
-                            <button onClick={() => copyToClipboard(optimizeModal.result.emailHook || "", "Email hook copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
-                          </div>
-                          <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap italic">
-                            {optimizeModal.result.emailHook}
+                          <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="stepper-label uppercase">Cold Email Hook</span>
+                              <button onClick={() => copyToClipboard(optimizeModal.result.emailHook || "", "Email hook copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
+                            </div>
+                            <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap italic">
+                              {optimizeModal.result.emailHook}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
-                </div>
+                </>
               )}
             </div>
 
             {/* Stepper Navigation Footer */}
             <div className="p-6 border-t border-card-border flex justify-between items-center bg-black/[0.02] dark:bg-white/[0.02]">
-              <button
-                disabled={stepperStep === 0}
-                onClick={() => setStepperStep(prev => Math.max(0, prev - 1))}
-                className="px-6 py-3 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-text-muted disabled:opacity-30 rounded-xl font-black text-xs uppercase tracking-widest transition-all border border-card-border"
-              >
-                Previous Step
-              </button>
+              <div className="flex gap-3">
+                <button
+                  disabled={stepperStep === 0}
+                  onClick={() => setStepperStep(prev => Math.max(0, prev - 1))}
+                  className="px-6 py-3 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-text-muted disabled:opacity-30 rounded-xl font-black text-xs uppercase tracking-widest transition-all border border-card-border"
+                >
+                  Previous Step
+                </button>
+                {optimizeModal.result && (
+                  <button
+                    onClick={handleSaveDraftOnly}
+                    disabled={isSavingDraft}
+                    className="px-6 py-3 border border-amber-500/30 text-amber-500 hover:bg-amber-500/10 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center gap-2 cursor-pointer"
+                  >
+                    {isSavingDraft ? <span className="w-3.5 h-3.5 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" /> : null}
+                    {draftSavedToast ? "✓ Saved!" : "Save Draft"}
+                  </button>
+                )}
+              </div>
               {stepperStep < 4 ? (
                 <button
                   disabled={!optimizeModal.result}
@@ -2094,6 +2348,25 @@ export default function TrackerPage() {
             </div>
 
           </div>
+        </div>
+      )}
+
+      {tailoringInBackground && isTailoringProcessing && (
+        <div className="fixed bottom-6 right-6 z-[9999] p-4 bg-slate-900/95 dark:bg-slate-950/95 backdrop-blur border border-card-border/80 rounded-2xl shadow-2xl flex items-center gap-4 text-xs font-sans text-white max-w-sm transition-all animate-in slide-in-from-bottom-5 duration-300">
+          <div className="relative flex items-center justify-center shrink-0">
+            <span className="w-8 h-8 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
+            <Sparkles className="w-3.5 h-3.5 absolute text-amber-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold truncate text-[11px]">Tailoring Application...</p>
+            <p className="text-[9px] text-slate-400 truncate capitalize">{tailoringStep.toLowerCase()} phase active</p>
+          </div>
+          <button 
+            onClick={() => setTailoringInBackground(false)}
+            className="px-2.5 py-1 bg-white/10 hover:bg-white/20 rounded-lg font-black uppercase text-[8px] tracking-widest text-amber-400 hover:text-amber-300 cursor-pointer"
+          >
+            Open
+          </button>
         </div>
       )}
 

@@ -100,9 +100,94 @@ export async function scrapeJobDescription(url: string): Promise<string> {
     await browser.close();
     return description || "Failed to extract description from page.";
   } catch (error: any) {
-    console.warn('[Scraper] scrapeJobDescription unavailable (no browser runtime):', error.message);
+    console.warn('[Scraper] Playwright browser scraping failed, trying HTTP fallback:', error.message);
     if (browser) { try { await browser.close(); } catch {} }
-    return "Job description unavailable — browser scraping not supported in this environment.";
+    
+    try {
+      console.log(`[Scraper] HTTP Fallback Fetch for description: ${url}`);
+      
+      // Greenhouse Direct API Scraper
+      if (url.includes("boards.greenhouse.io")) {
+        const match = url.match(/boards\.greenhouse\.io\/([^/]+)\/jobs\/(\d+)/);
+        if (match) {
+          const [, board, jobId] = match;
+          const apiRes = await fetch(`https://api.greenhouse.io/v1/boards/${board}/jobs/${jobId}`);
+          if (apiRes.ok) {
+            const data = await apiRes.json();
+            if (data.content) {
+              const cleanedText = data.content.replace(/<\/?[^>]+(>|$)/g, " ").replace(/\s+/g, " ").trim();
+              return cleanedText;
+            }
+          }
+        }
+      }
+
+      // Lever Direct API Scraper
+      if (url.includes("jobs.lever.co")) {
+        const match = url.match(/jobs\.lever\.co\/([^/]+)\/([^/]+)/);
+        if (match) {
+          const [, company, jobId] = match;
+          const apiRes = await fetch(`https://api.lever.co/v0/postings/${company}/${jobId}`);
+          if (apiRes.ok) {
+            const data = await apiRes.json();
+            if (data.description || data.lists) {
+              const sections = [
+                data.description || "",
+                ...(data.lists || []).map((l: any) => `${l.text}\n${(l.content || "").replace(/<\/?[^>]+(>|$)/g, "\n")}`)
+              ];
+              const fullDesc = sections.join("\n\n");
+              const cleanedText = fullDesc.replace(/<\/?[^>]+(>|$)/g, " ").replace(/\s+/g, " ").trim();
+              return cleanedText;
+            }
+          }
+        }
+      }
+
+      // General direct HTTP HTML-text extraction fallback
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        },
+        signal: AbortSignal.timeout(10000)
+      });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP fetch returned status ${res.status}`);
+      }
+      
+      const html = await res.text();
+      
+      // Strip script, style, comments
+      const cleanHtml = html
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+        .replace(/<!--[\s\S]*?-->/g, '');
+
+      // Extract raw visual text lines
+      const textLines = cleanHtml
+        .replace(/<\/?[^>]+(>|$)/g, '\n')
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+
+      // Filter out footer links/boilerplate
+      const filteredLines = textLines.filter(line => {
+        const lower = line.toLowerCase();
+        if (lower.includes("copyright") || lower.includes("all rights reserved") || lower.includes("terms of service") || lower.includes("privacy policy")) return false;
+        return true;
+      });
+
+      const finalDesc = filteredLines.join('\n');
+      if (finalDesc.length > 200) {
+        return finalDesc.slice(0, 15000);
+      }
+      
+      throw new Error("Extracted text too short or empty.");
+    } catch (fallbackErr: any) {
+      console.warn('[Scraper] HTTP Fallback failed:', fallbackErr.message || fallbackErr);
+      return "Job description unavailable. Scraper offline & HTTP fallback failed. Please copy and paste the job description below.";
+    }
   }
 }
 

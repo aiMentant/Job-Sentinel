@@ -175,6 +175,14 @@ html.dark, .dark {
   background-color: rgba(234, 179, 8, 0.2) !important; /* yellow-500/20 */
   color: #fef08a !important; /* yellow-200 */
 }
+/* Interview Hub: rendered markdown preview divs */
+.stepper-textarea strong {
+  font-weight: 700 !important;
+  color: inherit;
+}
 
-
+.stepper-textarea em {
+  font-style: italic !important;
+  color: inherit;
+}
 

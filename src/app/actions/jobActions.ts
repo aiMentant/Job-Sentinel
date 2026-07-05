@@ -3,7 +3,7 @@
 import { searchLinkedInJobs, scrapeJobDescription } from "@/lib/linkedin_scraper";
 import { generateWithAI, analyzeJobMatch } from "@/lib/gemini";
 import { Job, UserProfile, mockJobs, ReferralRoute } from "@/lib/db";
-import { getJobs, saveJobs, updateJobStatus as dbUpdateStatus, deleteJob as dbDeleteJob, saveProfile, getProfile, toggleFavourite as dbToggleFavourite, updateJobField as dbUpdateJobField } from "@/lib/storage";
+import { getJobs, saveJobs, updateJobStatus as dbUpdateStatus, deleteJob as dbDeleteJob, saveProfile, getProfile, toggleFavourite as dbToggleFavourite, updateJobField as dbUpdateJobField, bulkDeleteJobs as dbBulkDeleteJobs } from "@/lib/storage";
 
 import { getAgentStatus, setAgentStatus } from "./agentStatus";
 import { getActiveProfileId } from "./profileSwitch";
@@ -432,9 +432,17 @@ export async function runJobSearch(
       : (profile?.location ? [profile.location] : ["United States"]);
     const totalSteps = titles.length * locations.length;
     let currentStep = 0;
+    const startTime = Date.now();
+    let timedOut = false;
     
     for (const title of titles) {
+      if (timedOut) break;
       for (const rawLoc of locations) {
+        if (Date.now() - startTime > 22000) {
+          console.warn("[Search] Approaching serverless function timeout (22s). Exiting search loop early to preserve found results.");
+          timedOut = true;
+          break;
+        }
         const location = rawLoc;
         currentStep++;
 
@@ -625,6 +633,7 @@ export async function runJobSearch(
   }
 }
 
+
 export async function deleteJob(id: string, profileIdOverride?: string) {
   const profileId = profileIdOverride || await getActiveProfileId();
   return await dbDeleteJob(id, profileId);
@@ -632,9 +641,7 @@ export async function deleteJob(id: string, profileIdOverride?: string) {
 
 export async function bulkDeleteJobs(ids: string[], profileIdOverride?: string) {
   const profileId = profileIdOverride || await getActiveProfileId();
-  const jobs = await getJobs(profileId);
-  const updated = jobs.filter((j: any) => !ids.includes(j.id));
-  await saveJobs(updated, profileId);
+  await dbBulkDeleteJobs(ids, profileId);
   return { success: true };
 }
 
@@ -654,6 +661,21 @@ export async function bulkMoveToPipeline(ids: string[], profileIdOverride?: stri
 export async function saveUserProfile(profile: any, targetProfileId?: string) {
   try {
     const profileId = targetProfileId || (await getActiveProfileId());
+
+    // Server-side auth check for default profile
+    if (profileId === 'default') {
+      let isAdmin = false;
+      try {
+        const { cookies } = await import("next/headers");
+        const cookieStore = await cookies();
+        const authRole = cookieStore.get("auth_role")?.value || "";
+        isAdmin = authRole === 'admin';
+      } catch (_) {}
+
+      if (!isAdmin) {
+        throw new Error("Access Denied: Only admins can modify the default profile.");
+      }
+    }
 
     // Inject creatorEmail from auth cookie if not already set on the profile
     if (!profile.creatorEmail) {
@@ -675,6 +697,25 @@ export async function saveUserProfile(profile: any, targetProfileId?: string) {
 export async function deleteProfile(profileId: string) {
   if (profileId === 'default') {
     throw new Error("Cannot delete the default profile.");
+  }
+
+  // Server-side auth check
+  let isAdmin = false;
+  let authEmail = "";
+  try {
+    const { cookies } = await import("next/headers");
+    const cookieStore = await cookies();
+    const authRole = cookieStore.get("auth_role")?.value || "";
+    authEmail = cookieStore.get("auth_email")?.value || "";
+    isAdmin = authRole === 'admin';
+  } catch (_) {}
+
+  // Retrieve profile details to check creatorEmail
+  const profileToDelete = await getProfile(profileId);
+  const isCreator = profileToDelete && authEmail && profileToDelete.creatorEmail === authEmail;
+
+  if (!isAdmin && !isCreator) {
+    throw new Error("Access Denied: Only admins or the profile creator can delete profiles.");
   }
 
   const { isSupabaseEnabled } = await import("@/lib/storage");
@@ -1375,7 +1416,11 @@ export async function findReferralRoutes(companyName: string, profile: UserProfi
     console.error("Error finding referral routes:", err);
     return [];
   } finally {
-    if (browser) await browser.close();
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (closeErr) {}
+    }
   }
 }
 
