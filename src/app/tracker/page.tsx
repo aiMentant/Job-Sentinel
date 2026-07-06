@@ -33,6 +33,8 @@ import {
   AlertCircle,
   AlertTriangle,
   Star,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { fetchJobs, updateJobStatus, deleteJob, generateCoverLetter, updateJob, saveApplicationDraft, markApplicationReady, fetchFullJobDescription, toggleJobFavourite } from "@/app/actions/jobActions";
 
@@ -112,6 +114,15 @@ export default function TrackerPage() {
   const [isGeneratingCopilotAnswer, setIsGeneratingCopilotAnswer] = useState(false);
   const [copilotAnswers, setCopilotAnswers] = useState<Array<{ q: string; a: string }>>([]);
   const [approvedLines, setApprovedLines] = useState<string[]>([]);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [showJdAccordion, setShowJdAccordion] = useState(false);
+  const [copilotError, setCopilotError] = useState<string | null>(null);
+
+  const copyCopilotField = (text: string, key: string) => {
+    navigator.clipboard.writeText(text || "");
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
   
   const {
     currentStep: tailoringStep,
@@ -573,6 +584,7 @@ export default function TrackerPage() {
   const handleGenerateCopilotAnswer = async () => {
     if (!optimizeModal || !copilotQuestion.trim()) return;
     setIsGeneratingCopilotAnswer(true);
+    setCopilotError(null);
     try {
       const { generateQuestionAnswer } = await import("@/app/actions/careerTools");
       const answer = await generateQuestionAnswer(
@@ -584,8 +596,9 @@ export default function TrackerPage() {
       );
       setCopilotAnswers(prev => [{ q: copilotQuestion, a: answer }, ...prev]);
       setCopilotQuestion("");
-    } catch (e) {
-      alert("Failed to generate answer. Please check your AI API key quota.");
+    } catch (e: any) {
+      console.error(e);
+      setCopilotError("Failed to generate answer. Please check your AI API key quota or internet connection.");
     } finally {
       setIsGeneratingCopilotAnswer(false);
     }
@@ -1591,7 +1604,7 @@ export default function TrackerPage() {
 
             {/* Steps Container */}
             <div className="flex-1 overflow-hidden flex relative">
-              <div className="flex-1 flex flex-col overflow-hidden">
+              <div className={`flex-grow flex flex-col overflow-hidden transition-all duration-300 ease-in-out ${showCopilot && optimizeModal.result ? 'mr-96' : 'mr-0'}`}>
                 {/* STEP 0: CALIBRATE */}
               {stepperStep === 0 && (
                 <div className="flex-1 flex overflow-hidden">
@@ -1985,6 +1998,7 @@ export default function TrackerPage() {
                     </div>
                   </div>
                   <textarea 
+                    disabled={isRefining}
                     value={optimizeModal.result.tailoredCoverLetter || optimizeModal.result.coverLetterText || ""}
                     onChange={(e) => setOptimizeModal(prev => {
                       if (!prev || !prev.result) return prev;
@@ -1993,7 +2007,7 @@ export default function TrackerPage() {
                         result: { ...prev.result, tailoredCoverLetter: e.target.value }
                       };
                     })}
-                    className="w-full h-[45vh] bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none italic"
+                    className="w-full h-[45vh] bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-6 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none italic disabled:opacity-50"
                     placeholder="Custom cover letter..."
                   />
                   {/* AI Refine Panel */}
@@ -2041,6 +2055,7 @@ export default function TrackerPage() {
                         </button>
                       </div>
                       <textarea 
+                        disabled={isRefining}
                         value={optimizeModal.result.linkedinHook || optimizeModal.result.recruiterHookLinkedin || ""}
                         onChange={(e) => setOptimizeModal(prev => {
                           if (!prev || !prev.result) return prev;
@@ -2049,7 +2064,7 @@ export default function TrackerPage() {
                             result: { ...prev.result, linkedinHook: e.target.value }
                           };
                         })}
-                        className="w-full flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-5 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none italic"
+                        className="w-full flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-5 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none italic disabled:opacity-50"
                         placeholder="LinkedIn outreach text..."
                       />
                     </div>
@@ -2065,6 +2080,7 @@ export default function TrackerPage() {
                         </button>
                       </div>
                       <textarea 
+                        disabled={isRefining}
                         value={optimizeModal.result.emailHook || optimizeModal.result.recruiterHookEmail || ""}
                         onChange={(e) => setOptimizeModal(prev => {
                           if (!prev || !prev.result) return prev;
@@ -2073,7 +2089,7 @@ export default function TrackerPage() {
                             result: { ...prev.result, emailHook: e.target.value }
                           };
                         })}
-                        className="w-full flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-5 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none italic"
+                        className="w-full flex-1 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl p-5 stepper-textarea focus:border-amber-500/50 outline-none transition-all resize-none italic disabled:opacity-50"
                         placeholder="Email follow-up text..."
                       />
                     </div>
@@ -2171,7 +2187,7 @@ export default function TrackerPage() {
                             copilotTab === 'docs' ? 'bg-amber-500 text-black shadow-sm' : 'text-text-muted hover:text-foreground'
                           }`}
                         >
-                          Quick Ref
+                          Clipboard
                         </button>
                       </div>
                       <button
@@ -2190,10 +2206,11 @@ export default function TrackerPage() {
                           <div>
                             <label className="stepper-label uppercase mb-1.5 block">Paste Application Question</label>
                             <textarea 
+                              disabled={isGeneratingCopilotAnswer}
                               value={copilotQuestion}
                               onChange={(e) => setCopilotQuestion(e.target.value)}
                               placeholder="e.g. 'Why do you want to join our engineering team?'"
-                              className="w-full h-24 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-xl p-3 text-xs font-sans text-foreground focus:border-amber-500/50 outline-none transition-all resize-none"
+                              className="w-full h-24 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-xl p-3 text-xs font-sans text-foreground focus:border-amber-500/50 outline-none transition-all resize-none disabled:opacity-50"
                             />
                           </div>
 
@@ -2204,13 +2221,14 @@ export default function TrackerPage() {
                               <span className="text-amber-500 font-bold">{copilotWordLimit} words</span>
                             </div>
                             <input 
+                              disabled={isGeneratingCopilotAnswer}
                               type="range" 
                               min="50" 
                               max="400" 
                               step="25"
                               value={copilotWordLimit}
                               onChange={(e) => setCopilotWordLimit(parseInt(e.target.value))}
-                              className="w-full accent-amber-500 cursor-pointer h-1 bg-black/10 dark:bg-white/10 rounded-lg appearance-none"
+                              className="w-full accent-amber-500 cursor-pointer h-1 bg-black/10 dark:bg-white/10 rounded-lg appearance-none disabled:opacity-50"
                             />
                           </div>
 
@@ -2226,6 +2244,16 @@ export default function TrackerPage() {
                             )}
                           </button>
 
+                          {copilotError && (
+                            <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs rounded-xl flex items-start gap-2 select-text animate-in fade-in duration-200">
+                              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                              <div>
+                                <span className="font-bold block mb-0.5">Generation Error</span>
+                                {copilotError}
+                              </div>
+                            </div>
+                          )}
+
                           {/* Generated Answers List */}
                           {copilotAnswers.length > 0 && (
                             <div className="space-y-4 pt-4 border-t border-card-border">
@@ -2240,10 +2268,10 @@ export default function TrackerPage() {
                                       {ans.a}
                                     </div>
                                     <button
-                                      onClick={() => copyToClipboard(ans.a, "Answer copied!")}
-                                      className="text-[10px] font-bold text-amber-500 hover:underline uppercase tracking-wider block text-right w-full cursor-pointer"
+                                      onClick={() => copyCopilotField(ans.a, 'qa-' + idx)}
+                                      className="text-[10px] font-black text-amber-500 hover:underline uppercase tracking-wider block text-right w-full cursor-pointer"
                                     >
-                                      Copy Answer
+                                      {copiedKey === 'qa-' + idx ? "✓ Copied!" : "Copy Answer"}
                                     </button>
                                   </div>
                                 ))}
@@ -2253,44 +2281,185 @@ export default function TrackerPage() {
                         </div>
                       ) : (
                         <div className="space-y-5">
-                          <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
-                            <div className="flex justify-between items-center">
-                              <span className="stepper-label uppercase">Resume Highlights</span>
-                              <button onClick={() => copyToClipboard(optimizeModal.result.tailoredResumeText || "", "Highlights copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
-                            </div>
-                            <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap">
-                              {optimizeModal.result.tailoredResumeText}
+                          {/* Collapsible Original Job Description */}
+                          <div className="space-y-2">
+                            <button 
+                              onClick={() => setShowJdAccordion(!showJdAccordion)}
+                              className="w-full p-3.5 border border-card-border/60 rounded-xl flex items-center justify-between text-[11px] font-black uppercase tracking-wider text-foreground bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-all cursor-pointer"
+                            >
+                              <span className="flex items-center gap-2">
+                                <FileText className="w-4 h-4 text-amber-500" />
+                                Original Job Description
+                              </span>
+                              {showJdAccordion ? <ChevronUp className="w-4 h-4 text-text-muted" /> : <ChevronDown className="w-4 h-4 text-text-muted" />}
+                            </button>
+                            {showJdAccordion && (
+                              <div className="p-4 border border-card-border/60 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] text-xs leading-relaxed text-text-muted font-sans whitespace-pre-wrap max-h-48 overflow-y-auto animate-in slide-in-from-top-1 duration-200">
+                                {optimizeModal.jd || optimizeModal.job.description || "No description available."}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Profile Credentials Core Clipboard */}
+                          <div className="space-y-3 pt-2">
+                            <span className="stepper-label uppercase text-[10px] tracking-wider block border-b border-card-border/40 pb-1">Factual Credentials</span>
+                            <div className="grid grid-cols-1 gap-2.5">
+                              {/* Full Name */}
+                              <div className="p-3 bg-black/[0.01] dark:bg-white/[0.01] border border-card-border/60 rounded-xl flex items-center justify-between gap-2">
+                                <div className="truncate">
+                                  <span className="text-[9px] uppercase font-black tracking-wider text-text-muted block">Full Name</span>
+                                  <span className="text-xs text-foreground font-medium truncate block">{profile?.fullName || "Not set"}</span>
+                                </div>
+                                {profile?.fullName && (
+                                  <button 
+                                    onClick={() => copyCopilotField(profile.fullName, 'name')}
+                                    className="text-[9px] font-black text-amber-500 uppercase tracking-widest hover:underline whitespace-nowrap shrink-0"
+                                  >
+                                    {copiedKey === 'name' ? "✓ Copied" : "Copy"}
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Email */}
+                              <div className="p-3 bg-black/[0.01] dark:bg-white/[0.01] border border-card-border/60 rounded-xl flex items-center justify-between gap-2">
+                                <div className="truncate">
+                                  <span className="text-[9px] uppercase font-black tracking-wider text-text-muted block">Email Address</span>
+                                  <span className="text-xs text-foreground font-medium truncate block">{profile?.email || "Not set"}</span>
+                                </div>
+                                {profile?.email && (
+                                  <button 
+                                    onClick={() => copyCopilotField(profile.email, 'email')}
+                                    className="text-[9px] font-black text-amber-500 uppercase tracking-widest hover:underline whitespace-nowrap shrink-0"
+                                  >
+                                    {copiedKey === 'email' ? "✓ Copied" : "Copy"}
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Phone */}
+                              <div className="p-3 bg-black/[0.01] dark:bg-white/[0.01] border border-card-border/60 rounded-xl flex items-center justify-between gap-2">
+                                <div className="truncate">
+                                  <span className="text-[9px] uppercase font-black tracking-wider text-text-muted block">Phone Number</span>
+                                  <span className="text-xs text-foreground font-medium truncate block">{profile?.phone || "Not set"}</span>
+                                </div>
+                                {profile?.phone && (
+                                  <button 
+                                    onClick={() => copyCopilotField(profile.phone, 'phone')}
+                                    className="text-[9px] font-black text-amber-500 uppercase tracking-widest hover:underline whitespace-nowrap shrink-0"
+                                  >
+                                    {copiedKey === 'phone' ? "✓ Copied" : "Copy"}
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* LinkedIn URL */}
+                              <div className="p-3 bg-black/[0.01] dark:bg-white/[0.01] border border-card-border/60 rounded-xl flex items-center justify-between gap-2">
+                                <div className="truncate">
+                                  <span className="text-[9px] uppercase font-black tracking-wider text-text-muted block">LinkedIn Profile</span>
+                                  <span className="text-xs text-foreground font-medium truncate block">{profile?.linkedInUrl || "Not set"}</span>
+                                </div>
+                                {profile?.linkedInUrl && (
+                                  <button 
+                                    onClick={() => copyCopilotField(profile.linkedInUrl, 'linkedin')}
+                                    className="text-[9px] font-black text-amber-500 uppercase tracking-widest hover:underline whitespace-nowrap shrink-0"
+                                  >
+                                    {copiedKey === 'linkedin' ? "✓ Copied" : "Copy"}
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Portfolio URL */}
+                              <div className="p-3 bg-black/[0.01] dark:bg-white/[0.01] border border-card-border/60 rounded-xl flex items-center justify-between gap-2">
+                                <div className="truncate">
+                                  <span className="text-[9px] uppercase font-black tracking-wider text-text-muted block">Portfolio / GitHub</span>
+                                  <span className="text-xs text-foreground font-medium truncate block">{profile?.portfolioUrl || "Not set"}</span>
+                                </div>
+                                {profile?.portfolioUrl && (
+                                  <button 
+                                    onClick={() => copyCopilotField(profile.portfolioUrl, 'portfolio')}
+                                    className="text-[9px] font-black text-amber-500 uppercase tracking-widest hover:underline whitespace-nowrap shrink-0"
+                                  >
+                                    {copiedKey === 'portfolio' ? "✓ Copied" : "Copy"}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
 
-                          <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
-                            <div className="flex justify-between items-center">
-                              <span className="stepper-label uppercase">Cover Letter</span>
-                              <button onClick={() => copyToClipboard(optimizeModal.result.tailoredCoverLetter || optimizeModal.result.coverLetterText || "", "Cover letter copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
-                            </div>
-                            <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap italic">
-                              {optimizeModal.result.tailoredCoverLetter || optimizeModal.result.coverLetterText}
+                          {/* HR Administrative Snapshots */}
+                          <div className="space-y-3 pt-2">
+                            <span className="stepper-label uppercase text-[10px] tracking-wider block border-b border-card-border/40 pb-1">Administrative Details</span>
+                            <div className="grid grid-cols-1 gap-2.5">
+                              {/* Notice Period */}
+                              <div className="p-3 bg-black/[0.01] dark:bg-white/[0.01] border border-card-border/60 rounded-xl flex items-center justify-between gap-2">
+                                <div className="truncate">
+                                  <span className="text-[9px] uppercase font-black tracking-wider text-text-muted block">Availability / Notice Period</span>
+                                  <span className="text-xs text-foreground font-medium truncate block">{profile?.noticePeriod || "Immediately available"}</span>
+                                </div>
+                                <button 
+                                  onClick={() => copyCopilotField(profile?.noticePeriod || "Immediately available", 'notice')}
+                                  className="text-[9px] font-black text-amber-500 uppercase tracking-widest hover:underline whitespace-nowrap shrink-0"
+                                >
+                                  {copiedKey === 'notice' ? "✓ Copied" : "Copy"}
+                                </button>
+                              </div>
+
+                              {/* Salary Expectation */}
+                              <div className="p-3 bg-black/[0.01] dark:bg-white/[0.01] border border-card-border/60 rounded-xl flex items-center justify-between gap-2">
+                                <div className="truncate">
+                                  <span className="text-[9px] uppercase font-black tracking-wider text-text-muted block">Target Salary Expectations</span>
+                                  <span className="text-xs text-foreground font-medium truncate block">
+                                    {profile?.salaryExpectations 
+                                      ? `${profile.salaryExpectations.currency === 'USD' ? '$' : profile.salaryExpectations.currency}${profile.salaryExpectations.targetSalary.toLocaleString()} (Min: ${profile.salaryExpectations.minimumAcceptable.toLocaleString()})`
+                                      : "Negotiable / market range"}
+                                  </span>
+                                </div>
+                                <button 
+                                  onClick={() => copyCopilotField(
+                                    profile?.salaryExpectations 
+                                      ? `${profile.salaryExpectations.currency === 'USD' ? '$' : profile.salaryExpectations.currency}${profile.salaryExpectations.targetSalary.toLocaleString()}`
+                                      : "Negotiable", 
+                                    'salary'
+                                  )}
+                                  className="text-[9px] font-black text-amber-500 uppercase tracking-widest hover:underline whitespace-nowrap shrink-0"
+                                >
+                                  {copiedKey === 'salary' ? "✓ Copied" : "Copy"}
+                                </button>
+                              </div>
+
+                              {/* Work Authorization */}
+                              <div className="p-3 bg-black/[0.01] dark:bg-white/[0.01] border border-card-border/60 rounded-xl flex items-center justify-between gap-2">
+                                <div className="truncate">
+                                  <span className="text-[9px] uppercase font-black tracking-wider text-text-muted block">Work Authorization</span>
+                                  <span className="text-xs text-foreground font-medium truncate block">{profile?.workAuthorisation || "Authorized to work in US"}</span>
+                                </div>
+                                <button 
+                                  onClick={() => copyCopilotField(profile?.workAuthorisation || "Authorized to work in US", 'auth')}
+                                  className="text-[9px] font-black text-amber-500 uppercase tracking-widest hover:underline whitespace-nowrap shrink-0"
+                                >
+                                  {copiedKey === 'auth' ? "✓ Copied" : "Copy"}
+                                </button>
+                              </div>
                             </div>
                           </div>
 
-                          <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
+                          {/* Salary Deflection script */}
+                          <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2 pt-3">
                             <div className="flex justify-between items-center">
-                              <span className="stepper-label uppercase">LinkedIn Outreach</span>
-                              <button onClick={() => copyToClipboard(optimizeModal.result.linkedinHook || "", "LinkedIn hook copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
+                              <span className="stepper-label uppercase">Salary Deflection Script</span>
+                              <button 
+                                onClick={() => copyCopilotField(
+                                  `My compensation expectations are negotiable depending on the overall compensation package, but based on my background in operations management and safety leadership, I am targeting a base range of ${profile?.salaryExpectations?.targetSalary ? '$' + profile.salaryExpectations.targetSalary.toLocaleString() : '$75,000 - $90,000'}. I am open to discussing this details once we establish a mutual fit.`, 
+                                  'salary-deflect'
+                                )}
+                                className="text-[9px] font-bold text-amber-500 hover:underline uppercase shrink-0"
+                              >
+                                {copiedKey === 'salary-deflect' ? "✓ Copied" : "Copy"}
+                              </button>
                             </div>
-                            <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap italic">
-                              {optimizeModal.result.linkedinHook}
-                            </div>
-                          </div>
-
-                          <div className="p-4 rounded-xl bg-black/[0.02] dark:bg-white/[0.02] border border-card-border space-y-2">
-                            <div className="flex justify-between items-center">
-                              <span className="stepper-label uppercase">Cold Email Hook</span>
-                              <button onClick={() => copyToClipboard(optimizeModal.result.emailHook || "", "Email hook copied!")} className="text-[9px] font-bold text-amber-500 hover:underline uppercase cursor-pointer">Copy</button>
-                            </div>
-                            <div className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 font-mono line-clamp-4 select-all whitespace-pre-wrap italic">
-                              {optimizeModal.result.emailHook}
-                            </div>
+                            <p className="text-[10px] leading-relaxed text-slate-800 dark:text-slate-200 italic line-clamp-3 select-text font-sans">
+                              "My compensation expectations are negotiable... targeting a base range of {profile?.salaryExpectations?.targetSalary ? '$' + profile.salaryExpectations.targetSalary.toLocaleString() : '$75,000 - $90,000'}..."
+                            </p>
                           </div>
                         </div>
                       )}
