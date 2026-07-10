@@ -186,10 +186,11 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
     console.error("Public Remotive fallback failed:", e);
   }
 
-  // 2. The Muse API (Key-less US location jobs)
+  // 2. The Muse API (Key-less US location jobs) - uses query keyword to avoid unrelated titles
   try {
-    console.log(`[Fallback] Fetching key-less US jobs from The Muse for location: ${location}`);
-    const museUrl = `https://www.themuse.com/api/public/jobs?location=${encodeURIComponent(location)}&page=1&descending=true`;
+    console.log(`[Fallback] Fetching key-less US jobs from The Muse for: "${query}" in ${location}`);
+    // Include the job title keyword in the query to avoid returning random location-only results
+    const museUrl = `https://www.themuse.com/api/public/jobs?category=${encodeURIComponent(query)}&location=${encodeURIComponent(location)}&page=1&descending=true`;
     const museRes = await fetch(museUrl, { signal: AbortSignal.timeout(6000) });
     let results: any[] = [];
     if (museRes.ok) {
@@ -197,7 +198,7 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
       results = museData.results || [];
     }
 
-    // State abbreviation/name expansion fallback if direct search yield nothing
+    // State abbreviation/name expansion fallback if direct search yields nothing
     if (results.length === 0) {
       const parts = location.split(",");
       const statePart = parts[parts.length - 1]?.trim();
@@ -216,7 +217,7 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
         };
         const fullState = stateNames[statePart.toUpperCase()] || statePart;
         console.log(`[Fallback] Retrying The Muse with expanded state location: ${fullState}`);
-        const museUrl2 = `https://www.themuse.com/api/public/jobs?location=${encodeURIComponent(fullState)}&page=1&descending=true`;
+        const museUrl2 = `https://www.themuse.com/api/public/jobs?category=${encodeURIComponent(query)}&location=${encodeURIComponent(fullState)}&page=1&descending=true`;
         const museRes2 = await fetch(museUrl2, { signal: AbortSignal.timeout(6000) });
         if (museRes2.ok) {
           const museData2 = await museRes2.json();
@@ -226,7 +227,15 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
     }
 
     if (results.length > 0) {
-      const mappedMuse = results.map((j: any) => {
+      // Client-side title filter so Muse doesn't return off-topic jobs just because they're in the same city
+      const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+      const titleFiltered = results.filter((j: any) => {
+        if (queryWords.length === 0) return true;
+        const jTitle = (j.name || "").toLowerCase();
+        return queryWords.some(word => jTitle.includes(word));
+      });
+
+      const mappedMuse = titleFiltered.map((j: any) => {
         const jobLoc = j.locations?.map((l: any) => l.name).join(", ") || location;
         return {
           id: `themuse-${j.id}`,
@@ -553,6 +562,34 @@ export async function runJobSearch(
           // LOCATION GUARDRAIL: Check job location against user's target locations.
           const jobLocLower = (raw.location || "").toLowerCase().trim();
 
+          // Detect if this is a US-only search (most common case)
+          const isUSOnlySearch = targetLocations.length > 0 && targetLocations.every(loc => {
+            const l = loc.toLowerCase();
+            return !l.includes("uk") && !l.includes("united kingdom") && !l.includes("london") &&
+                   !l.includes("canada") && !l.includes("australia");
+          });
+
+          // Known non-US country patterns — reject these when user is searching US locations
+          const FOREIGN_COUNTRY_PATTERNS = [
+            /\bgermany\b/, /\bfrankfurt\b/, /\bberlin\b/, /\bmunich\b/, /\brheine\b/,
+            /\bunited kingdom\b/, /\bengland\b/, /\bscotland\b/, /\bwales\b/, /\blondon\b/,
+            /\bcanada\b/, /\btoronto\b/, /\bvancouver\b/, /\bmontreal\b/,
+            /\baustralia\b/, /\bsydney\b/, /\bmelbourne\b/,
+            /\bindia\b/, /\bbangalore\b/, /\bmumbai\b/,
+            /\bsingapore\b/, /\bjapan\b/, /\btokyo\b/,
+            /\bfrance\b/, /\bparis\b/, /\bspain\b/, /\bnetherlands\b/,
+            /\bireland\b/, /\bdublin\b/, /\bpoland\b/, /\bwarsaw\b/,
+            /\bphilippines\b/, /\bmexico\b/, /\bbrazil\b/, /\bargentina\b/
+          ];
+
+          // If searching US locations and job is explicitly in a foreign country, reject it
+          // even if the job also says "remote" (e.g. "Flexible / Remote, Rheine, Germany")
+          const isExplicitlyForeign = isUSOnlySearch && FOREIGN_COUNTRY_PATTERNS.some(re => re.test(jobLocLower));
+          if (isExplicitlyForeign) {
+            console.log(`[Guardrail] Rejecting foreign-country job for US search: ${raw.location}`);
+            continue;
+          }
+
           // Robust state guardrail: check all locations to find state rather than targetLocations[0]
           let targetState: string | null = null;
           for (const loc of targetLocations) {
@@ -564,15 +601,17 @@ export async function runJobSearch(
           }
           const jobState = getStateCode(jobLocLower);
 
+          // "Worldwide" / $12k-type roles: only pass if search has no specific locations or the
+          // job has no location field at all. Do NOT pass "worldwide" through a US-specific search.
+          const isVagueGlobalLoc = /\bworldwide\b|\banywhere\b/.test(jobLocLower);
+
           const isLocationMatch = targetLocations.length === 0 || (
             !jobLocLower ||
-            jobLocLower.includes("united kingdom") ||
-            jobLocLower.includes("united states") ||
+            (!isVagueGlobalLoc && jobLocLower.includes("united states")) ||
             jobLocLower.includes("nationwide") ||
             jobLocLower.includes("national") ||
-            jobLocLower.includes("remote") ||
-            jobLocLower.includes("anywhere") ||
-            jobLocLower.includes("worldwide") ||
+            (!isVagueGlobalLoc && jobLocLower.includes("remote")) ||
+            (isVagueGlobalLoc && targetLocations.length === 0) ||
             (targetState && jobState && targetState === jobState) ||
             targetLocations.some(target => {
               const cleanTarget = target.toLowerCase().trim();
@@ -581,7 +620,7 @@ export async function runJobSearch(
               if (jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower)) return true;
 
               const isRemoteTarget = cleanTarget.includes("remote");
-              if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere") || jobLocLower.includes("worldwide"))) return true;
+              if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere"))) return true;
 
               const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length > 3);
               return targetWords.length > 0 && targetWords.some(word => jobLocLower.includes(word));

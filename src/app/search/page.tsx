@@ -976,6 +976,8 @@ export default function SearchPage() {
         setScanningTitles(initialScans);
 
         let activeRadius = radius;
+        const originalRadius = radius;
+        let hasExpandedRadius = false; // Only expand once per full session
         for (let i = 0; i < titles.length; i++) {
           const currentTitle = titles[i];
           
@@ -999,21 +1001,21 @@ export default function SearchPage() {
               alternativeTitles
             );
 
-            // Auto-Expansion Fallback if 0 results found
-            if (newJobs.length === 0) {
-              const expandedRadius = activeRadius + 20;
+            // Auto-Expansion Fallback if 0 results found across ALL titles so far
+            // Only expand once per session, by 5 miles, capped at originalRadius + 50
+            if (newJobs.length === 0 && totalFound === 0 && !hasExpandedRadius && activeRadius < originalRadius + 50) {
+              const expandedRadius = Math.min(activeRadius + 5, originalRadius + 50);
+              hasExpandedRadius = true;
               activeRadius = expandedRadius;
-              setRadius(expandedRadius); // Sync state so slider/input updates
+              // NOTE: Do NOT update setRadius() here — preserve the user's saved setting
 
-              // Set global status so the background status poller broadcasts this update
               await setAgentStatus({
                 isSearching: true,
-                status: `No matches found within ${activeRadius - 20} miles for "${currentTitle}". Auto-expanding search radius by 20 miles to check for wider openings...`,
+                status: `No matches found within ${originalRadius} miles for "${currentTitle}". Slightly widening radius to ${expandedRadius} miles...`,
                 resultsFound: totalFound
               });
 
-              // Pause to allow the status banner to display
-              await new Promise(resolve => setTimeout(resolve, 2500));
+              await new Promise(resolve => setTimeout(resolve, 1500));
 
               newJobs = await runJobSearch(
                 [currentTitle],
@@ -1026,6 +1028,7 @@ export default function SearchPage() {
                 alternativeTitles
               );
             }
+
 
             totalFound += newJobs.length;
 
@@ -2225,7 +2228,7 @@ export default function SearchPage() {
       {/* Discovery Strategy (Right Column) */}
       <aside 
         aria-label="Discovery Strategy"
-        className={`${showStrategyPanel ? "w-80 border-l absolute right-0 top-0 h-full z-45 bg-card/95 backdrop-blur-2xl md:relative md:bg-card/65" : "w-0 border-0"} border-card-border h-full flex flex-col transition-all duration-300 ease-in-out relative group/strategy shrink-0 shadow-2xl md:shadow-none overflow-hidden`}
+        className={`${showStrategyPanel ? "w-80 shrink-0 border-l border-card-border" : "w-0 border-0"} h-full flex flex-col transition-all duration-300 ease-in-out overflow-hidden bg-card/65 backdrop-blur-xl shadow-2xl md:shadow-none`}
       >
         {/* Toggle Chevron Pin */}
         <button 
