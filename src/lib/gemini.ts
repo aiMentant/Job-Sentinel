@@ -7,7 +7,7 @@ import { getProfile } from "@/lib/storage";
  * Direct fetch-based Gemini caller to bypass SDK bugs (like utils.typeOf)
  * and ensure stable performance in Next.js server actions.
  */
-export async function generateWithAI(prompt: string, options: { retries?: number, jsonMode?: boolean, profileIdOverride?: string } = {}) {
+export async function generateWithAI(prompt: string, options: { retries?: number, jsonMode?: boolean, profileIdOverride?: string, timeoutMs?: number } = {}) {
   const profileId = options.profileIdOverride || await getActiveProfileId().catch(() => "default");
   const profile = await getProfile(profileId).catch(() => null);
   
@@ -35,12 +35,14 @@ export async function generateWithAI(prompt: string, options: { retries?: number
   }
 
   const retries = options.retries || 3;
+  // Allow callers to specify a longer timeout for heavy prompts (e.g. full resume tailoring)
+  const timeoutMs = options.timeoutMs || 15000;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
   for (let i = 0; i < retries; i++) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       const response = await fetch(url, {
         method: 'POST',
@@ -56,7 +58,7 @@ export async function generateWithAI(prompt: string, options: { retries?: number
 
       if (!response.ok) {
         const errText = await response.text();
-        throw new Error(`Gemini API ${response.status}: ${errText.slice(0, 100)}`);
+        throw new Error(`Gemini API ${response.status}: ${errText.slice(0, 200)}`);
       }
 
       const data = await response.json();
@@ -66,16 +68,16 @@ export async function generateWithAI(prompt: string, options: { retries?: number
         if (options.jsonMode) {
           const jsonMatch = text.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
           if (jsonMatch) return JSON.parse(jsonMatch[0]);
-          throw new Error("AI failed to return valid JSON");
+          throw new Error("AI returned text but no valid JSON could be parsed. The response may have been truncated.");
         }
         return text.trim();
       }
-      throw new Error("Empty response from AI");
+      throw new Error("Empty response from AI — the model may have refused the prompt or returned a safety block.");
     } catch (error: any) {
       const isLastRetry = i === retries - 1;
-      const msg = error.name === 'AbortError' ? 'Timeout' : error.message;
+      const msg = error.name === 'AbortError' ? `Timeout after ${timeoutMs / 1000}s — prompt may be too large for this model` : error.message;
       console.warn(`AI Attempt ${i + 1} failed:`, msg);
-      if (isLastRetry) throw error;
+      if (isLastRetry) throw new Error(msg);
       await new Promise(r => setTimeout(r, Math.pow(2, i) * 2000));
     }
   }

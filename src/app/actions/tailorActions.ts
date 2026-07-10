@@ -99,7 +99,8 @@ Return ONLY a JSON object (no markdown):
   `;
 
   try {
-    return await generateWithAI(prompt, { jsonMode: true, profileIdOverride });
+    // Draft is the heaviest call — full resume + cover letter + outreach in one JSON blob
+    return await generateWithAI(prompt, { jsonMode: true, profileIdOverride, timeoutMs: 55000 });
   } catch (e: any) {
     throw new Error("AI failed to generate initial tailoring draft: " + e.message);
   }
@@ -149,7 +150,7 @@ Return ONLY a JSON object (no markdown):
   `;
 
   try {
-    return await generateWithAI(prompt, { jsonMode: true, profileIdOverride });
+    return await generateWithAI(prompt, { jsonMode: true, profileIdOverride, timeoutMs: 40000 });
   } catch (e) {
     // If the audit call fails, default to no findings to avoid breaking the execution flow
     return { hasHallucinations: false, findings: [] };
@@ -187,7 +188,7 @@ Return ONLY a JSON object (no markdown):
   `;
 
   try {
-    return await generateWithAI(prompt, { jsonMode: true, profileIdOverride });
+    return await generateWithAI(prompt, { jsonMode: true, profileIdOverride, timeoutMs: 40000 });
   } catch (e: any) {
     throw new Error("AI failed to refine tailored materials: " + e.message);
   }
