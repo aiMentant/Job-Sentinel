@@ -47,9 +47,6 @@ export default function Sidebar() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // Hide sidebar on login screen
-  if (pathname === "/login") return null;
-
   useEffect(() => {
     const getCookie = (name: string): string | null => {
       if (typeof document === 'undefined') return null;
@@ -59,7 +56,9 @@ export default function Sidebar() {
       return null;
     };
     const role = getCookie("auth_role");
-    setIsAdmin(role === "admin");
+    setTimeout(() => {
+      setIsAdmin(role === "admin");
+    }, 0);
   }, [pathname]);
 
   const [showSetupModal, setShowSetupModal] = useState(false);
@@ -101,6 +100,9 @@ export default function Sidebar() {
 
   const activeProfile = profiles.find(p => p.id === activeProfileId);
 
+  // Hide sidebar on login screen
+  if (pathname === "/login") return null;
+
   return (
     <div className={`${isCollapsed ? "w-20" : "w-64"} border-r border-card-border bg-card/65 backdrop-blur-xl h-screen sticky top-0 flex flex-col transition-all duration-300 ease-in-out p-4 group/sidebar`}>
       {/* Collapse Toggle Button */}
@@ -108,6 +110,7 @@ export default function Sidebar() {
         onClick={() => setIsCollapsed(!isCollapsed)}
         className="absolute -right-3 top-20 w-6 h-6 bg-foreground hover:bg-foreground/90 rounded-full flex items-center justify-center border border-card-border text-background shadow-md transition-all duration-200 hover:scale-110 z-50 cursor-pointer"
         aria-label={isCollapsed ? "Expand navigation sidebar" : "Collapse navigation sidebar"}
+        aria-expanded={!isCollapsed}
       >
         {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
       </button>
