@@ -190,7 +190,8 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
   try {
     console.log(`[Fallback] Fetching key-less US jobs from The Muse for: "${query}" in ${location}`);
     // Include the job title keyword in the query to avoid returning random location-only results
-    const museUrl = `https://www.themuse.com/api/public/jobs?category=${encodeURIComponent(query)}&location=${encodeURIComponent(location)}&page=1&descending=true`;
+    // Use 'keyword' (correct Muse API param) — 'category' is a fixed enum, not a freeform text field
+    const museUrl = `https://www.themuse.com/api/public/jobs?keyword=${encodeURIComponent(query)}&location=${encodeURIComponent(location)}&page=1&descending=true`;
     const museRes = await fetch(museUrl, { signal: AbortSignal.timeout(6000) });
     let results: any[] = [];
     if (museRes.ok) {
@@ -217,7 +218,7 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
         };
         const fullState = stateNames[statePart.toUpperCase()] || statePart;
         console.log(`[Fallback] Retrying The Muse with expanded state location: ${fullState}`);
-        const museUrl2 = `https://www.themuse.com/api/public/jobs?category=${encodeURIComponent(query)}&location=${encodeURIComponent(fullState)}&page=1&descending=true`;
+        const museUrl2 = `https://www.themuse.com/api/public/jobs?keyword=${encodeURIComponent(query)}&location=${encodeURIComponent(fullState)}&page=1&descending=true`;
         const museRes2 = await fetch(museUrl2, { signal: AbortSignal.timeout(6000) });
         if (museRes2.ok) {
           const museData2 = await museRes2.json();
@@ -601,17 +602,20 @@ export async function runJobSearch(
           }
           const jobState = getStateCode(jobLocLower);
 
-          // "Worldwide" / $12k-type roles: only pass if search has no specific locations or the
-          // job has no location field at all. Do NOT pass "worldwide" through a US-specific search.
-          const isVagueGlobalLoc = /\bworldwide\b|\banywhere\b/.test(jobLocLower);
+          // "Worldwide" / "Anywhere" jobs: allow through ONLY if they already passed the
+          // foreign-country filter above. Jobs listed as "Remote, Anywhere" with no foreign
+          // country detected are valid remote-open roles and should surface for US searchers.
+          // We do NOT need to re-filter them here — the explicit foreign-country check above
+          // already blocks "Flexible / Remote, Rheine, Germany" type roles.
 
           const isLocationMatch = targetLocations.length === 0 || (
             !jobLocLower ||
-            (!isVagueGlobalLoc && jobLocLower.includes("united states")) ||
+            jobLocLower.includes("united states") ||
             jobLocLower.includes("nationwide") ||
             jobLocLower.includes("national") ||
-            (!isVagueGlobalLoc && jobLocLower.includes("remote")) ||
-            (isVagueGlobalLoc && targetLocations.length === 0) ||
+            jobLocLower.includes("remote") ||
+            jobLocLower.includes("anywhere") ||
+            jobLocLower.includes("worldwide") ||
             (targetState && jobState && targetState === jobState) ||
             targetLocations.some(target => {
               const cleanTarget = target.toLowerCase().trim();
@@ -620,7 +624,7 @@ export async function runJobSearch(
               if (jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower)) return true;
 
               const isRemoteTarget = cleanTarget.includes("remote");
-              if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere"))) return true;
+              if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere") || jobLocLower.includes("worldwide"))) return true;
 
               const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length > 3);
               return targetWords.length > 0 && targetWords.some(word => jobLocLower.includes(word));
