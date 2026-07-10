@@ -4,7 +4,7 @@ import { Job } from "@/lib/db";
 import crypto from "crypto";
 import { setAgentStatus } from "./agentStatus";
 import { fetchJSearchJobs } from "@/app/actions/jobActions";
-import { heuristicMatchScore } from "@/lib/jobUtils";
+import { heuristicMatchScore, isTitleMatch } from "@/lib/jobUtils";
 
 /**
  * Checks if a job URL or publisher indicates a direct-apply / ATS landing page
@@ -64,7 +64,9 @@ export async function runWebDiscovery(
   targetTitles: string[],
   targetLocations: string[],
   radius: number = 25,
-  dreamCompanies: Array<{ name: string; careerUrl?: string }> = []
+  dreamCompanies: Array<{ name: string; careerUrl?: string }> = [],
+  alternativeTitles: string[] = [],
+  strictness: 'exact' | 'strong' | 'flexible' = 'exact'
 ): Promise<Job[]> {
   const results: Job[] = [];
   const seenUrls = new Set<string>();
@@ -93,13 +95,14 @@ export async function runWebDiscovery(
 
           if (companyToken && companyToken !== "embed" && companyToken !== "job_board") {
             console.log(`[Deep Search] Scanning Greenhouse directly: ${company.name} (${companyToken})`);
-            const res = await fetch(`https://boards-api.greenhouse.io/v1/boards/${companyToken}/jobs`);
+            const res = await fetch(`https://boards-api.greenhouse.io/v1/boards/${companyToken}/jobs`, { signal: AbortSignal.timeout(6000) });
             if (res.ok) {
               const data = await res.json();
               const jobsList = data.jobs || [];
               for (const j of jobsList) {
-                const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles) : 75;
-                if (score >= 60 && !seenUrls.has(j.absolute_url)) {
+                const isMatch = isTitleMatch(j.title, targetTitles, alternativeTitles, strictness);
+                const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles, alternativeTitles) : 75;
+                if (isMatch && !seenUrls.has(j.absolute_url)) {
                   seenUrls.add(j.absolute_url);
                   results.push({
                     id: `ats-${j.id}`,
@@ -134,12 +137,13 @@ export async function runWebDiscovery(
 
           if (companyToken) {
             console.log(`[Deep Search] Scanning Lever directly: ${company.name} (${companyToken})`);
-            const res = await fetch(`https://api.lever.co/v0/postings/${companyToken}?mode=json`);
+            const res = await fetch(`https://api.lever.co/v0/postings/${companyToken}?mode=json`, { signal: AbortSignal.timeout(6000) });
             if (res.ok) {
               const jobsList = await res.json();
               for (const j of jobsList) {
-                const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles) : 75;
-                if (score >= 60 && !seenUrls.has(j.hostedUrl)) {
+                const isMatch = isTitleMatch(j.title, targetTitles, alternativeTitles, strictness);
+                const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles, alternativeTitles) : 75;
+                if (isMatch && !seenUrls.has(j.hostedUrl)) {
                   seenUrls.add(j.hostedUrl);
                   results.push({
                     id: `ats-${j.id}`,
@@ -179,10 +183,13 @@ export async function runWebDiscovery(
 
           // Filter strictly for Deep Web (direct apply / ATS)
           if (isDeepWebMatch(j.url, j.source)) {
+            const isMatch = isTitleMatch(j.title, targetTitles, alternativeTitles, strictness);
+            if (!isMatch) continue;
+
             seenUrls.add(j.url);
             
             // Score the job title
-            const score = heuristicMatchScore(j.title, targetTitles);
+            const score = heuristicMatchScore(j.title, targetTitles, alternativeTitles);
             
             results.push({
               ...j,
@@ -211,8 +218,11 @@ export async function runWebDiscovery(
             // Broad matching: accept any listing that isn't on a giant aggregator
             const isAggregator = ["indeed.com", "linkedin.com", "ziprecruiter.com"].some(agg => j.url.toLowerCase().includes(agg));
             if (!isAggregator) {
+              const isMatch = isTitleMatch(j.title, targetTitles, alternativeTitles, strictness);
+              if (!isMatch) continue;
+
               seenUrls.add(j.url);
-              const score = heuristicMatchScore(j.title, targetTitles);
+              const score = heuristicMatchScore(j.title, targetTitles, alternativeTitles);
               results.push({
                 ...j,
                 score: score,

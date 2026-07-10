@@ -31,49 +31,65 @@ export const getDaysOld = (postedAt?: string, createdAt?: string): number => {
  */
 export const computeGhostScore = (job: Partial<Job>): number => {
   let score = 0;
-
-  // Signal 1: Stale posting
   const daysOld = getDaysOld(job.postedAt, job.createdAt);
-  if (daysOld > 45 && daysOld < 999) {
-    score += 50;
-  } else if (daysOld > 21 && daysOld < 999) {
-    score += 30;
+  const source = (job.source || '').toLowerCase();
+  
+  // 1. Source-Specific Age Adjustments
+  if (source.includes('usajobs')) {
+    // Federal positions on USAJobs have slow, deliberate timelines. Only flag if > 90/60 days.
+    if (daysOld > 90 && daysOld < 999) score += 40;
+    else if (daysOld > 60 && daysOld < 999) score += 20;
+  } else {
+    // Standard corporate listings
+    if (daysOld > 60 && daysOld < 999) score += 55;        // Highly likely stale or filled
+    else if (daysOld > 30 && daysOld < 999) score += 35;   // Entering suspect territory
+    else if (daysOld > 14 && daysOld < 999) score += 15;   // Initial decay phase
   }
 
-  // Signal 2: Vague/short description
-  const desc = job.description || '';
-  if (!desc || desc === "Details fetched during search." || desc.length < 100) {
-    score += 15;
+  // 2. Advanced Harvesting Keyword Analysis
+  const desc = (job.description || '').toLowerCase();
+  const title = (job.title || '').toLowerCase();
+  const reason = (job.reason || '').toLowerCase();
+  const textToScan = `${title} ${desc} ${reason}`;
+
+  // High-confidence harvesting indicators (Immediate suspicion)
+  const primaryHarvestingKeywords = [
+    "talent pool", "future openings", "talent community", 
+    "general application", "resume bank", "future consideration",
+    "evergreen", "join our network", "speculative application"
+  ];
+  
+  // Moderate indicators (Suspicious when combined with age)
+  const secondaryHarvestingKeywords = [
+    "always looking", "anticipatory hiring", "database building",
+    "register your interest", "ongoing recruitment", "future hiring"
+  ];
+
+  if (primaryHarvestingKeywords.some(keyword => textToScan.includes(keyword))) {
+    score += 40;
+  } else if (secondaryHarvestingKeywords.some(keyword => textToScan.includes(keyword))) {
+    score += 20;
   }
 
-  // Signal 3: No salary range
-  if (!job.salaryRange && !job.salary_range) {
+  // 3. Structural Vague Posting Heuristics
+  const cleanDesc = desc.replace(/[\s\r\n\t]+/g, ' ').trim();
+  if (cleanDesc.length > 0 && cleanDesc.length < 300) {
+    score += 25; // Drastically short
+  } else if (cleanDesc.length > 0 && cleanDesc.length < 800) {
+    score += 10; // Unusually brief
+  }
+
+  // 4. Missing Comp/Location Transparency Signals
+  const hasSalary = !!(job.salaryRange || job.salary_range);
+  if (!hasSalary) {
     score += 10;
   }
 
-  // Signal 4: Generic company name
-  const comp = (job.company || '').toLowerCase();
-  if (comp.includes("enterprise partner") || comp.includes("company") || comp.includes("employer")) {
-    score += 5;
-  }
-
-  // Signal 5: Harvesting keywords in description or reason
-  const textToScan = `${desc} ${job.reason || ''}`.toLowerCase();
-  const harvestingKeywords = [
-    "talent pool",
-    "future openings",
-    "pipeline",
-    "talent community",
-    "always accepting",
-    "evergreen",
-    "general application",
-    "resume bank",
-    "future consideration",
-    "speculative"
-  ];
-
-  if (harvestingKeywords.some(keyword => textToScan.includes(keyword))) {
-    score += 30;
+  // Generic or hidden employers (often recruiting agency harvesting)
+  const company = (job.company || '').toLowerCase();
+  const genericEmployers = ["enterprise partner", "confidential employer", "staffing agency", "recruiting partner", "stealth startup", "client partner"];
+  if (genericEmployers.some(g => company.includes(g))) {
+    score += 15;
   }
 
   return Math.min(score, 100);
@@ -232,6 +248,111 @@ export function alignResumeBullets(originalText: string, tailoredText: string, a
   }
 
   return rows;
+}
+
+export function isTitleMatch(
+  jobTitle: string,
+  targetTitles: string[],
+  alternativeTitles: string[] = [],
+  strictness: 'exact' | 'strong' | 'flexible' = 'exact'
+): boolean {
+  // Safety guardrails for undefined/null/empty/non-string inputs
+  const safeJobTitle = typeof jobTitle === 'string' ? jobTitle : '';
+  const safeTargetTitles = Array.isArray(targetTitles)
+    ? targetTitles.filter((t): t is string => typeof t === 'string').map(t => t.trim()).filter(Boolean)
+    : [];
+  const safeAlternativeTitles = Array.isArray(alternativeTitles)
+    ? alternativeTitles.filter((t): t is string => typeof t === 'string').map(t => t.trim()).filter(Boolean)
+    : [];
+
+  const genericWords = ["senior", "junior", "lead", "staff", "principal", "associate", "intern", "creative", "digital", "motion", "co-op", "contractor"];
+  const stopWords = new Set(["of", "and", "in", "the", "for", "with", "a", "an", "at", "to", "or", "by", "&", "-", "/"]);
+
+  const cleanString = (str: string) => {
+    if (typeof str !== 'string') return "";
+    return str.toLowerCase()
+      .replace(/\bvice\s+president\b/g, "vp")
+      .replace(/\bchief\s+operating\s+officer\b/g, "coo")
+      .replace(/\bchief\s+executive\s+officer\b/g, "ceo")
+      .replace(/\bchief\s+financial\s+officer\b/g, "cfo")
+      .replace(/\bchief\s+technology\s+officer\b/g, "cto")
+      .replace(/\bmanager\b/g, "mgr")
+      .replace(/\boperations\b/g, "ops")
+      .replace(/[^\w\s+#]/g, " "); // Preserving '+' and '#' for C++ and C#
+  };
+
+  const tokenizeAndClean = (str: string) => {
+    return cleanString(str)
+      .split(/\s+/)
+      .map(w => w.trim())
+      .filter(w => w.length > 0 && !stopWords.has(w));
+  };
+
+  const expandAndCleanTitles = (titlesList: string[]) => {
+    const expanded: string[] = [];
+    for (const t of titlesList) {
+      if (typeof t !== 'string') continue;
+      const clean = t.replace(/\([^)]*\)/g, " ").trim();
+      const parts = clean.split(/\s*[\/]\s*/);
+      for (const part of parts) {
+        if (part.trim().length > 0) {
+          expanded.push(part.trim());
+        }
+      }
+    }
+    return expanded;
+  };
+
+  const wordMatches = (tWord: string, jWord: string) => {
+    if (tWord === jWord) return true;
+    // Prevent java vs javascript mismatch
+    if ((tWord === "java" && jWord === "javascript") || (tWord === "javascript" && jWord === "java")) {
+      return false;
+    }
+    if (tWord.length >= 4 && jWord.startsWith(tWord)) return true;
+    if (jWord.length >= 4 && tWord.startsWith(jWord)) return true;
+    return false;
+  };
+
+  const hasNoInputs = (!targetTitles || targetTitles.length === 0) && (!alternativeTitles || alternativeTitles.length === 0);
+  if (hasNoInputs) return true;
+
+  const allAcceptedTitles = expandAndCleanTitles([...safeTargetTitles, ...safeAlternativeTitles]);
+  if (allAcceptedTitles.length === 0) return false;
+
+  return allAcceptedTitles.some(target => {
+    const targetWords = tokenizeAndClean(target);
+    const jobWords = tokenizeAndClean(safeJobTitle);
+
+    if (targetWords.length === 0) return false; // Prevent empty/stopword-only target from matching everything
+
+    const hasAllTargetWords = targetWords.every(tWord => 
+      jobWords.some(jWord => wordMatches(tWord, jWord))
+    );
+
+    if (strictness === 'exact') {
+      if (!hasAllTargetWords) return false;
+      
+      const roleTypes = ["manager", "mgr", "director", "coordinator", "coord", "analyst", "specialist", "agent", "supervisor", "lead", "vp", "head", "officer", "assistant", "asst", "intern", "associate", "engineer", "consultant"];
+      const targetRoles = targetWords.filter(w => roleTypes.includes(w));
+      const jobRoles = jobWords.filter(w => roleTypes.includes(w));
+      
+      for (const jRole of jobRoles) {
+        const isMatched = targetRoles.some(tRole => wordMatches(tRole, jRole));
+        if (!isMatched) return false;
+      }
+      return true;
+
+    } else if (strictness === 'strong') {
+      return hasAllTargetWords;
+    } else {
+      const nonGenericTargetWords = targetWords.filter(w => !genericWords.includes(w));
+      const wordsToCheck = nonGenericTargetWords.length > 0 ? nonGenericTargetWords : targetWords;
+      return wordsToCheck.some(tWord => 
+        jobWords.some(jWord => wordMatches(tWord, jWord))
+      );
+    }
+  });
 }
 
 

@@ -106,9 +106,10 @@ export default function Sidebar() {
       {/* Collapse Toggle Button */}
       <button 
         onClick={() => setIsCollapsed(!isCollapsed)}
-        className="absolute -right-3 top-20 w-6 h-6 bg-foreground rounded-full flex items-center justify-center border border-card-border text-background shadow-md opacity-0 group-hover/sidebar:opacity-100 transition-opacity z-50 cursor-pointer animate-in fade-in"
+        className="absolute -right-3 top-20 w-6 h-6 bg-foreground hover:bg-foreground/90 rounded-full flex items-center justify-center border border-card-border text-background shadow-md transition-all duration-200 hover:scale-110 z-50 cursor-pointer"
+        aria-label={isCollapsed ? "Expand navigation sidebar" : "Collapse navigation sidebar"}
       >
-        {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
+        {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
       </button>
 
       <div className={`flex items-center ${isCollapsed ? "justify-center" : "gap-3"} mb-8 px-2`}>

@@ -81,18 +81,33 @@ export async function generateWithAI(prompt: string, options: { retries?: number
   }
 }
 
-export async function analyzeJobMatch(resume: string, jobDescription: string) {
+export async function analyzeJobMatch(resume: string, jobDescription: string): Promise<{ score: number; reason: string; isGhost?: boolean }> {
   const prompt = `
     You are an expert recruitment assistant.
     RESUME: ${(resume || "").slice(0, 5000)}
     JOB: ${(jobDescription || "").slice(0, 5000)}
-    TASK: Analyze match 0-100 and give a 2-sentence reason.
-    RETURN JSON: {"score": number, "reason": "string"}
+    TASK: Analyze the match between the resume and the job listing.
+    Determine:
+    1. A match score (0-100) based on how well the candidate's skills and experience fit the job.
+    2. A brief 2-sentence explanation of the match.
+    3. Whether this listing is a "ghost job" or "harvesting/talent pool post" (e.g. evergreen postings, generic talent pipelines, or extremely vague descriptions).
+    
+    RETURN JSON format:
+    {
+      "score": number,
+      "reason": "string",
+      "isGhost": boolean
+    }
   `;
   
   try {
-    return await generateWithAI(prompt, { jsonMode: true });
+    const res = await generateWithAI(prompt, { jsonMode: true });
+    return {
+      score: typeof res?.score === 'number' ? res.score : 0,
+      reason: typeof res?.reason === 'string' ? res.reason : "Pending AI analysis.",
+      isGhost: typeof res?.isGhost === 'boolean' ? res.isGhost : false
+    };
   } catch (e) {
-    return { score: 0, reason: "AI Analysis temporary unavailable." };
+    return { score: 0, reason: "AI Analysis temporary unavailable.", isGhost: false };
   }
 }

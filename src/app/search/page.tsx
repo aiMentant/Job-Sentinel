@@ -121,7 +121,7 @@ export default function SearchPage() {
   const [showAllRoles, setShowAllRoles] = useState(false);
   const [showStrategyPanel, setShowStrategyPanel] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState(false);
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'match'>('newest');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'match'>('match');
   const [lastSearchTime, setLastSearchTime] = useState<Date | null>(null);
   const [newJobIds, setNewJobIds] = useState<Set<string>>(new Set());
   const [searchFeedback, setSearchFeedback] = useState<{
@@ -142,7 +142,24 @@ export default function SearchPage() {
   const [hoveredGhostJobId, setHoveredGhostJobId] = useState<string | null>(null);
   const [hoveredPendingJobId, setHoveredPendingJobId] = useState<string | null>(null);
   const [estimatingSalaryIds, setEstimatingSalaryIds] = useState<Set<string>>(new Set());
+  const [visibleCount, setVisibleCount] = useState(25);
   const lastSearchedProfileId = useRef<string | null>(null);
+
+  useEffect(() => {
+    setVisibleCount(25);
+  }, [activeTab, selectedLocationFilter, selectedJobType, selectedSiteFilter, workSettingFilter, postedWithinFilter, showHighScoresOnly, hideGhostJobs, sortBy, selectedTabRole]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (reviewingJob) setReviewingJob(null);
+        if (showDismissModal) setShowDismissModal(false);
+        if (showMissingParamsModal) setShowMissingParamsModal(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [reviewingJob, showDismissModal, showMissingParamsModal]);
 
   useEffect(() => {
     async function load() {
@@ -397,9 +414,19 @@ export default function SearchPage() {
     ? ["LinkedIn", "Indeed", "Glassdoor", "ZipRecruiter", "USAJOBS", "Snagajob"]
     : ["Greenhouse", "Lever", "Workday", "Deep Index"];
 
-  const tempFiltered = results.filter(j => {
+  const getJobWorkSetting = (job: Job) => {
+    const text = `${job.title || ""} ${job.location || ""} ${job.description || ""}`.toLowerCase();
+    const loc = (job.location || "").toLowerCase();
+    const isHybrid = loc.includes("hybrid") || text.includes("hybrid");
+    const isRemote = (loc.includes("remote") || text.includes("remote") || text.includes("work from home") || text.includes("wfh") || loc.includes("anywhere") || loc.includes("worldwide")) && !isHybrid;
+    if (isHybrid) return 'hybrid';
+    if (isRemote) return 'remote';
+    return 'onsite';
+  };
+
+  const baseFilteredRaw = results.filter(j => {
     const isGhostFlagged = (j.reason || "").toLowerCase().includes("flag") || (j.reason || "").toLowerCase().includes("ghost") || (j.reason || "").toLowerCase().includes("talent pool");
-    const isRejected = j.status === 'Rejected' && isGhostFlagged;
+    const isRejected = (j.status || "").toLowerCase() === 'rejected' && isGhostFlagged;
     
     // Filter by Search Mode (Standard vs Deep)
     const isDeepSource = (j.source || "").toLowerCase().includes("deep") || 
@@ -448,22 +475,6 @@ export default function SearchPage() {
       if (!sourceLower.includes(selectedSiteFilter.toLowerCase())) return false;
     }
 
-    // Filter by Work Setting
-    if (workSettingFilter !== "all") {
-      const text = `${j.title || ""} ${j.location || ""} ${j.description || ""}`.toLowerCase();
-      const loc = (j.location || "").toLowerCase();
-      const isRemote = loc.includes("remote") || text.includes("work from home") || text.includes("wfh") || loc.includes("anywhere") || loc.includes("worldwide");
-      const isHybrid = loc.includes("hybrid") || text.includes("hybrid");
-      
-      if (workSettingFilter === "remote") {
-        if (!isRemote) return false;
-      } else if (workSettingFilter === "hybrid") {
-        if (!isHybrid) return false;
-      } else if (workSettingFilter === "onsite") {
-        if (isRemote || isHybrid) return false;
-      }
-    }
-
     // Filter by posting recency (time-based)
     if (postedWithinFilter !== "all") {
       const daysOld = getPostingDaysOld(j.postedAt, j.createdAt);
@@ -495,7 +506,7 @@ export default function SearchPage() {
 
   // Group/Deduplicate jobs by title + company (case-insensitive)
   const groupedJobsMap = new Map<string, Job & { allSources?: string[] }>();
-  tempFiltered.forEach(job => {
+  baseFilteredRaw.forEach(job => {
     const key = `${(job.title || "").toLowerCase().trim()}::${(job.company || "").toLowerCase().trim()}`;
     if (groupedJobsMap.has(key)) {
       const existing = groupedJobsMap.get(key)!;
@@ -514,7 +525,18 @@ export default function SearchPage() {
     }
   });
 
-  const filteredResults = Array.from(groupedJobsMap.values())
+  const baseFilteredGrouped = Array.from(groupedJobsMap.values());
+
+  const remoteCount = baseFilteredGrouped.filter(j => getJobWorkSetting(j) === 'remote').length;
+  const hybridCount = baseFilteredGrouped.filter(j => getJobWorkSetting(j) === 'hybrid').length;
+  const onsiteCount = baseFilteredGrouped.filter(j => getJobWorkSetting(j) === 'onsite').length;
+  const allCount = baseFilteredGrouped.length;
+
+  const filteredResults = baseFilteredGrouped
+    .filter(j => {
+      if (workSettingFilter === 'all') return true;
+      return getJobWorkSetting(j) === workSettingFilter;
+    })
     .sort((a, b) => {
       if (a.isFavourite && !b.isFavourite) return -1;
       if (!a.isFavourite && b.isFavourite) return 1;
@@ -528,7 +550,14 @@ export default function SearchPage() {
         const dateB = new Date(b.postedAt || b.createdAt || 0).getTime() || 0;
         return dateA - dateB;
       } else {
-        return b.score - a.score;
+        // Sort by Match Score (descending)
+        const scoreDiff = (b.score || 0) - (a.score || 0);
+        if (scoreDiff !== 0) return scoreDiff;
+
+        // Tie-breaker: Newest first within match score tier
+        const dateA = new Date(a.postedAt || a.createdAt || 0).getTime() || 0;
+        const dateB = new Date(b.postedAt || b.createdAt || 0).getTime() || 0;
+        return dateB - dateA;
       }
     });
 
@@ -902,7 +931,14 @@ export default function SearchPage() {
         setStatus("Precision Mode: Scanning ATS Platforms...");
         setScanningTitles(titles.slice(0, 3).map((t, idx) => ({ title: t, status: idx === 0 ? 'scanning' : 'pending' })));
         const precisionTitles = titles.slice(0, 3);
-        const newJobs = await runWebDiscovery(precisionTitles, locations.length > 0 ? locations : (profile.location ? [profile.location] : ["USA"]), radius, dreamCompanies);
+        const newJobs = await runWebDiscovery(
+          precisionTitles, 
+          locations.length > 0 ? locations : (profile.location ? [profile.location] : ["USA"]), 
+          radius, 
+          dreamCompanies,
+          alternativeTitles,
+          profile.matchStrictness || 'exact'
+        );
         
         await addJobs(newJobs, activeProfileId);
         setResults(prev => {
@@ -1210,7 +1246,7 @@ export default function SearchPage() {
     <div className="flex h-screen overflow-hidden w-full relative">
       
       {/* Center Main Window (Top Nav and Discovery Engine Content) */}
-      <div className="flex-1 flex flex-col h-full overflow-y-auto p-8 space-y-8 min-w-0 transition-all duration-300">
+      <main role="main" className="flex-1 flex flex-col h-full overflow-y-auto p-8 space-y-8 min-w-0 transition-all duration-300">
         
         {searchFeedback && searchFeedback.show && (
           <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl flex items-center justify-between animate-in slide-in-from-top duration-300">
@@ -1230,9 +1266,9 @@ export default function SearchPage() {
         )}
         
         {/* Header container in center window */}
-        <div className="flex justify-between items-start">
+        <div className="flex flex-col md:flex-row justify-between items-start gap-4">
           <div>
-            <h2 className="text-3xl font-bold font-outfit">Discovery Engine</h2>
+            <h1 className="text-3xl font-bold font-outfit">Discovery Engine</h1>
             <p className="text-text-muted mt-1">Configure your multi-platform scraper. Star jobs to send them to your Pipeline.</p>
           </div>
 
@@ -1261,7 +1297,7 @@ export default function SearchPage() {
         {/* Outer results display (Takes remaining height) */}
         <div className="space-y-6">
           <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-card-border pb-2 gap-4">
-            <div className="flex gap-6">
+            <div className="flex gap-6 overflow-x-auto pb-1 max-w-full shrink-0 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               <button 
                 onClick={() => setActiveTab('live')}
                 className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all relative flex items-center gap-1.5 ${activeTab === 'live' ? 'text-indigo-600 dark:text-indigo-400 font-extrabold' : 'text-text-muted hover:text-foreground'}`}
@@ -1301,7 +1337,7 @@ export default function SearchPage() {
             {/* Stacking Buttons on Right into two rows for cleaner spacing */}
             <div className="flex flex-col gap-2 shrink-0 md:items-end">
               {/* Row 1: Actions */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button 
                   onClick={selectAll}
                   className="btn-secondary py-1 px-2.5 text-[9px] font-bold uppercase tracking-wider cursor-pointer"
@@ -1336,7 +1372,7 @@ export default function SearchPage() {
               </div>
 
               {/* Row 2: Select Filters */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {/* Sort By Dropdown */}
                 <select
                   value={sortBy}
@@ -1521,15 +1557,26 @@ export default function SearchPage() {
               <div className="flex items-center gap-3">
                 {/* Remote / Hybrid / On-site selector buttons */}
                 <div className="flex bg-black/10 dark:bg-white/5 p-0.5 rounded-lg border border-card-border text-[9px] font-bold uppercase tracking-wider">
-                  {(['all', 'remote', 'hybrid', 'onsite'] as const).map(setting => (
-                    <button
-                      key={setting}
-                      onClick={() => setWorkSettingFilter(setting)}
-                      className={`px-2.5 py-1 rounded transition-all cursor-pointer ${workSettingFilter === setting ? 'bg-indigo-600 text-white shadow' : 'text-text-muted hover:text-foreground'}`}
-                    >
-                      {setting}
-                    </button>
-                  ))}
+                  {(['all', 'remote', 'hybrid', 'onsite'] as const).map(setting => {
+                    const count = setting === 'all' ? allCount : setting === 'remote' ? remoteCount : setting === 'hybrid' ? hybridCount : onsiteCount;
+                    const isDisabled = count === 0 && setting !== 'all';
+                    return (
+                      <button
+                        key={setting}
+                        disabled={isDisabled}
+                        onClick={() => setWorkSettingFilter(setting)}
+                        className={`px-2.5 py-1 rounded transition-all ${
+                          workSettingFilter === setting 
+                            ? 'bg-indigo-600 text-white shadow cursor-pointer font-extrabold' 
+                            : isDisabled 
+                              ? 'opacity-30 cursor-not-allowed text-text-muted/60' 
+                              : 'text-text-muted hover:text-foreground cursor-pointer font-extrabold'
+                        }`}
+                      >
+                        {setting} ({count})
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Reload database jobs trigger */}
@@ -1693,7 +1740,7 @@ export default function SearchPage() {
                            </span>
                          </div>
 
-                         <p className="text-xs text-text-muted leading-relaxed mb-3 italic">"{company.reasoning}"</p>
+                         <p className="text-xs text-text-muted leading-relaxed mb-3 italic">&ldquo;{company.reasoning}&rdquo;</p>
                          
                          {company.localPresence && (
                            <div className="mb-3 text-[11px] leading-relaxed text-slate-700 dark:text-slate-400 bg-black/5 dark:bg-white/5 p-2 rounded border border-card-border/50">
@@ -1884,7 +1931,7 @@ export default function SearchPage() {
                   </div>
                 </div>
               )}
-              {filteredResults.map((job) => {
+              {filteredResults.slice(0, visibleCount).map((job) => {
                 const jobText = `${job.title} ${job.description}`.toLowerCase();
                 const userSkills = profile.skills || [];
                 const matchedSkills = userSkills.filter(s => s && jobText.includes(s.toLowerCase().trim()));
@@ -1893,219 +1940,247 @@ export default function SearchPage() {
                 const jobTypeDetected = detectJobType(job.title, job.description);
 
                 return (
-                  <div key={job.id} className={`glass-card flex items-center gap-6 group hover:border-indigo-500/30 transition-all ${selectedIds.includes(job.id) ? 'border-indigo-500/50 bg-indigo-500/5' : ''}`}>
-                    <div className="flex items-center">
-                      <input 
-                        type="checkbox" 
-                        checked={selectedIds.includes(job.id)}
-                        onChange={() => toggleSelection(job.id)}
-                        className="w-5 h-5 rounded border-card-border bg-black/5 dark:bg-white/5 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-0 transition-all cursor-pointer"
-                      />
+                  <div key={job.id} className={`glass-card flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6 group hover:border-indigo-500/30 transition-all p-4 lg:p-6 ${selectedIds.includes(job.id) ? 'border-indigo-500/50 bg-indigo-500/5' : ''}`}>
+                    {/* Left Side: Checkbox + Main Content */}
+                    <div className="flex items-start gap-4 flex-grow min-w-0">
+                      <div className="flex items-center pt-1.5 shrink-0">
+                        <input 
+                          type="checkbox" 
+                          checked={selectedIds.includes(job.id)}
+                          onChange={() => toggleSelection(job.id)}
+                          aria-label={`Select ${job.title} at ${job.company}`}
+                          className="w-5 h-5 rounded border-card-border bg-black/5 dark:bg-white/5 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-0 transition-all cursor-pointer"
+                        />
+                      </div>
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {job.allSources && job.allSources.length > 1 ? (
+                              <div className="flex gap-1.5 flex-wrap">
+                                {job.allSources.map((src, idx) => (
+                                  <span key={idx} className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded flex items-center gap-1 ${getSourceBadgeClass(src)}`}>
+                                    {src.toLowerCase().includes("linkedin") ? "LinkedIn" : src.toLowerCase().includes("indeed") ? "Indeed" : src}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded flex items-center gap-1 ${getSourceBadgeClass(job.source)}`}>
+                                {job.source.toLowerCase().includes("linkedin") ? "LinkedIn" : job.source.toLowerCase().includes("indeed") ? "Indeed" : job.source}
+                              </span>
+                            )}
+                            {jobTypeDetected && (
+                              <span className="text-[9px] font-bold bg-black/5 dark:bg-white/5 border border-card-border text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                {jobTypeDetected}
+                              </span>
+                            )}
+                            <span className="w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-700" />
+                            <span className={`text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-bold ${getPostingAgeBadge(job.postedAt, job.createdAt).className}`} title="Job posting age">
+                              <Clock className="w-3 h-3" />
+                              {getPostingAgeBadge(job.postedAt, job.createdAt).text}
+                            </span>
+                            {getPostingDaysOld(job.postedAt, job.createdAt) > 21 && getPostingDaysOld(job.postedAt, job.createdAt) < 999 && (
+                              <span className="flex items-center gap-1 text-[9px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
+                                ⚠️ Est. expired
+                              </span>
+                            )}
+                            {job.postedAt && (
+                              <span className="text-[9px] text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                                {getEstimatedClosingDate(job.postedAt)}
+                              </span>
+                            )}
+                            {newJobIds.has(job.id) && (
+                              <span className="text-[9px] font-black uppercase tracking-widest bg-emerald-500 text-white px-2 py-0.5 rounded-full animate-pulse shadow-md">
+                                NEW
+                              </span>
+                            )}
+                            {(() => {
+                              const score = job.ghostScore ?? computeGhostScore(job);
+                              const badge = getGhostBadge(score);
+                              if (!badge) return null;
+                              return (
+                                <div 
+                                  className="relative"
+                                  onMouseEnter={() => setHoveredGhostJobId(job.id)}
+                                  onMouseLeave={() => setHoveredGhostJobId(null)}
+                                >
+                                  <span className={`flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded cursor-help ${badge.className}`}>
+                                    <AlertTriangle className="w-2.5 h-2.5" />
+                                    {badge.label}
+                                  </span>
+                                  {hoveredGhostJobId === job.id && (
+                                    <div className="absolute bottom-full left-0 mb-2 p-3 bg-slate-905/95 dark:bg-slate-900 border border-card-border text-slate-100 text-[10px] rounded-xl shadow-2xl z-50 w-72 leading-relaxed whitespace-pre-line animate-in fade-in duration-200">
+                                      {badge.description}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                          
+                          <div className="flex gap-1.5">
+                            {userSkills.length > 0 && (
+                              <span 
+                                className="text-[9px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 px-2 py-0.5 rounded text-slate-700 dark:text-slate-400 hover:text-foreground transition-all cursor-default" 
+                                title={`Matched skills: ${matchedSkills.join(', ') || 'None'}. Missing: ${userSkills.filter(s => !matchedSkills.includes(s)).join(', ')}`}
+                              >
+                                Skills: {matchedSkills.length}/{userSkills.length}
+                              </span>
+                            )}
+                            {userRoles.length > 0 && (
+                              <span 
+                                className="text-[9px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 px-2 py-0.5 rounded text-slate-700 dark:text-slate-400 hover:text-foreground transition-all cursor-default" 
+                                title={`Matched target roles: ${matchedRoles.join(', ') || 'None'}`}
+                              >
+                                Roles: {matchedRoles.length}/{userRoles.length}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <h4 className="font-bold text-lg text-foreground">
+                          {highlightKeywords(job.title, [...(profile.skills || []), ...targetTitles])}
+                        </h4>
+                        <div className="flex items-center gap-3 text-sm mt-1">
+                          <span className="font-bold card-company-text">{job.company}</span>
+                          <div className="flex items-center gap-1 font-medium card-location-text" title={`Matched for location query: ${job.location}`}>
+                            <MapPin className="w-3.5 h-3.5 text-text-muted" />
+                            {job.location}
+                          </div>
+                          {(job.salaryRange || job.salary_range) ? (
+                            <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold">
+                              {job.salaryRange || job.salary_range}
+                            </span>
+                          ) : job.aiSalaryEstimate ? (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-1.5 py-0.5 rounded cursor-help"
+                              title={`AI Salary Estimate — not posted by employer. ${job.aiSalaryBasis || 'Based on market data for this role and location.'}`}
+                            >
+                              <Sparkles className="w-2.5 h-2.5 text-indigo-400" />
+                              AI Est. {job.aiSalaryEstimate}
+                            </span>
+                          ) : (estimatingSalaryIds.has(job.id) && job.score >= 75) ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 animate-pulse">
+                              <Sparkles className="w-2.5 h-2.5" />
+                              Estimating salary...
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 dark:text-slate-500 text-xs italic">Salary not disclosed</span>
+                          )}
+                        </div>
+                      
+                      {/* AI Insights / Status Message */}
+                      {job.reason && (
+                        <div className="mt-3 p-3 rounded-lg bg-indigo-50/70 dark:bg-indigo-500/5 border border-indigo-500/20 animate-in fade-in slide-in-from-top-1">
+                          <div className="flex items-start gap-2">
+                            <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 mt-0.5 shrink-0" />
+                            <p className="text-xs card-reason-text leading-relaxed font-medium italic">{job.reason}</p>
+                          </div>
+                        </div>
+                      )}
+                      </div>
                     </div>
                     
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {job.allSources && job.allSources.length > 1 ? (
-                            <div className="flex gap-1.5 flex-wrap">
-                              {job.allSources.map((src, idx) => (
-                                <span key={idx} className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded flex items-center gap-1 ${getSourceBadgeClass(src)}`}>
-                                  {src.toLowerCase().includes("linkedin") ? "LinkedIn" : src.toLowerCase().includes("indeed") ? "Indeed" : src}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded flex items-center gap-1 ${getSourceBadgeClass(job.source)}`}>
-                              {job.source.toLowerCase().includes("linkedin") ? "LinkedIn" : job.source.toLowerCase().includes("indeed") ? "Indeed" : job.source}
-                            </span>
-                          )}
-                          {jobTypeDetected && (
-                            <span className="text-[9px] font-bold bg-black/5 dark:bg-white/5 border border-card-border text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                              {jobTypeDetected}
-                            </span>
-                          )}
-                          <span className="w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-700" />
-                          <span className={`text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-bold ${getPostingAgeBadge(job.postedAt, job.createdAt).className}`} title="Job posting age">
-                            <Clock className="w-3 h-3" />
-                            {getPostingAgeBadge(job.postedAt, job.createdAt).text}
-                          </span>
-                          {getPostingDaysOld(job.postedAt, job.createdAt) > 21 && getPostingDaysOld(job.postedAt, job.createdAt) < 999 && (
-                            <span className="flex items-center gap-1 text-[9px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
-                              ⚠️ Est. expired
-                            </span>
-                          )}
-                          {job.postedAt && (
-                            <span className="text-[9px] text-amber-600 dark:text-amber-400 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
-                              {getEstimatedClosingDate(job.postedAt)}
-                            </span>
-                          )}
-                          {newJobIds.has(job.id) && (
-                            <span className="text-[9px] font-black uppercase tracking-widest bg-emerald-500 text-white px-2 py-0.5 rounded-full animate-pulse shadow-md">
-                              NEW
-                            </span>
-                          )}
-                          {(() => {
-                            const score = job.ghostScore ?? computeGhostScore(job);
-                            const badge = getGhostBadge(score);
-                            if (!badge) return null;
-                            return (
-                              <div 
-                                className="relative"
-                                onMouseEnter={() => setHoveredGhostJobId(job.id)}
-                                onMouseLeave={() => setHoveredGhostJobId(null)}
-                              >
-                                <span className={`flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded cursor-help ${badge.className}`}>
-                                  <AlertTriangle className="w-2.5 h-2.5" />
-                                  {badge.label}
-                                </span>
-                                {hoveredGhostJobId === job.id && (
-                                  <div className="absolute bottom-full left-0 mb-2 p-3 bg-slate-905/95 dark:bg-slate-900 border border-card-border text-slate-100 text-[10px] rounded-xl shadow-2xl z-50 w-72 leading-relaxed whitespace-pre-line animate-in fade-in duration-200">
-                                    {badge.description}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </div>
-                        
-                        <div className="flex gap-1.5">
-                          {userSkills.length > 0 && (
-                            <span 
-                              className="text-[9px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 px-2 py-0.5 rounded text-slate-700 dark:text-slate-400 hover:text-foreground transition-all cursor-default" 
-                              title={`Matched skills: ${matchedSkills.join(', ') || 'None'}. Missing: ${userSkills.filter(s => !matchedSkills.includes(s)).join(', ')}`}
-                            >
-                              Skills: {matchedSkills.length}/{userSkills.length}
-                            </span>
-                          )}
-                          {userRoles.length > 0 && (
-                            <span 
-                              className="text-[9px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 px-2 py-0.5 rounded text-slate-700 dark:text-slate-400 hover:text-foreground transition-all cursor-default" 
-                              title={`Matched target roles: ${matchedRoles.join(', ') || 'None'}`}
-                            >
-                              Roles: {matchedRoles.length}/{userRoles.length}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <h4 className="font-bold text-lg text-foreground">
-                        {highlightKeywords(job.title, [...(profile.skills || []), ...targetTitles])}
-                      </h4>
-                      <div className="flex items-center gap-3 text-sm mt-1">
-                        <span className="font-bold card-company-text">{job.company}</span>
-                        <div className="flex items-center gap-1 font-medium card-location-text" title={`Matched for location query: ${job.location}`}>
-                          <MapPin className="w-3.5 h-3.5 text-text-muted" />
-                          {job.location}
-                        </div>
-                        {(job.salaryRange || job.salary_range) ? (
-                          <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold">
-                            {job.salaryRange || job.salary_range}
-                          </span>
-                        ) : job.aiSalaryEstimate ? (
-                          <span
-                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-1.5 py-0.5 rounded cursor-help"
-                            title={`AI Salary Estimate — not posted by employer. ${job.aiSalaryBasis || 'Based on market data for this role and location.'}`}
-                          >
-                            <Sparkles className="w-2.5 h-2.5 text-indigo-400" />
-                            AI Est. {job.aiSalaryEstimate}
-                          </span>
-                        ) : (estimatingSalaryIds.has(job.id) && job.score >= 75) ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 animate-pulse">
-                            <Sparkles className="w-2.5 h-2.5" />
-                            Estimating salary...
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 dark:text-slate-500 text-xs italic">Salary not disclosed</span>
-                        )}
-                      </div>
+                    {/* Vertical Divider (Desktop Only) */}
+                    <div className="hidden lg:block w-px h-12 bg-card-border shrink-0" />
                     
-                    {/* AI Insights / Status Message */}
-                    {job.reason && (
-                      <div className="mt-3 p-3 rounded-lg bg-indigo-50/70 dark:bg-indigo-500/5 border border-indigo-500/20 animate-in fade-in slide-in-from-top-1">
-                        <div className="flex items-start gap-2">
-                          <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 mt-0.5 shrink-0" />
-                          <p className="text-xs card-reason-text leading-relaxed font-medium italic">{job.reason}</p>
+                    {/* Right Side: Score + Action Buttons */}
+                    <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 border-t border-card-border/40 lg:border-t-0 pt-3 lg:pt-0 shrink-0 w-full lg:w-auto">
+                      {/* Match Score */}
+                      <div className="flex lg:flex-col lg:items-center justify-between items-center w-full lg:w-auto lg:min-w-[80px] shrink-0">
+                        <span className="lg:hidden text-xs font-bold text-text-muted uppercase tracking-wider">AI Match Fit:</span>
+                        <div className="text-right lg:text-center w-auto">
+                          {job.score > 0 ? (
+                            <>
+                              <div className={`text-2xl font-bold ${job.score > 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                                {job.score}%
+                              </div>
+                              <p className="hidden lg:block text-[9px] text-text-muted uppercase font-bold tracking-tighter">AI Match</p>
+                            </>
+                          ) : (
+                            <div 
+                              className="py-1 relative cursor-help"
+                              onMouseEnter={() => setHoveredPendingJobId(job.id)}
+                              onMouseLeave={() => setHoveredPendingJobId(null)}
+                            >
+                              <span className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-widest">Pending</span>
+                              {hoveredPendingJobId === job.id && (
+                                <div className="absolute bottom-full right-0 mb-2 p-2 bg-slate-900 border border-card-border text-slate-100 text-[10px] rounded shadow-2xl z-50 w-40 leading-relaxed text-left normal-case font-normal animate-in fade-in duration-200">
+                                  Click &apos;Analyze Match&apos; for AI scoring, or this will auto-score shortly.
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
-                    )}
-                  </div>
-                  
-                  <div className="w-px h-12 bg-card-border" />
-                  
-                  <div className="text-center min-w-[80px]">
-                    {job.score > 0 ? (
-                      <>
-                        <div className={`text-2xl font-bold ${job.score > 80 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                          {job.score}%
-                        </div>
-                        <p className="text-[9px] text-text-muted uppercase font-bold tracking-tighter">AI Match</p>
-                      </>
-                    ) : (
-                      <div 
-                        className="py-2 relative cursor-help"
-                        onMouseEnter={() => setHoveredPendingJobId(job.id)}
-                        onMouseLeave={() => setHoveredPendingJobId(null)}
-                      >
-                        <span className="px-2 py-1 rounded bg-slate-200 dark:bg-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-widest">Pending</span>
-                        {hoveredPendingJobId === job.id && (
-                          <div className="absolute bottom-full right-0 mb-2 p-2 bg-slate-900 border border-card-border text-slate-100 text-[10px] rounded shadow-2xl z-50 w-40 leading-relaxed text-left normal-case font-normal animate-in fade-in duration-200">
-                            Click 'Analyze Match' for AI scoring, or this will auto-score shortly.
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
 
-                  <div className="flex items-center gap-2">
-                    {job.score === 0 && (
-                      <button
-                        onClick={() => handleAnalyze(job.id)}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 text-xs font-bold transition-all border border-indigo-500/20"
-                        title="Trigger AI to scan the job details and score your match fit"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        Analyze Match
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleToggleFavourite(job.id)}
-                      className={`p-2 rounded-lg transition-all ${job.isFavourite ? 'text-yellow-600 dark:text-yellow-400 bg-yellow-400/10' : 'text-text-muted hover:text-yellow-500'}`}
-                      title={job.isFavourite ? "Remove from Favourites (Removes from Application Workshop list)" : "Add to Favourites (Sends this Discovery job directly to your Application Workshop)"}
-                    >
-                      <Star className={`w-4 h-4 ${job.isFavourite ? 'fill-current' : ''}`} />
-                    </button>
-                    <button 
-                      onClick={() => toggleSelection(job.id)}
-                      className={`p-2 rounded-lg transition-all ${selectedIds.includes(job.id) ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-black/5 dark:bg-white/5 text-text-muted hover:text-foreground'}`}
-                      title={selectedIds.includes(job.id) ? "Deselect this job" : "Select this job for batch operations (Move to Pipeline or Dismiss)"}
-                    >
-                      <CheckCircle2 className="w-5 h-5" />
-                    </button>
-                    <button 
-                      onClick={() => setReviewingJob(job)}
-                      className="btn-primary py-2 px-4 text-xs"
-                      title="Preview job details, AI analysis score, and read full job description"
-                    >
-                      Quick Review
-                    </button>
-                    {/* Hover Single-click dismiss button */}
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        setUndoDismissJob(job);
-                        setResults(prev => prev.filter(j => j.id !== job.id));
-                        await bulkDeleteJobs([job.id], activeProfileId);
-                        setStatus(`Dismissed "${job.title}".`);
-                        setTimeout(() => setStatus(""), 4000);
-                      }}
-                      className="p-1.5 rounded-lg bg-black/5 dark:bg-white/5 border border-card-border hover:bg-rose-500/10 hover:border-rose-500/20 text-text-muted hover:text-rose-500 transition-all flex items-center justify-center cursor-pointer shrink-0"
-                      title="Dismiss this job immediately"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                      {/* Buttons */}
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {job.score === 0 && (
+                          <button
+                            onClick={() => handleAnalyze(job.id)}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 text-xs font-bold transition-all border border-indigo-500/20 cursor-pointer"
+                            title="Trigger AI to scan the job details and score your match fit"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Analyze Match
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleToggleFavourite(job.id)}
+                          className={`p-2 rounded-lg transition-all cursor-pointer ${job.isFavourite ? 'text-yellow-600 dark:text-yellow-400 bg-yellow-400/10' : 'text-text-muted hover:text-yellow-500'}`}
+                          title={job.isFavourite ? "Remove from Favourites (Removes from Application Workshop list)" : "Add to Favourites (Sends this Discovery job directly to your Application Workshop)"}
+                          aria-label={job.isFavourite ? "Remove from Favourites" : "Add to Favourites"}
+                          aria-pressed={job.isFavourite}
+                        >
+                          <Star className={`w-4 h-4 ${job.isFavourite ? 'fill-current' : ''}`} />
+                        </button>
+                        <button 
+                          onClick={() => toggleSelection(job.id)}
+                          className={`p-2 rounded-lg transition-all cursor-pointer ${selectedIds.includes(job.id) ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 'bg-black/5 dark:bg-white/5 text-text-muted hover:text-foreground'}`}
+                          title={selectedIds.includes(job.id) ? "Deselect this job" : "Select this job for batch operations (Move to Pipeline or Dismiss)"}
+                          aria-label={selectedIds.includes(job.id) ? "Deselect this job" : "Select this job for batch operations"}
+                          aria-pressed={selectedIds.includes(job.id)}
+                        >
+                          <CheckCircle2 className="w-5 h-5" />
+                        </button>
+                        <button 
+                          onClick={() => setReviewingJob(job)}
+                          className="btn-primary py-2 px-4 text-xs cursor-pointer"
+                          title="Preview job details, AI analysis score, and read full job description"
+                        >
+                          Quick Review
+                        </button>
+                        {/* Hover Single-click dismiss button */}
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            setUndoDismissJob(job);
+                            setResults(prev => prev.filter(j => j.id !== job.id));
+                            await bulkDeleteJobs([job.id], activeProfileId);
+                            setStatus(`Dismissed "${job.title}".`);
+                            setTimeout(() => setStatus(""), 4000);
+                          }}
+                          className="p-1.5 rounded-lg bg-black/5 dark:bg-white/5 border border-card-border hover:bg-rose-500/10 hover:border-rose-500/20 text-text-muted hover:text-rose-500 transition-all flex items-center justify-center cursor-pointer shrink-0"
+                          title="Dismiss this job immediately"
+                          aria-label="Dismiss job opportunity"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
               );
               })}
+              {filteredResults.length > visibleCount && (
+                <div className="flex justify-center py-6 w-full">
+                  <button
+                    onClick={() => setVisibleCount(prev => prev + 25)}
+                    className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition-all shadow-md hover:shadow-lg cursor-pointer"
+                  >
+                    Load More Jobs ({filteredResults.length - visibleCount} remaining)
+                  </button>
+                </div>
+              )}
               {isSearching && (
                 <div className="space-y-3 w-full">
                   {/* Status Indicator Card */}
@@ -2144,16 +2219,22 @@ export default function SearchPage() {
             </div>
           )}
         </div>
-      </div>
+      </main>
+
 
       {/* Discovery Strategy (Right Column) */}
-      <div className={`${showStrategyPanel ? "w-80 border-l" : "w-0"} border-card-border bg-card/65 backdrop-blur-xl h-full flex flex-col transition-all duration-300 ease-in-out relative group/strategy shrink-0`}>
+      <aside 
+        aria-label="Discovery Strategy"
+        className={`${showStrategyPanel ? "w-80 border-l absolute right-0 top-0 h-full z-45 bg-card/95 backdrop-blur-2xl md:relative md:bg-card/65" : "w-0 border-0"} border-card-border h-full flex flex-col transition-all duration-300 ease-in-out relative group/strategy shrink-0 shadow-2xl md:shadow-none overflow-hidden`}
+      >
         {/* Toggle Chevron Pin */}
         <button 
           id="toggle-strategy-btn"
           onClick={() => setShowStrategyPanel(!showStrategyPanel)}
-          className="absolute -left-3 top-20 w-6 h-6 bg-foreground rounded-full flex items-center justify-center border border-card-border text-background shadow-md opacity-0 group-hover/strategy:opacity-100 transition-opacity z-50 cursor-pointer animate-in fade-in"
-          title={showStrategyPanel ? "Collapse Strategy Strategy" : "Expand Strategy Strategy"}
+          className="absolute -left-3 top-20 w-6 h-6 bg-foreground hover:bg-foreground/90 rounded-full flex items-center justify-center border border-card-border text-background shadow-md transition-all duration-200 hover:scale-110 z-50 cursor-pointer"
+          title={showStrategyPanel ? "Collapse Discovery Strategy" : "Expand Discovery Strategy"}
+          aria-label={showStrategyPanel ? "Collapse Discovery Strategy" : "Expand Discovery Strategy"}
+          aria-expanded={showStrategyPanel}
         >
           {showStrategyPanel ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
         </button>
@@ -2167,7 +2248,7 @@ export default function SearchPage() {
               </div>
             )}
             <div className="flex items-center justify-between">
-              <h3 className="font-bold text-sm text-foreground">Discovery Strategy</h3>
+              <h2 className="font-bold text-sm text-foreground">Discovery Strategy</h2>
               <div className="flex gap-2">
                 <button 
                   onClick={handleSaveToProfile}
@@ -2181,6 +2262,7 @@ export default function SearchPage() {
                   disabled={isRegenerating}
                   className="p-1.5 rounded-lg bg-foreground/5 text-text-muted hover:bg-foreground/10 hover:text-foreground transition-all group cursor-pointer"
                   title="Reset to Profile Defaults"
+                  aria-label="Reset strategy to profile defaults"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
                 </button>
@@ -2210,11 +2292,24 @@ export default function SearchPage() {
                         return;
                       }
                       if (trimmed) {
-                        setSavedConfigs(prev => [
-                          ...prev,
-                          { name: trimmed, targetTitles, targetLocations, radius, targetSites }
-                        ]);
-                        setStatus(`Saved preset "${trimmed}".`);
+                        const exists = savedConfigs.some(c => c.name.toLowerCase() === trimmed.toLowerCase());
+                        if (exists) {
+                          const confirmOverwrite = confirm(`A preset named "${trimmed}" already exists. Do you want to overwrite it with your current settings?`);
+                          if (!confirmOverwrite) return;
+                          
+                          setSavedConfigs(prev => prev.map(c => 
+                            c.name.toLowerCase() === trimmed.toLowerCase()
+                              ? { ...c, targetTitles, targetLocations, radius, targetSites }
+                              : c
+                          ));
+                          setStatus(`Updated preset "${trimmed}".`);
+                        } else {
+                          setSavedConfigs(prev => [
+                            ...prev,
+                            { name: trimmed, targetTitles, targetLocations, radius, targetSites }
+                          ]);
+                          setStatus(`Saved preset "${trimmed}".`);
+                        }
                         setTimeout(() => setStatus(""), 3000);
                       }
                     }
@@ -2229,7 +2324,7 @@ export default function SearchPage() {
               {showPresetHelp && (
                 <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-lg text-[10px] text-slate-700 dark:text-slate-350 leading-relaxed animate-in fade-in duration-200">
                   <p className="font-bold text-indigo-600 dark:text-indigo-400 mb-1">How Presets Work</p>
-                  Presets allow you to save specific combinations of job titles, locations, radius, and sites. Configure your filters to the desired values, click <strong className="text-foreground">+ Save Current</strong>, and name it (up to 50 characters) to save shortcuts like <strong>"Remote Only"</strong> or <strong>"Local Hybrid"</strong>. Custom presets persist on your device across reloads.
+                  Presets allow you to save specific combinations of job titles, locations, radius, and sites. Configure your filters to the desired values, click <strong className="text-foreground">+ Save Current</strong>, and name it (up to 50 characters) to save shortcuts like <strong>&quot;Remote Only&quot;</strong> or <strong>&quot;Local Hybrid&quot;</strong>. Custom presets persist on your device across reloads.
                 </div>
               )}
 
@@ -2320,6 +2415,7 @@ export default function SearchPage() {
                           }}
                           className="p-1 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer"
                           title="Trigger search for this role"
+                          aria-label={`Search jobs for role: ${title}`}
                         >
                           <Play size={10} className="fill-current" />
                         </button>
@@ -2329,6 +2425,7 @@ export default function SearchPage() {
                           rel="noopener noreferrer"
                           className="p-1 hover:text-indigo-600 dark:hover:text-indigo-400"
                           title="Open in new tab"
+                          aria-label={`Open feed for role ${title} in new tab`}
                         >
                           <ExternalLink size={10} />
                         </a>
@@ -2336,6 +2433,7 @@ export default function SearchPage() {
                           onClick={() => removeArrayItem('targetTitles', originalIndex)} 
                           className="p-1 hover:text-rose-500 cursor-pointer"
                           title="Delete role"
+                          aria-label={`Delete role: ${title}`}
                         >
                           &times;
                         </button>
@@ -2363,6 +2461,7 @@ export default function SearchPage() {
               <input 
                 type="text" 
                 placeholder="Add role & press Enter..." 
+                aria-label="Add target role"
                 className="input-field text-xs py-1.5 w-full bg-card border-card-border focus:border-foreground/30 text-foreground"
                 onKeyDown={(e) => { 
                   if (e.key === 'Enter') { 
@@ -2393,19 +2492,20 @@ export default function SearchPage() {
               {showAlternativeTitles && (
                 <div className="p-3 border border-t-0 border-card-border bg-card-hover/30 rounded-b space-y-2">
                   <p className="text-[10px] text-text-muted leading-relaxed">
-                    These secondary titles will be used as lower-weighted fallbacks if your primary targets don't yield enough matches.
+                    These secondary titles will be used as lower-weighted fallbacks if your primary targets do not yield enough matches.
                   </p>
                   <div className="flex flex-wrap gap-2 mb-2">
                     {alternativeTitles.map((title, i) => (
                       <span key={i} className="px-2 py-1 bg-gray-500/10 border border-gray-500/20 rounded text-[11px] text-gray-400 flex items-center gap-1.5 font-semibold">
                         {title}
-                        <button onClick={() => removeArrayItem('alternativeTitles', i)} className="hover:text-white cursor-pointer">&times;</button>
+                        <button onClick={() => removeArrayItem('alternativeTitles', i)} className="hover:text-white cursor-pointer" aria-label={`Delete alternative title: ${title}`}>&times;</button>
                       </span>
                     ))}
                   </div>
                   <input 
                     type="text" 
                     placeholder="Add alternative title & press Enter..." 
+                    aria-label="Add alternative role title"
                     className="input-field text-xs py-1.5 w-full bg-card border-card-border focus:border-foreground/30 text-foreground"
                     onKeyDown={(e) => { 
                       if (e.key === 'Enter') { 
@@ -2429,13 +2529,14 @@ export default function SearchPage() {
                 {targetLocations.map((loc, i) => (
                   <span key={i} className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded text-[11px] text-emerald-600 dark:text-emerald-500 flex items-center gap-1.5 font-semibold">
                     {loc}
-                    <button onClick={() => removeArrayItem('targetLocations', i)} className="hover:text-white cursor-pointer">&times;</button>
+                    <button onClick={() => removeArrayItem('targetLocations', i)} className="hover:text-white cursor-pointer" aria-label={`Delete location: ${loc}`}>&times;</button>
                   </span>
                 ))}
               </div>
               <input 
                 type="text" 
                 placeholder="Add location & press Enter..." 
+                aria-label="Add target location"
                 className="input-field text-xs py-1.5 w-full bg-card border-card-border focus:border-foreground/30 text-foreground"
                 onKeyDown={(e) => { 
                   if (e.key === 'Enter') { 
@@ -2457,13 +2558,14 @@ export default function SearchPage() {
                 {targetSites.map((site, i) => (
                   <span key={i} className="px-2 py-1 bg-amber-500/10 border border-amber-500/20 rounded text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-1.5 font-semibold">
                     {site}
-                    <button onClick={() => removeArrayItem('targetSites', i)} className="hover:text-amber-950 dark:hover:text-white cursor-pointer">&times;</button>
+                    <button onClick={() => removeArrayItem('targetSites', i)} className="hover:text-amber-950 dark:hover:text-white cursor-pointer" aria-label={`Delete job site: ${site}`}>&times;</button>
                   </span>
                 ))}
               </div>
               <input 
                 type="text" 
                 placeholder="Add site (e.g. dice.com) & Enter..." 
+                aria-label="Add target job site"
                 className="input-field text-xs py-1.5 w-full bg-card border-card-border focus:border-foreground/30 text-foreground"
                 onKeyDown={(e) => { 
                   if (e.key === 'Enter') { 
@@ -2491,6 +2593,7 @@ export default function SearchPage() {
                 step="5"
                 value={radius}
                 onChange={(e) => setRadius(parseInt(e.target.value))}
+                aria-label="Search radius in miles"
                 className="w-full accent-indigo-500"
               />
               <div className="flex justify-between text-[10px] text-text-muted mt-1 font-medium">
@@ -2687,7 +2790,19 @@ export default function SearchPage() {
             </div>
           </div>
         )}
-      </div>
+      </aside>
+
+      {/* Discovery Strategy Toggle tab when collapsed */}
+      {!showStrategyPanel && (
+        <button 
+          onClick={() => setShowStrategyPanel(true)}
+          className="fixed right-0 top-24 w-6 h-12 bg-foreground hover:bg-foreground/90 rounded-l-xl flex items-center justify-center border border-r-0 border-card-border text-background shadow-2xl z-40 cursor-pointer transition-all duration-200 hover:scale-110 hover:pr-1.5 animate-in slide-in-from-right duration-300"
+          title="Expand Discovery Strategy"
+          aria-label="Expand Discovery Strategy"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+      )}
 
 
       {/* Undo Dismiss Toast */}
@@ -2766,11 +2881,16 @@ export default function SearchPage() {
       {/* Quick Review Modal */}
       {mounted && reviewingJob && createPortal(
         <div className="fixed inset-0 z-50 p-5 bg-[#0a0a0c]/80 backdrop-blur-sm animate-in fade-in duration-200 flex">
-          <div className="glass-card w-full h-full relative z-10 animate-in zoom-in-95 duration-200 flex flex-col p-6 rounded-2xl overflow-hidden border-card-border bg-card">
+          <div 
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-title"
+            className="glass-card w-full h-full relative z-10 animate-in zoom-in-95 duration-200 flex flex-col p-6 rounded-2xl overflow-hidden border-card-border bg-card"
+          >
             <div className="flex justify-between items-start mb-6 shrink-0">
               <div>
                 <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">{reviewingJob.source}</span>
-                <h2 className="text-2xl font-bold font-outfit mt-1">{reviewingJob.title}</h2>
+                <h2 id="modal-title" className="text-2xl font-bold font-outfit mt-1">{reviewingJob.title}</h2>
                 <p className="text-text-muted">{reviewingJob.company} &bull; {reviewingJob.location}</p>
               </div>
               <div className="text-right shrink-0">
@@ -2844,6 +2964,7 @@ export default function SearchPage() {
             <button 
               onClick={() => setReviewingJob(null)}
               className="absolute top-4 right-4 text-text-muted hover:text-foreground text-xl p-1"
+              aria-label="Close modal"
             >
               &times;
             </button>
@@ -2854,13 +2975,18 @@ export default function SearchPage() {
       {/* Dismiss Confirmation Modal */}
       {mounted && showDismissModal && createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="glass-card w-full max-w-md p-8 space-y-6 border-red-500/30">
+          <div 
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dismiss-modal-title"
+            className="glass-card w-full max-w-md p-8 space-y-6 border-red-500/30"
+          >
             <div className="flex items-center gap-4 text-red-600 dark:text-red-400">
               <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center">
                 <Trash2 className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="font-bold text-xl">Dismiss {selectedIds.length} Results?</h3>
+                <h3 id="dismiss-modal-title" className="font-bold text-xl">Dismiss {selectedIds.length} Results?</h3>
                 <p className="text-xs text-text-muted">These roles will be removed from your discovery feed.</p>
               </div>
             </div>
@@ -2877,22 +3003,28 @@ export default function SearchPage() {
       {/* Missing Parameters Modal */}
       {mounted && showMissingParamsModal && createPortal(
         <div className="fixed inset-0 z-[100] p-5 bg-black/80 backdrop-blur-md animate-in fade-in duration-300 flex">
-          <div className="glass-card w-full h-full border-indigo-500/30 flex flex-col items-center justify-center rounded-2xl overflow-hidden p-8 bg-card">
+          <div 
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="missing-modal-title"
+            className="glass-card w-full h-full border-indigo-500/30 flex flex-col items-center justify-center rounded-2xl overflow-hidden p-8 bg-card"
+          >
             <div className="w-full max-w-md space-y-6">
               <div className="flex items-center gap-4 text-indigo-600 dark:text-indigo-400">
                 <div className="w-12 h-12 rounded-full bg-indigo-500/10 flex items-center justify-center shrink-0">
                   <AlertCircle className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-xl">Missing Search Parameters</h3>
+                  <h3 id="missing-modal-title" className="font-bold text-xl">Missing Search Parameters</h3>
                   <p className="text-xs text-text-muted">Provide a target role and location to run your job search.</p>
                 </div>
               </div>
               
               <div className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-xs text-text-muted font-bold">Target Roles (comma separated)</label>
+                  <label htmlFor="missing-roles-input" className="text-xs text-text-muted font-bold">Target Roles (comma separated)</label>
                   <input 
+                    id="missing-roles-input"
                     type="text" 
                     value={missingRoleInput} 
                     onChange={(e) => setMissingRoleInput(e.target.value)}
@@ -2902,8 +3034,9 @@ export default function SearchPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs text-text-muted font-bold">Target Locations (semicolon separated)</label>
+                  <label htmlFor="missing-locations-input" className="text-xs text-text-muted font-bold">Target Locations (semicolon separated)</label>
                   <input 
+                    id="missing-locations-input"
                     type="text" 
                     value={missingLocationInput} 
                     onChange={(e) => setMissingLocationInput(e.target.value)}
@@ -2955,13 +3088,24 @@ export default function SearchPage() {
                     if (searchMode === 'deep') {
                       setStatus("Precision Mode: Scanning ATS Platforms...");
                       const precisionTitles = roles.slice(0, 3);
-                      newJobs = await runWebDiscovery(precisionTitles, locs, radius, dreamCompanies);
+                      newJobs = await runWebDiscovery(
+                        precisionTitles, 
+                        locs, 
+                        radius, 
+                        dreamCompanies,
+                        alternativeTitles,
+                        profile.matchStrictness || 'exact'
+                      );
                     } else {
                       newJobs = await runJobSearch(
                         roles, 
                         locs, 
                         radius, 
-                        profile.resumeText || ""
+                        profile.resumeText || "",
+                        targetSites,
+                        activeProfileId,
+                        profile.matchStrictness || 'exact',
+                        alternativeTitles
                       );
                     }
                     await addJobs(newJobs); 

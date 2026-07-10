@@ -8,7 +8,7 @@ import { getJobs, saveJobs, updateJobStatus as dbUpdateStatus, deleteJob as dbDe
 import { getAgentStatus, setAgentStatus } from "./agentStatus";
 import { getActiveProfileId } from "./profileSwitch";
 import { logActivity } from "./adminActions";
-import { heuristicMatchScore, getJaccardSimilarity } from "@/lib/jobUtils";
+import { heuristicMatchScore, getJaccardSimilarity, computeGhostScore, isTitleMatch } from "@/lib/jobUtils";
 
 export async function fetchJobs(profileIdOverride?: string) {
   try {
@@ -55,11 +55,15 @@ export async function addJobs(newJobs: Job[], profileIdOverride?: string) {
 }
 
 export async function fetchFullJobDescription(jobId: string, url: string, profileIdOverride?: string) {
-  const profileId = profileIdOverride || await getActiveProfileId();
-  const description = await scrapeJobDescription(url);
-  await dbUpdateJobField(jobId, { description }, profileId);
-
-  return description;
+  try {
+    const profileId = profileIdOverride || await getActiveProfileId();
+    const description = await scrapeJobDescription(url);
+    await dbUpdateJobField(jobId, { description }, profileId);
+    return description;
+  } catch (e: any) {
+    console.error("fetchFullJobDescription server action error:", e);
+    return `⚠️ Scraper Offline: Unable to fetch description due to connection/quota issues (401 quota or network timeout). Please copy and paste the job description manually.`;
+  }
 }
 
 export async function fetchJobDetails(jobId: string, profileIdOverride?: string) {
@@ -418,6 +422,11 @@ export async function runJobSearch(
   await setAgentStatus({ isSearching: true, status: "Initializing stealth scan...", resultsFound: 0 });
 
   try {
+    const getStateCode = (locStr: string) => {
+      const matches = locStr.match(/\b(al|ak|az|ar|ca|co|ct|de|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|ma|mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy|florida|london|uk|gb)\b/i);
+      return matches ? matches[1].toLowerCase() : null;
+    };
+
     let titles = targetTitles;
     if (titles.length === 0) {
       const pastRoles = (profile?.experience || []).map((e: any) => e.role).filter(Boolean);
@@ -427,9 +436,52 @@ export async function runJobSearch(
         titles = ["Logistics Operations Manager"];
       }
     }
-    const locations = targetLocations.length > 0 
+
+    let locations = targetLocations.length > 0 
       ? targetLocations 
       : (profile?.location ? [profile.location] : ["United States"]);
+
+    // Location consolidation: avoid sequential queries for 10 small cities in the same state
+    // which leads to function timeouts. Consolidate to state-level queries for the APIs.
+    if (locations.length > 2) {
+      const consolidated = new Set<string>();
+      const statesAdded = new Set<string>();
+      const stateNames: Record<string, string> = {
+        "fl": "Florida", "ca": "California", "ny": "New York", "tx": "Texas",
+        "il": "Illinois", "pa": "Pennsylvania", "oh": "Ohio", "ga": "Georgia",
+        "nc": "North Carolina", "mi": "Michigan", "nj": "New Jersey", "va": "Virginia",
+        "wa": "Washington", "az": "Arizona", "ma": "Massachusetts", "tn": "Tennessee",
+        "in": "Indiana", "md": "Maryland", "mo": "Missouri", "wi": "Wisconsin",
+        "co": "Colorado", "mn": "Minnesota", "sc": "South Carolina", "al": "Alabama",
+        "la": "Louisiana", "ky": "Kentucky", "or": "Oregon", "ok": "Oklahoma",
+        "ct": "Connecticut", "ut": "Utah", "ia": "Iowa", "nv": "Nevada",
+        "ar": "Arkansas", "ms": "Mississippi", "ks": "Kansas", "nm": "New Mexico",
+        "ne": "Nebraska", "wv": "West Virginia", "id": "Idaho", "hi": "Hawaii",
+        "nh": "New Hampshire", "me": "Maine", "mt": "Montana", "ri": "Rhode Island",
+        "de": "Delaware", "sd": "South Dakota", "nd": "North Dakota", "vt": "Vermont",
+        "wy": "Wyoming", "ak": "Alaska"
+      };
+
+      for (const loc of locations) {
+        const state = getStateCode(loc);
+        if (state && stateNames[state]) {
+          if (!statesAdded.has(state)) {
+            consolidated.add(stateNames[state]);
+            statesAdded.add(state);
+          }
+        } else if (/uk|united kingdom|gb|england|london|nottingham|lincoln/i.test(loc)) {
+          if (!statesAdded.has("uk")) {
+            consolidated.add("United Kingdom");
+            statesAdded.add("uk");
+          }
+        } else {
+          consolidated.add(loc);
+        }
+      }
+      locations = Array.from(consolidated);
+      console.log(`[Search] Consolidated search locations from ${targetLocations.length} to ${locations.length}:`, locations);
+    }
+
     const totalSteps = titles.length * locations.length;
     let currentStep = 0;
     const startTime = Date.now();
@@ -447,7 +499,6 @@ export async function runJobSearch(
         currentStep++;
 
         const remainingSteps = totalSteps - currentStep + 1;
-        // Average platform search time is ~30 seconds per combined platform scrape step
         const minEta = Math.ceil((remainingSteps * 15) / 60);
         const maxEta = Math.ceil((remainingSteps * 30) / 60);
         const etaText = minEta === 1 ? "about 1 min" : `${minEta}-${maxEta} mins`;
@@ -457,7 +508,6 @@ export async function runJobSearch(
           resultsFound: allResults.length 
         });
         
-        // Try free aggregated API stack first (JSearch, Adzuna, USAJobs)
         const [adzunaJobs, jsearchJobs, usajobsJobs] = await Promise.all([
           fetchAdzunaJobs(title, location, radius),
           fetchJSearchJobs(title, location),
@@ -470,7 +520,16 @@ export async function runJobSearch(
           console.log(`[Search] No API results found or credentials missing. Falling back to local browser scraper...`);
           let linkedinJobs: any[] = [];
           if (!targetSites || targetSites.length === 0 || targetSites.some(s => s.toLowerCase().includes("linkedin"))) {
-            linkedinJobs = await searchLinkedInJobs(title, location, radius);
+            try {
+              linkedinJobs = await searchLinkedInJobs(title, location, radius);
+            } catch (err: any) {
+              console.error("[Search] LinkedIn scraping failed:", err.message);
+              await setAgentStatus({
+                status: `⚠️ LinkedIn Scraper Offline: Browserless API Key quota exceeded or invalid key (401 Error). Continuing with other boards...`,
+                resultsFound: allResults.length
+              });
+              linkedinJobs = [];
+            }
           }
           
           const multiJobs = await searchMultiPlatformJobs(title, location, targetSites, targetTitles, alternativeTitles);
@@ -481,67 +540,10 @@ export async function runJobSearch(
           rawJobs = await fetchPublicFallbackJobs(title, location, targetTitles, alternativeTitles);
         }
         
-        // KEYWORD GUARDRAIL: Adhere to target roles depending on matchStrictness setting
-        // NOTE: genericWords intentionally excludes logistics/ops domain terms like "logistics",
-        // "warehouse", "inventory", "supply" so they remain as meaningful discriminators.
-        const genericWords = ["senior", "junior", "lead", "staff", "principal", "associate", "intern", "creative", "digital", "motion", "co-op", "contractor"];
-        const prefixStrip = /^(senior|junior|lead|staff|principal|associate|creative|digital|entry-level|mid-weight|contract|freelance|certified)\s+/gi;
-
+        // KEYWORD GUARDRAIL: Whole-word tokenized strictness filter using shared helper
         const newJobsFound: Job[] = [];
         for (const raw of rawJobs) {
-          const titleLower = raw.title.toLowerCase();
-
-          let isTargetMatch = false;
-          const allAcceptedTitles = [...targetTitles, ...(alternativeTitles || [])];
-          if (allAcceptedTitles.length === 0) {
-            isTargetMatch = true;
-          } else {
-            isTargetMatch = allAcceptedTitles.some(target => {
-              const targetLower = target.toLowerCase();
-
-              if (matchStrictness === 'exact') {
-                // Exact mode: all MEANINGFUL words in the target must appear in the job title
-                // (order-independent). This handles compound titles like "Logistics Operations Manager"
-                // matching a scraped "Operations Manager – Logistics & Supply Chain".
-                const cleanTarget = targetLower.replace(prefixStrip, "").trim();
-                const cleanJobTitle = titleLower.replace(prefixStrip, "").trim();
-
-                // First: try direct substring (catches perfect matches fast)
-                if (cleanJobTitle.includes(cleanTarget)) return true;
-
-                // Second: every significant word in target must appear somewhere in title
-                const significantWords = cleanTarget
-                  .split(/[\s&,/\-]+/)
-                  .map(w => w.trim())
-                  .filter(w => w.length > 3 && !genericWords.includes(w));
-
-                if (significantWords.length === 0) {
-                  // Fall back to any word match if all words were stripped
-                  return cleanTarget.split(/\s+/).some(w => cleanJobTitle.includes(w));
-                }
-
-                // All significant words must appear (any order)
-                return significantWords.every(word => cleanJobTitle.includes(word));
-
-              } else if (matchStrictness === 'strong') {
-                // Strong match: requires all non-generic words in target to be present
-                const targetWords = targetLower.split(/\s+/).filter(w => w.length > 2 && !genericWords.includes(w));
-                if (targetWords.length > 0) {
-                  return targetWords.every(word => titleLower.includes(word));
-                }
-                return targetLower.split(/\s+/).filter(w => w.length > 2).every(word => titleLower.includes(word));
-              } else {
-                // Flexible match: any non-generic target word matching
-                const targetWords = targetLower.split(/\s+/).filter(w => w.length > 2);
-                const nonGenericTargetWords = targetWords.filter(w => !genericWords.includes(w));
-                if (nonGenericTargetWords.length > 0) {
-                  return nonGenericTargetWords.some(word => titleLower.includes(word));
-                } else {
-                  return targetWords.some(word => titleLower.includes(word));
-                }
-              }
-            });
-          }
+          const isTargetMatch = isTitleMatch(raw.title, targetTitles, alternativeTitles || [], matchStrictness);
 
           if (!isTargetMatch) {
              console.log(`[Guardrail] Skipping title as it doesn't match Target Roles: ${raw.title}`);
@@ -551,12 +553,15 @@ export async function runJobSearch(
           // LOCATION GUARDRAIL: Check job location against user's target locations.
           const jobLocLower = (raw.location || "").toLowerCase().trim();
 
-          const getStateCode = (locStr: string) => {
-            const matches = locStr.match(/\b(al|ak|az|ar|ca|co|ct|de|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|ma|mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy|florida|london|uk|gb)\b/i);
-            return matches ? matches[1].toLowerCase() : null;
-          };
-
-          const targetState = targetLocations.length > 0 ? getStateCode(targetLocations[0]) : null;
+          // Robust state guardrail: check all locations to find state rather than targetLocations[0]
+          let targetState: string | null = null;
+          for (const loc of targetLocations) {
+            const code = getStateCode(loc);
+            if (code) {
+              targetState = code;
+              break;
+            }
+          }
           const jobState = getStateCode(jobLocLower);
 
           const isLocationMatch = targetLocations.length === 0 || (
@@ -920,6 +925,19 @@ export async function analyzeSingleJob(jobId: string, profileIdOverride?: string
 
   if (!job || !profile) throw new Error("Job or profile not found");
 
+  // Tier 1 Heuristic check: Skip scraping & AI matching for high-risk ghost listings to save tokens!
+  const ghostScore = computeGhostScore(job);
+  if (ghostScore >= 80) {
+    const updatedFields = {
+      score: 10,
+      reason: `🚨 GATED: High Ghost/Harvesting Risk (Heuristics Score: ${ghostScore}%). Skipped AI analysis to save tokens.`,
+      status: 'Rejected' as const,
+      ghostScore
+    };
+    await dbUpdateJobField(jobId, updatedFields, profileId);
+    return updatedFields;
+  }
+
   // Dynamically fetch full job description if it is missing or is placeholder
   let description = job.description || "";
   if (!description || 
@@ -933,9 +951,37 @@ export async function analyzeSingleJob(jobId: string, profileIdOverride?: string
         await dbUpdateJobField(jobId, { description }, profileId);
         job.description = description;
       }
-    } catch (scrapeError) {
-      console.error("[analyzeSingleJob] Scrape failed, using existing description:", scrapeError);
+    } catch (scrapeError: any) {
+      console.error("[analyzeSingleJob] Scrape failed:", scrapeError);
+      if (scrapeError.message && (scrapeError.message.includes("Browserless") || scrapeError.message.includes("401") || scrapeError.message.includes("quota"))) {
+        const updatedFields = {
+          reason: `⚠️ Scraper Offline: Unable to fetch description because Browserless quota is exceeded (401 Error). Please copy-paste description manually.`,
+          status: job.status,
+          score: job.score || 0
+        };
+        await dbUpdateJobField(jobId, updatedFields, profileId);
+        return updatedFields;
+      }
     }
+  }
+
+  // Token-saving check: Skip AI matching if the description is unavailable, a warning, or too short.
+  const isPlaceholder = !description || 
+    description === "Details fetched during search." || 
+    description.startsWith("Job listing on") ||
+    description.includes("Job description unavailable") ||
+    description.includes("Scraper Offline") ||
+    description.length < 150;
+
+  if (isPlaceholder) {
+    const updatedFields = {
+      score: 0,
+      reason: `⚠️ Description Unavailable: Please copy-paste the description manually to run AI analysis.`,
+      status: job.status,
+      description
+    };
+    await dbUpdateJobField(jobId, updatedFields, profileId);
+    return updatedFields;
   }
 
   const { analyzeJobMatch } = await import("@/lib/gemini");
@@ -950,12 +996,12 @@ export async function analyzeSingleJob(jobId: string, profileIdOverride?: string
 
   const analysis = await analyzeJobMatch(resumeContext, `Role: ${job.title} at ${job.company}. Location: ${job.location}. Description: ${description}`);
   
-  const isGhost = (analysis.reason || "").toLowerCase().includes("vague") || (analysis.reason || "").toLowerCase().includes("talent pool") || (analysis.reason || "").toLowerCase().includes("ghost");
+  const isGhost = !!analysis.isGhost;
   
   const updatedFields = {
     score: analysis.score,
     reason: isGhost ? `🚨 FLAG: ${analysis.reason}` : analysis.reason,
-    status: isGhost ? 'rejected' : job.status,
+    status: isGhost ? 'Rejected' as const : job.status,
     description
   };
 

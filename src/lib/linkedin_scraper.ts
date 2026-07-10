@@ -69,8 +69,11 @@ export async function searchLinkedInJobs(query: string, location: string, radius
     return jobs.filter((j: any) => j.title && j.company);
 
   } catch (error: any) {
-    console.warn('[Scraper] LinkedIn scraping unavailable (no browser runtime):', error.message);
+    console.warn('[Scraper] LinkedIn scraping unavailable:', error.message);
     if (browser) { try { await browser.close(); } catch {} }
+    if (error.message && (error.message.includes("Browserless") || error.message.includes("401") || error.message.includes("Unauthorized") || error.message.includes("quota"))) {
+      throw error;
+    }
     return [];
   }
 }
@@ -186,6 +189,9 @@ export async function scrapeJobDescription(url: string): Promise<string> {
       throw new Error("Extracted text too short or empty.");
     } catch (fallbackErr: any) {
       console.warn('[Scraper] HTTP Fallback failed:', fallbackErr.message || fallbackErr);
+      if (error.message && (error.message.includes("Browserless") || error.message.includes("401") || error.message.includes("Unauthorized") || error.message.includes("quota"))) {
+        throw error;
+      }
       return "Job description unavailable. Scraper offline & HTTP fallback failed. Please copy and paste the job description below.";
     }
   }
