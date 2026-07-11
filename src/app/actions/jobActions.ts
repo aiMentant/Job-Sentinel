@@ -8,7 +8,7 @@ import { getJobs, saveJobs, updateJobStatus as dbUpdateStatus, deleteJob as dbDe
 import { getAgentStatus, setAgentStatus } from "./agentStatus";
 import { getActiveProfileId } from "./profileSwitch";
 import { logActivity } from "./adminActions";
-import { heuristicMatchScore, getJaccardSimilarity, computeGhostScore, isTitleMatch } from "@/lib/jobUtils";
+import { heuristicMatchScore, getJaccardSimilarity, computeGhostScore, isTitleMatch, consolidateLocations } from "@/lib/jobUtils";
 
 export async function fetchJobs(profileIdOverride?: string) {
   try {
@@ -451,46 +451,9 @@ export async function runJobSearch(
       ? targetLocations 
       : (profile?.location ? [profile.location] : ["United States"]);
 
-    // Location consolidation: avoid sequential queries for 10 small cities in the same state
-    // which leads to function timeouts. Consolidate to state-level queries for the APIs.
-    if (locations.length > 2) {
-      const consolidated = new Set<string>();
-      const statesAdded = new Set<string>();
-      const stateNames: Record<string, string> = {
-        "fl": "Florida", "ca": "California", "ny": "New York", "tx": "Texas",
-        "il": "Illinois", "pa": "Pennsylvania", "oh": "Ohio", "ga": "Georgia",
-        "nc": "North Carolina", "mi": "Michigan", "nj": "New Jersey", "va": "Virginia",
-        "wa": "Washington", "az": "Arizona", "ma": "Massachusetts", "tn": "Tennessee",
-        "in": "Indiana", "md": "Maryland", "mo": "Missouri", "wi": "Wisconsin",
-        "co": "Colorado", "mn": "Minnesota", "sc": "South Carolina", "al": "Alabama",
-        "la": "Louisiana", "ky": "Kentucky", "or": "Oregon", "ok": "Oklahoma",
-        "ct": "Connecticut", "ut": "Utah", "ia": "Iowa", "nv": "Nevada",
-        "ar": "Arkansas", "ms": "Mississippi", "ks": "Kansas", "nm": "New Mexico",
-        "ne": "Nebraska", "wv": "West Virginia", "id": "Idaho", "hi": "Hawaii",
-        "nh": "New Hampshire", "me": "Maine", "mt": "Montana", "ri": "Rhode Island",
-        "de": "Delaware", "sd": "South Dakota", "nd": "North Dakota", "vt": "Vermont",
-        "wy": "Wyoming", "ak": "Alaska"
-      };
-
-      for (const loc of locations) {
-        const state = getStateCode(loc);
-        if (state && stateNames[state]) {
-          if (!statesAdded.has(state)) {
-            consolidated.add(stateNames[state]);
-            statesAdded.add(state);
-          }
-        } else if (/uk|united kingdom|gb|england|london|nottingham|lincoln/i.test(loc)) {
-          if (!statesAdded.has("uk")) {
-            consolidated.add("United Kingdom");
-            statesAdded.add("uk");
-          }
-        } else {
-          consolidated.add(loc);
-        }
-      }
-      locations = Array.from(consolidated);
-      console.log(`[Search] Consolidated search locations from ${targetLocations.length} to ${locations.length}:`, locations);
-    }
+    // Consolidate target locations to prevent sequential timeouts (e.g. 9 locations + 'US')
+    locations = consolidateLocations(locations, profile?.location);
+    console.log(`[Search] Consolidated search locations from ${targetLocations.length} to ${locations.length}:`, locations);
 
     const totalSteps = titles.length * locations.length;
     let currentStep = 0;
@@ -1580,5 +1543,42 @@ export async function checkApiKeysStatus() {
     browserless: !!process.env.BROWSERLESS_API_KEY
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// getLocationDistances
+// Returns a map of { [location]: miles } from baseLocation for each entry in
+// locations[]. Uses the Nominatim geocoder in locationProximity.ts with
+// the built-in in-memory cache — safe to call on every base-city change.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function getLocationDistances(
+  baseLocation: string,
+  locations: string[]
+): Promise<Record<string, number>> {
+  try {
+    const { geocodeLocation, haversineDistanceMiles } = await import("@/lib/locationProximity");
+    const baseCoords = await geocodeLocation(baseLocation);
+    if (!baseCoords) return {};
+
+    const result: Record<string, number> = {};
+    for (const loc of locations) {
+      if (loc === baseLocation) continue;
+      try {
+        const coords = await geocodeLocation(loc);
+        if (coords) {
+          result[loc] = Math.round(haversineDistanceMiles(baseCoords, coords));
+        }
+      } catch {
+        // skip individual failures silently
+      }
+      // Nominatim requires ≥1 req/sec; 350ms gives safe headroom
+      await new Promise(r => setTimeout(r, 350));
+    }
+    return result;
+  } catch (e) {
+    console.error("getLocationDistances failed:", e);
+    return {};
+  }
+}
+
 
 

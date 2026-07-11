@@ -129,6 +129,11 @@ export default function SearchPage() {
   const [pendingSearchTitles, setPendingSearchTitles] = useState<string[] | null>(null);
   // baseLocation: the anchor city for proximity sorting and Dream Company commute estimates
   const [baseLocation, setBaseLocation] = useState<string>("");
+  // Distance badges: map of { location -> miles from base }, loaded lazily
+  const [locationDistances, setLocationDistances] = useState<Record<string, number>>({});
+  const [isFetchingDistances, setIsFetchingDistances] = useState(false);
+  // activeTargetSites: subset of targetSites currently enabled for search
+  const [activeTargetSites, setActiveTargetSites] = useState<string[]>([]);
 
   const [selectedJobType, setSelectedJobType] = useState<string>("all");
   const [scanningTitles, setScanningTitles] = useState<{ title: string; status: 'pending' | 'scanning' | 'done' | 'failed' }[]>([]);
@@ -170,6 +175,29 @@ export default function SearchPage() {
     setVisibleCount(25);
   }, [activeTab, selectedLocationFilter, selectedJobType, selectedSiteFilter, workSettingFilter, postedWithinFilter, showHighScoresOnly, hideGhostJobs, sortBy, selectedTabRole]);
 
+  // ── Distance badge effect: geocode distances when baseLocation changes ────────
+  useEffect(() => {
+    if (!baseLocation || targetLocations.length <= 1) {
+      setLocationDistances({});
+      return;
+    }
+    let cancelled = false;
+    setIsFetchingDistances(true);
+    setLocationDistances({});
+    import("@/app/actions/jobActions").then(({ getLocationDistances }) => {
+      getLocationDistances(baseLocation, targetLocations).then(distances => {
+        if (!cancelled) {
+          setLocationDistances(distances);
+          setIsFetchingDistances(false);
+        }
+      }).catch(() => {
+        if (!cancelled) setIsFetchingDistances(false);
+      });
+    });
+    return () => { cancelled = true; };
+  }, [baseLocation, targetLocations.join("|")]);
+
+  // Keyboard shortcut: Escape closes any open modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -182,6 +210,8 @@ export default function SearchPage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [reviewingJob, showDismissModal, showMissingParamsModal, showQuotaGuardrailModal]);
+
+
 
   useEffect(() => {
     async function load() {
@@ -215,6 +245,9 @@ export default function SearchPage() {
           setActiveSearchLocations(savedActive.length > 0 ? savedActive : locs);
           // Initialize baseLocation from profile, default to first valid location
           setBaseLocation(p.baseLocation || locs[0] || "");
+          // Initialize activeTargetSites: all sites active by default
+          const sites = p.targetSites && p.targetSites.length > 0 ? p.targetSites : ["linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com", "usajobs.gov", "snagajob.com"];
+          setActiveTargetSites(sites);
           const activeSites = p.targetSites && p.targetSites.length > 0 ? p.targetSites : ["linkedin.com", "indeed.com"];
           if (p.targetSites && p.targetSites.length > 0) setTargetSites(p.targetSites);
           if (p.searchRadius) setRadius(p.searchRadius);
@@ -1078,7 +1111,7 @@ export default function SearchPage() {
               locations, 
               activeRadius, 
               profile.resumeText || "",
-              targetSites,
+              activeTargetSites.length > 0 ? activeTargetSites : targetSites,
               activeProfileId,
               profile.matchStrictness || 'exact',
               alternativeTitles
@@ -1105,7 +1138,7 @@ export default function SearchPage() {
                 locations,
                 activeRadius,
                 profile.resumeText || "",
-                targetSites,
+                activeTargetSites.length > 0 ? activeTargetSites : targetSites,
                 activeProfileId,
                 profile.matchStrictness || 'exact',
                 alternativeTitles
@@ -2852,6 +2885,25 @@ export default function SearchPage() {
                         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-500' : 'bg-gray-500'}`} />
                       )}
                       {loc}
+                      {/* Distance badge — only shown for non-base pills when a base is set */}
+                      {!isBase && baseLocation && (
+                        locationDistances[loc] !== undefined
+                          ? (
+                            <span
+                              className={`text-[9px] font-black tabular-nums px-1 py-0.5 rounded ${
+                                locationDistances[loc] <= radius
+                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              }`}
+                              title={`~${locationDistances[loc]} miles from ${baseLocation}`}
+                            >
+                              ~{locationDistances[loc]}mi
+                            </span>
+                          )
+                          : isFetchingDistances && (
+                            <span className="w-2 h-2 rounded-full border border-current border-t-transparent animate-spin opacity-40 flex-shrink-0" />
+                          )
+                      )}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -2893,7 +2945,13 @@ export default function SearchPage() {
               {baseLocation && (
                 <div className="flex items-center gap-1.5 mb-2 px-2 py-1 bg-amber-500/8 border border-amber-500/20 rounded-lg text-[10px] text-amber-700 dark:text-amber-400">
                   <Home className="w-3 h-3 flex-shrink-0" />
-                  <span><strong>{baseLocation}</strong> is your base city — Dream Company commutes anchor here.</span>
+                  <span>
+                    <strong>{baseLocation}</strong> is your base city —
+                    {isFetchingDistances
+                      ? <span className="ml-1 opacity-60">calculating distances...</span>
+                      : <span className="ml-1">distances shown on each pill. <span className="opacity-70">(green = within {radius}mi radius)</span></span>
+                    }
+                  </span>
                 </div>
               )}
               <input 
@@ -2929,31 +2987,88 @@ export default function SearchPage() {
               )}
             </div>
 
-            {/* Target Job Sites */}
+            {/* Target Job Sites — interactive toggle pills */}
             <div>
-              <label className="text-xs text-text-muted font-bold uppercase tracking-wider mb-2 block">Target Job Sites</label>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {targetSites.map((site, i) => (
-                  <span key={i} className="px-2 py-1 bg-amber-500/10 border border-amber-500/20 rounded text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-1.5 font-semibold">
-                    {site}
-                    <button onClick={() => removeArrayItem('targetSites', i)} className="hover:text-amber-950 dark:hover:text-white cursor-pointer" aria-label={`Delete job site: ${site}`}>&times;</button>
-                  </span>
-                ))}
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-text-muted font-bold uppercase tracking-wider">Target Job Sites</label>
+                <span className="text-[10px] text-text-muted">
+                  {activeTargetSites.length}/{targetSites.length} active
+                </span>
               </div>
-              <input 
-                type="text" 
-                placeholder="Add site (e.g. dice.com) & Enter..." 
+              <div className="flex flex-wrap gap-2 mb-2">
+                {targetSites.map((site, i) => {
+                  const isActive = activeTargetSites.includes(site);
+                  return (
+                    <span
+                      key={i}
+                      className={`px-2 py-1 rounded text-[11px] flex items-center gap-1.5 font-semibold border transition-all cursor-pointer select-none ${
+                        isActive
+                          ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-700 dark:text-indigo-400'
+                          : 'bg-card border-card-border/40 text-text-muted opacity-50 line-through'
+                      }`}
+                      onClick={() =>
+                        setActiveTargetSites(prev =>
+                          isActive ? prev.filter(s => s !== site) : [...prev, site]
+                        )
+                      }
+                      title={isActive ? `Click to exclude ${site}` : `Click to include ${site}`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? 'bg-indigo-500' : 'bg-gray-500'}`} />
+                      {site}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveTargetSites(prev => prev.filter(s => s !== site));
+                          removeArrayItem('targetSites', i);
+                        }}
+                        className="hover:text-red-400 cursor-pointer ml-0.5"
+                        aria-label={`Delete job site: ${site}`}
+                      >
+                        &times;
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+              {/* Quick helpers */}
+              {targetSites.length > 1 && (
+                <div className="flex gap-1.5 mb-2">
+                  <button
+                    onClick={() => setActiveTargetSites([...targetSites])}
+                    className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                  >
+                    Select All
+                  </button>
+                  <span className="text-text-muted text-[10px]">·</span>
+                  <button
+                    onClick={() => setActiveTargetSites([])}
+                    className="text-[10px] text-text-muted hover:underline cursor-pointer"
+                  >
+                    Deselect All
+                  </button>
+                </div>
+              )}
+              {activeTargetSites.length === 0 && targetSites.length > 0 && (
+                <p className="text-[10px] text-amber-500 mt-1">
+                  ⚠️ No sites active — search will use all sites as fallback.
+                </p>
+              )}
+              <input
+                type="text"
+                placeholder="Add site (e.g. dice.com) & Enter..."
                 aria-label="Add target job site"
                 className="input-field text-xs py-1.5 w-full bg-card border-card-border focus:border-foreground/30 text-foreground"
-                onKeyDown={(e) => { 
-                  if (e.key === 'Enter') { 
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
                     if (e.currentTarget.value.trim()) {
-                      addArrayItem('targetSites', e.currentTarget.value); 
-                      e.currentTarget.value = ''; 
+                      const newSite = e.currentTarget.value.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, "");
+                      addArrayItem('targetSites', newSite);
+                      setActiveTargetSites(prev => [...prev, newSite]);
+                      e.currentTarget.value = '';
                     } else {
                       handleSearch();
                     }
-                  } 
+                  }
                 }}
               />
             </div>
