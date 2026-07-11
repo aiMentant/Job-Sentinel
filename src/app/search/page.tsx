@@ -2387,7 +2387,7 @@ export default function SearchPage() {
                     <div className="hidden lg:block w-px h-12 bg-card-border shrink-0" />
                     
                     {/* Right Side: Score + Action Buttons */}
-                    <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 border-t border-card-border/40 lg:border-t-0 pt-3 lg:pt-0 shrink-0 w-full lg:w-auto">
+                    <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-4 border-t border-card-border/40 lg:border-t-0 pt-3 lg:pt-0 shrink-0 w-full lg:w-auto">
                       {/* Match Score */}
                       <div className="flex lg:flex-col lg:items-center justify-between items-center w-full lg:w-auto lg:min-w-[80px] shrink-0">
                         <span className="lg:hidden text-xs font-bold text-text-muted uppercase tracking-wider">AI Match Fit:</span>
@@ -2417,7 +2417,7 @@ export default function SearchPage() {
                       </div>
 
                       {/* Buttons */}
-                      <div className="flex flex-wrap items-center justify-end gap-2">
+                      <div className="flex flex-wrap items-center justify-start lg:justify-end gap-2 w-full lg:w-auto">
                         {job.score === 0 && (
                           <button
                             onClick={() => handleAnalyze(job.id)}
