@@ -1194,7 +1194,7 @@ export default function SearchPage() {
     setIsGeneratingDreamList(true);
     setStatus("AI is researching companies in your area...");
     try {
-      const list = await generateDreamCompanies(targetLocations, radius, targetTitles, activeProfileId);
+      const list = await generateDreamCompanies(activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations, radius, targetTitles, activeProfileId);
       if (!list || list.length === 0) {
         throw new Error("No companies discovered. Please verify your Gemini API key is configured.");
       }
@@ -1220,7 +1220,7 @@ export default function SearchPage() {
         
         try {
           const { scanCompanyJobs, addJobs } = await import("@/app/actions/jobActions");
-          const newJobs = await scanCompanyJobs(comp.name, targetTitles, targetLocations, comp.careerUrl, alternativeTitles);
+          const newJobs = await scanCompanyJobs(comp.name, targetTitles, activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations, comp.careerUrl, alternativeTitles);
           if (newJobs.length > 0) {
             await addJobs(newJobs, activeProfileId);
             setResults(prev => {
@@ -1259,7 +1259,7 @@ export default function SearchPage() {
     setStatus(`Scanning ${companyName}...`);
     try {
       const { scanCompanyJobs, addJobs } = await import("@/app/actions/jobActions");
-      const newJobs = await scanCompanyJobs(companyName, targetTitles, targetLocations, careerUrl, alternativeTitles);
+      const newJobs = await scanCompanyJobs(companyName, targetTitles, activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations, careerUrl, alternativeTitles);
       if (newJobs.length > 0) {
         await addJobs(newJobs, activeProfileId);
         setResults(prev => {
@@ -1313,7 +1313,7 @@ export default function SearchPage() {
         setStatus(`Batch scanning [${i + 1}/${currentList.length}]: ${company.name}...`);
         
         try {
-          const newJobs = await scanCompanyJobs(company.name, targetTitles, targetLocations, company.careerUrl, alternativeTitles);
+          const newJobs = await scanCompanyJobs(company.name, targetTitles, activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations, company.careerUrl, alternativeTitles);
           if (newJobs.length > 0) {
             await addJobs(newJobs, activeProfileId);
             setResults(prev => {
