@@ -37,7 +37,8 @@ import {
   Activity,
   Terminal,
   Check,
-  Loader2
+  Loader2,
+  Home
 } from "lucide-react";
 
 import { 
@@ -126,6 +127,8 @@ export default function SearchPage() {
   const [showQuotaGuardrailModal, setShowQuotaGuardrailModal] = useState(false);
   // pendingSearch is used to hold the search until the user confirms the guardrail modal
   const [pendingSearchTitles, setPendingSearchTitles] = useState<string[] | null>(null);
+  // baseLocation: the anchor city for proximity sorting and Dream Company commute estimates
+  const [baseLocation, setBaseLocation] = useState<string>("");
 
   const [selectedJobType, setSelectedJobType] = useState<string>("all");
   const [scanningTitles, setScanningTitles] = useState<{ title: string; status: 'pending' | 'scanning' | 'done' | 'failed' }[]>([]);
@@ -210,6 +213,8 @@ export default function SearchPage() {
             ? p.activeSearchLocations.filter((l: string) => locs.includes(l))
             : locs;
           setActiveSearchLocations(savedActive.length > 0 ? savedActive : locs);
+          // Initialize baseLocation from profile, default to first valid location
+          setBaseLocation(p.baseLocation || locs[0] || "");
           const activeSites = p.targetSites && p.targetSites.length > 0 ? p.targetSites : ["linkedin.com", "indeed.com"];
           if (p.targetSites && p.targetSites.length > 0) setTargetSites(p.targetSites);
           if (p.searchRadius) setRadius(p.searchRadius);
@@ -1194,7 +1199,11 @@ export default function SearchPage() {
     setIsGeneratingDreamList(true);
     setStatus("AI is researching companies in your area...");
     try {
-      const list = await generateDreamCompanies(activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations, radius, targetTitles, activeProfileId);
+      // Put baseLocation first so generateDreamCompanies uses it as the commute anchor
+      const locationsForDreamSearch = baseLocation
+        ? [baseLocation, ...(activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations).filter(l => l !== baseLocation)]
+        : (activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations);
+      const list = await generateDreamCompanies(locationsForDreamSearch, radius, targetTitles, activeProfileId);
       if (!list || list.length === 0) {
         throw new Error("No companies discovered. Please verify your Gemini API key is configured.");
       }
@@ -2014,7 +2023,7 @@ export default function SearchPage() {
               <div className="space-y-2">
                 <h3 className="font-bold text-xl text-foreground font-outfit">No Opportunities Discovered</h3>
                 <p className="text-sm text-text-muted max-w-lg mx-auto leading-relaxed">
-                  Sorry Dominic, no local companies shown within <strong className="text-foreground">{radius} miles</strong> radius of: <span className="text-foreground font-semibold">{targetLocations.join(", ") || "your target locations"}</span> matching roles: <span className="text-foreground font-semibold">{targetTitles.join(", ") || "your target roles"}</span>.
+                  Sorry{profile.firstName ? ` ${profile.firstName}` : ''}, no matches found within <strong className="text-foreground">{radius} miles</strong> of{baseLocation ? <> <span className="text-amber-500 font-bold">{baseLocation}</span> <span className="text-text-muted text-xs">(your base city)</span></> : <> <span className="text-foreground font-semibold">{activeSearchLocations.join(", ") || targetLocations.join(", ") || "your target locations"}</span></>} for: <span className="text-foreground font-semibold">{targetTitles.join(", ") || "your target roles"}</span>.
                 </p>
               </div>
 
@@ -2793,13 +2802,16 @@ export default function SearchPage() {
               <div className="flex flex-wrap gap-2 mb-2">
                 {targetLocations.map((loc, i) => {
                   const isActive = activeSearchLocations.includes(loc);
+                  const isBase = baseLocation === loc;
                   return (
                     <span
                       key={i}
                       className={`px-2 py-1 rounded text-[11px] flex items-center gap-1.5 font-semibold border transition-all cursor-pointer select-none ${
-                        isActive
-                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 shadow-sm shadow-emerald-500/10'
-                          : 'bg-card border-card-border/40 text-text-muted opacity-50 line-through'
+                        isBase
+                          ? 'bg-amber-500/15 border-amber-500/50 text-amber-700 dark:text-amber-400 shadow-sm shadow-amber-500/20'
+                          : isActive
+                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 shadow-sm shadow-emerald-500/10'
+                            : 'bg-card border-card-border/40 text-text-muted opacity-50 line-through'
                       }`}
                       onClick={() => {
                         setActiveSearchLocations(prev =>
@@ -2810,12 +2822,41 @@ export default function SearchPage() {
                       }}
                       title={isActive ? `Click to exclude "${loc}" from next search` : `Click to include "${loc}" in next search`}
                     >
-                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                      {/* Base City badge / toggle */}
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const newBase = isBase ? "" : loc;
+                          setBaseLocation(newBase);
+                          // If setting as base, make sure it's active
+                          if (!isBase && !activeSearchLocations.includes(loc)) {
+                            setActiveSearchLocations(prev => [...prev, loc]);
+                          }
+                          const { patchUserProfile } = await import("@/app/actions/jobActions");
+                          await patchUserProfile({ baseLocation: newBase }, activeProfileId);
+                        }}
+                        className={`flex-shrink-0 transition-colors cursor-pointer ${
+                          isBase
+                            ? 'text-amber-500 hover:text-amber-700'
+                            : 'text-card-border/60 hover:text-amber-400'
+                        }`}
+                        title={isBase ? 'Remove as base city' : `Set "${loc}" as base city`}
+                        aria-label={isBase ? 'Remove base city' : `Set ${loc} as base city`}
+                      >
+                        <Home className="w-3 h-3" />
+                      </button>
+                      {isBase && (
+                        <span className="text-[9px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1 rounded">BASE</span>
+                      )}
+                      {!isBase && (
+                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                      )}
                       {loc}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           setActiveSearchLocations(prev => prev.filter(l => l !== loc));
+                          if (isBase) setBaseLocation("");
                           removeArrayItem('targetLocations', i);
                         }}
                         className="hover:text-red-400 cursor-pointer ml-0.5"
@@ -2839,14 +2880,20 @@ export default function SearchPage() {
                   <span className="text-text-muted text-[10px]">·</span>
                   <button
                     onClick={() => {
-                      if (activeSearchLocations.length > 0) {
-                        setActiveSearchLocations([activeSearchLocations[0]]);
-                      }
+                      const focusCity = baseLocation || activeSearchLocations[0];
+                      if (focusCity) setActiveSearchLocations([focusCity]);
                     }}
                     className="text-[10px] text-text-muted hover:underline cursor-pointer"
                   >
-                    Focus on First
+                    {baseLocation ? `Focus on Base (${baseLocation.split(',')[0]})` : 'Focus on First'}
                   </button>
+                </div>
+              )}
+              {/* Base city info strip */}
+              {baseLocation && (
+                <div className="flex items-center gap-1.5 mb-2 px-2 py-1 bg-amber-500/8 border border-amber-500/20 rounded-lg text-[10px] text-amber-700 dark:text-amber-400">
+                  <Home className="w-3 h-3 flex-shrink-0" />
+                  <span><strong>{baseLocation}</strong> is your base city — Dream Company commutes anchor here.</span>
                 </div>
               )}
               <input 
@@ -2861,6 +2908,13 @@ export default function SearchPage() {
                       addArrayItem('targetLocations', newLoc);
                       // Auto-activate new locations
                       setActiveSearchLocations(prev => [...prev, newLoc]);
+                      // If no base is set yet, auto-set as base
+                      if (!baseLocation) {
+                        setBaseLocation(newLoc);
+                        import("@/app/actions/jobActions").then(({ patchUserProfile }) => {
+                          patchUserProfile({ baseLocation: newLoc }, activeProfileId);
+                        });
+                      }
                       e.currentTarget.value = ''; 
                     } else {
                       handleSearch();
