@@ -31,7 +31,13 @@ import {
   HelpCircle,
   X,
   Users,
-  Building
+  Building,
+  Minimize2,
+  Maximize2,
+  Activity,
+  Terminal,
+  Check,
+  Loader2
 } from "lucide-react";
 
 import { 
@@ -100,6 +106,9 @@ export default function SearchPage() {
   const [isLoadingDescription, setIsLoadingDescription] = useState(false);
   const [showHighScoresOnly, setShowHighScoresOnly] = useState(false);
   const [searchMode, setSearchMode] = useState<'standard' | 'deep'>('standard');
+  const [isProgressModalMinimized, setIsProgressModalMinimized] = useState(false);
+  const [searchLogs, setSearchLogs] = useState<string[]>([]);
+  const logEndRef = useRef<HTMLDivElement>(null);
   const [showDismissModal, setShowDismissModal] = useState(false);
   const [showAlternativeTitles, setShowAlternativeTitles] = useState(false);
   const [showBooleanTools, setShowBooleanTools] = useState(false);
@@ -109,6 +118,14 @@ export default function SearchPage() {
   const [nicheBoards, setNicheBoards] = useState<any[]>([]);
   const [isGeneratingNicheBoards, setIsGeneratingNicheBoards] = useState(false);
   const [isScanningAllCompanies, setIsScanningAllCompanies] = useState(false);
+
+  // ── Location Pill-Toggle Architecture ──────────────────────────────────────
+  // activeSearchLocations: the subset of targetLocations currently selected for search.
+  // All locations are "on" by default. Users can deselect cities to focus a run.
+  const [activeSearchLocations, setActiveSearchLocations] = useState<string[]>([]);
+  const [showQuotaGuardrailModal, setShowQuotaGuardrailModal] = useState(false);
+  // pendingSearch is used to hold the search until the user confirms the guardrail modal
+  const [pendingSearchTitles, setPendingSearchTitles] = useState<string[] | null>(null);
 
   const [selectedJobType, setSelectedJobType] = useState<string>("all");
   const [scanningTitles, setScanningTitles] = useState<{ title: string; status: 'pending' | 'scanning' | 'done' | 'failed' }[]>([]);
@@ -133,6 +150,7 @@ export default function SearchPage() {
   const [postedWithinFilter, setPostedWithinFilter] = useState<string>("all");
   const [undoDismissJob, setUndoDismissJob] = useState<Job | null>(null);
   const [hideGhostJobs, setHideGhostJobs] = useState(false);
+  const [showFilterGrid, setShowFilterGrid] = useState(false);
   const [searchHistory, setSearchHistory] = useState<Array<{ date: string; query: string; count: number; mode: 'standard' | 'deep' }>>([
     { date: new Date(Date.now() - 1000 * 60 * 30).toISOString(), query: "Senior UX Designer", count: 8, mode: "standard" },
     { date: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), query: "Product Designer", count: 4, mode: "deep" }
@@ -155,11 +173,12 @@ export default function SearchPage() {
         if (reviewingJob) setReviewingJob(null);
         if (showDismissModal) setShowDismissModal(false);
         if (showMissingParamsModal) setShowMissingParamsModal(false);
+        if (showQuotaGuardrailModal) setShowQuotaGuardrailModal(false);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [reviewingJob, showDismissModal, showMissingParamsModal]);
+  }, [reviewingJob, showDismissModal, showMissingParamsModal, showQuotaGuardrailModal]);
 
   useEffect(() => {
     async function load() {
@@ -168,6 +187,8 @@ export default function SearchPage() {
         const p = await fetchUserProfile(activeProfileId);
         if (p) {
           setProfile(p);
+          setDreamCompanies(p.dreamCompanies || []);
+          setNicheBoards(p.nicheBoards || []);
           
           // 1. Get explicit roles, or fall back to experience roles
           let roles = p.targetTitles || [];
@@ -184,6 +205,11 @@ export default function SearchPage() {
           setTargetTitles(roles);
           setAlternativeTitles(p.alternativeTitles || []);
           setTargetLocations(locs);
+          // Initialize activeSearchLocations: use saved subset if stored, otherwise all locations active
+          const savedActive = p.activeSearchLocations && p.activeSearchLocations.length > 0
+            ? p.activeSearchLocations.filter((l: string) => locs.includes(l))
+            : locs;
+          setActiveSearchLocations(savedActive.length > 0 ? savedActive : locs);
           const activeSites = p.targetSites && p.targetSites.length > 0 ? p.targetSites : ["linkedin.com", "indeed.com"];
           if (p.targetSites && p.targetSites.length > 0) setTargetSites(p.targetSites);
           if (p.searchRadius) setRadius(p.searchRadius);
@@ -244,6 +270,10 @@ export default function SearchPage() {
           if (backgroundSearching) {
             setIsSearching(true);
             setStatus(`${agent.status} (Found ${agent.resultsFound || 0} matches so far)`);
+            setSearchLogs([
+              `[System] Syncing with background search...`,
+              `[Status] ${agent.status} (${agent.resultsFound || 0} matches found so far)`
+            ]);
           }
 
           // 3. Mark profile as loaded without auto-triggering a heavy live crawl on mount
@@ -362,6 +392,16 @@ export default function SearchPage() {
         setIsSearching(true);
         setStatus(`${agent.status} (Found ${agent.resultsFound || 0} matches so far)`);
         
+        setSearchLogs(prev => {
+          if (prev.length === 0) {
+            return [
+              `[System] Syncing with background search...`,
+              `[Status] ${agent.status} (${agent.resultsFound || 0} matches found so far)`
+            ];
+          }
+          return prev;
+        });
+
         import("@/app/actions/jobActions").then(({ fetchJobs }) => {
           fetchJobs(activeProfileId).then(allJobs => {
             if (!active) return;
@@ -389,6 +429,34 @@ export default function SearchPage() {
       clearInterval(interval);
     };
   }, [activeProfileId]);
+
+  // Telemetry Log Accumulator & Scroll Effect
+  useEffect(() => {
+    if (logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [searchLogs]);
+
+  useEffect(() => {
+    if (isSearching && status) {
+      setSearchLogs(prev => {
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const newLog = `[${timeStr}] ${status}`;
+        
+        const baseStatus = status.split(" (Found")[0];
+        
+        if (prev.length > 0) {
+          const lastLog = prev[prev.length - 1];
+          if (lastLog.includes(baseStatus)) {
+            const updated = [...prev];
+            updated[updated.length - 1] = newLog;
+            return updated;
+          }
+        }
+        return [...prev, newLog];
+      });
+    }
+  }, [status, isSearching]);
 
   // Reset active filter dropdown states when profile or search mode changes
   useEffect(() => {
@@ -694,7 +762,7 @@ export default function SearchPage() {
     if (!date) {
       return {
         text: "Date unknown",
-        className: "bg-slate-500/10 text-slate-400 border border-slate-500/20"
+        className: "bg-foreground/5 text-text-muted border border-card-border"
       };
     }
     const msDiff = Date.now() - new Date(date).getTime();
@@ -913,7 +981,9 @@ export default function SearchPage() {
         titles = targetTitles;
       }
     }
-    const locations = (locationsOverride || targetLocations).filter(isValidLocation);
+    // Use activeSearchLocations (pill-selected subset) unless a specific override is passed
+    const locations = (locationsOverride || activeSearchLocations.filter(isValidLocation))
+      .filter(isValidLocation);
 
     if (titles.length === 0 || locations.length === 0) {
       setMissingRoleInput(titles.join(", "));
@@ -922,8 +992,16 @@ export default function SearchPage() {
       return;
     }
 
+    // Quota Guardrail: warn when searching 4+ locations (high API cost)
+    if (!locationsOverride && locations.length >= 4) {
+      setPendingSearchTitles(titles);
+      setShowQuotaGuardrailModal(true);
+      return;
+    }
+
     setIsSearching(true);
     setStatus("Launching stealth browser...");
+    setSearchLogs(["[System] Initializing Discovery Agent...", "[System] Launching stealth browser..."]);
     setScanningTitles(titles.map(t => ({ title: t, status: 'pending' })));
     
     try {
@@ -1109,21 +1187,36 @@ export default function SearchPage() {
 
 
   const handleGenerateDreamList = async () => {
+    if (!profile || !(profile as any).geminiApiKey) {
+      alert("Gemini API Key missing! Please navigate to Agent Settings to add your key.");
+      return;
+    }
     setIsGeneratingDreamList(true);
     setStatus("AI is researching companies in your area...");
     try {
       const list = await generateDreamCompanies(targetLocations, radius, targetTitles, activeProfileId);
-      const initialList = list.map(c => ({ ...c, scanningStatus: 'idle' as const, jobsFoundCount: 0 }));
+      if (!list || list.length === 0) {
+        throw new Error("No companies discovered. Please verify your Gemini API key is configured.");
+      }
+      const initialList = list.map(c => ({ ...c, scanningStatus: 'idle' as 'idle' | 'scanning' | 'done' | 'failed', jobsFoundCount: 0 }));
       setDreamCompanies(initialList);
+      
+      const { patchUserProfile } = await import("@/app/actions/jobActions");
+      await patchUserProfile({ dreamCompanies: initialList }, activeProfileId);
+
       setIsGeneratingDreamList(false);
       setActiveTab('companies');
       setStatus("");
 
       // Start scanning each company sequentially in background
-      for (let idx = 0; idx < initialList.length; idx++) {
-        const comp = initialList[idx];
-        setDreamCompanies(prev => prev.map((c, i) => i === idx ? { ...c, scanningStatus: 'scanning' } : c));
-        setStatus(`Scanning ${idx + 1}/${initialList.length}: ${comp.name}...`);
+      let currentList = [...initialList];
+      for (let idx = 0; idx < currentList.length; idx++) {
+        const comp = currentList[idx];
+        currentList = currentList.map((c, i) => i === idx ? { ...c, scanningStatus: 'scanning' as const } : c);
+        setDreamCompanies(currentList);
+        await patchUserProfile({ dreamCompanies: currentList }, activeProfileId);
+        
+        setStatus(`Scanning ${idx + 1}/${currentList.length}: ${comp.name}...`);
         
         try {
           const { scanCompanyJobs, addJobs } = await import("@/app/actions/jobActions");
@@ -1138,23 +1231,31 @@ export default function SearchPage() {
               return updated;
             });
           }
-          setDreamCompanies(prev => prev.map((c, i) => i === idx ? { ...c, scanningStatus: 'done', jobsFoundCount: newJobs.length } : c));
+          currentList = currentList.map((c, i) => i === idx ? { ...c, scanningStatus: 'done' as const, jobsFoundCount: newJobs.length } : c);
         } catch (err) {
           console.error(err);
-          setDreamCompanies(prev => prev.map((c, i) => i === idx ? { ...c, scanningStatus: 'failed', jobsFoundCount: 0 } : c));
+          currentList = currentList.map((c, i) => i === idx ? { ...c, scanningStatus: 'failed' as const, jobsFoundCount: 0 } : c);
         }
+        setDreamCompanies(currentList);
+        await patchUserProfile({ dreamCompanies: currentList }, activeProfileId);
       }
       setStatus("Dream companies scanning complete.");
       setTimeout(() => setStatus(""), 4000);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setStatus("Failed to research companies.");
+      setStatus(e.message || "Failed to research companies.");
       setIsGeneratingDreamList(false);
     }
   };
 
   const handleScanCompany = async (index: number, companyName: string, careerUrl?: string) => {
-    setDreamCompanies(prev => prev.map((c, i) => i === index ? { ...c, scanningStatus: 'scanning' } : c));
+    setDreamCompanies(prev => {
+      const updated = prev.map((c, i) => i === index ? { ...c, scanningStatus: 'scanning' as const } : c);
+      import("@/app/actions/jobActions").then(async ({ patchUserProfile }) => {
+        await patchUserProfile({ dreamCompanies: updated }, activeProfileId);
+      });
+      return updated;
+    });
     setStatus(`Scanning ${companyName}...`);
     try {
       const { scanCompanyJobs, addJobs } = await import("@/app/actions/jobActions");
@@ -1172,28 +1273,44 @@ export default function SearchPage() {
       } else {
         setStatus(`No openings found at ${companyName}.`);
       }
-      setDreamCompanies(prev => prev.map((c, i) => i === index ? { ...c, scanningStatus: 'done', jobsFoundCount: newJobs.length } : c));
+      
+      setDreamCompanies(prev => {
+        const updated = prev.map((c, i) => i === index ? { ...c, scanningStatus: 'done' as const, jobsFoundCount: newJobs.length } : c);
+        import("@/app/actions/jobActions").then(async ({ patchUserProfile }) => {
+          await patchUserProfile({ dreamCompanies: updated }, activeProfileId);
+        });
+        return updated;
+      });
       setTimeout(() => setStatus(""), 3000);
     } catch (error) {
       console.error(error);
       setStatus(`Scan failed for ${companyName}.`);
-      setDreamCompanies(prev => prev.map((c, i) => i === index ? { ...c, scanningStatus: 'failed' } : c));
+      setDreamCompanies(prev => {
+        const updated = prev.map((c, i) => i === index ? { ...c, scanningStatus: 'failed' as const } : c);
+        import("@/app/actions/jobActions").then(async ({ patchUserProfile }) => {
+          await patchUserProfile({ dreamCompanies: updated }, activeProfileId);
+        });
+        return updated;
+      });
     }
   };
-
 
   const handleScanAllCompanies = async () => {
     if (dreamCompanies.length === 0) return;
     setIsScanningAllCompanies(true);
     setStatus("Batch agent scanning all discovered dream companies...");
     try {
-      const { scanCompanyJobs, addJobs } = await import("@/app/actions/jobActions");
+      const { scanCompanyJobs, addJobs, patchUserProfile } = await import("@/app/actions/jobActions");
       let totalFound = 0;
+      let currentList = [...dreamCompanies];
 
-      for (let i = 0; i < dreamCompanies.length; i++) {
-        const company = dreamCompanies[i];
-        setDreamCompanies(prev => prev.map((c, index) => index === i ? { ...c, scanningStatus: 'scanning' } : c));
-        setStatus(`Batch scanning [${i + 1}/${dreamCompanies.length}]: ${company.name}...`);
+      for (let i = 0; i < currentList.length; i++) {
+        const company = currentList[i];
+        currentList = currentList.map((c, index) => index === i ? { ...c, scanningStatus: 'scanning' as const } : c);
+        setDreamCompanies(currentList);
+        await patchUserProfile({ dreamCompanies: currentList }, activeProfileId);
+        
+        setStatus(`Batch scanning [${i + 1}/${currentList.length}]: ${company.name}...`);
         
         try {
           const newJobs = await scanCompanyJobs(company.name, targetTitles, targetLocations, company.careerUrl, alternativeTitles);
@@ -1208,11 +1325,13 @@ export default function SearchPage() {
             });
             totalFound += newJobs.length;
           }
-          setDreamCompanies(prev => prev.map((c, index) => index === i ? { ...c, scanningStatus: 'done', jobsFoundCount: newJobs.length } : c));
+          currentList = currentList.map((c, index) => index === i ? { ...c, scanningStatus: 'done' as const, jobsFoundCount: newJobs.length } : c);
         } catch (err) {
           console.error(err);
-          setDreamCompanies(prev => prev.map((c, index) => index === i ? { ...c, scanningStatus: 'failed' } : c));
+          currentList = currentList.map((c, index) => index === i ? { ...c, scanningStatus: 'failed' as const } : c);
         }
+        setDreamCompanies(currentList);
+        await patchUserProfile({ dreamCompanies: currentList }, activeProfileId);
       }
       setStatus(`Batch scan complete! Discovered ${totalFound} company openings.`);
       setTimeout(() => setStatus(""), 4000);
@@ -1225,7 +1344,7 @@ export default function SearchPage() {
   };
 
   const handleGenerateNicheBoards = async () => {
-    if (!(profile as any).geminiApiKey) {
+    if (!profile || !(profile as any).geminiApiKey) {
       alert("Gemini API Key missing! Please navigate to Agent Settings to add your key.");
       return;
     }
@@ -1234,6 +1353,10 @@ export default function SearchPage() {
     try {
       const boards = await generateNicheJobBoards(activeProfileId);
       setNicheBoards(boards);
+      
+      const { patchUserProfile } = await import("@/app/actions/jobActions");
+      await patchUserProfile({ nicheBoards: boards }, activeProfileId);
+
       setStatus(`Discovered ${boards.length} niche job boards!`);
       setTimeout(() => setStatus(""), 4000);
     } catch (e) {
@@ -1244,9 +1367,13 @@ export default function SearchPage() {
     }
   };
 
+  // Compute percentage based on scanningTitles status
+  const totalSteps = scanningTitles.length;
+  const completedSteps = scanningTitles.filter(t => t.status === 'done' || t.status === 'failed').length;
+  const progressPercent = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
 
   return (
-    <div className="flex h-screen overflow-hidden w-full relative">
+    <div className="flex h-[calc(100vh-54px)] overflow-hidden w-full relative">
       
       {/* Center Main Window (Top Nav and Discovery Engine Content) */}
       <main role="main" className="flex-1 flex flex-col h-full overflow-y-auto p-8 space-y-8 min-w-0 transition-all duration-300">
@@ -1299,51 +1426,50 @@ export default function SearchPage() {
 
         {/* Outer results display (Takes remaining height) */}
         <div className="space-y-6">
-          <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-card-border pb-2 gap-4">
-            <div className="flex gap-6 overflow-x-auto pb-1 max-w-full shrink-0 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between border-b border-card-border/60 pb-3 gap-4">
+            <div className="flex gap-6 overflow-x-auto pb-1 max-w-full min-w-0 relative -mb-[13px] [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               <button 
                 onClick={() => setActiveTab('live')}
-                className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all relative flex items-center gap-1.5 ${activeTab === 'live' ? 'text-indigo-600 dark:text-indigo-400 font-extrabold' : 'text-text-muted hover:text-foreground'}`}
+                className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all relative flex items-center gap-1.5 whitespace-nowrap ${activeTab === 'live' ? 'text-indigo-600 dark:text-indigo-400 font-extrabold' : 'text-text-muted hover:text-foreground'}`}
               >
                 Live Opportunities
                 <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 font-black text-[9px]">
                   {results.filter(j => j.status === 'Discovery' && !j.isFavourite).length}
                 </span>
-                {activeTab === 'live' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 animate-in fade-in duration-300" />}
+                {activeTab === 'live' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-indigo-600 dark:bg-indigo-400 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.5)] animate-in fade-in duration-300" />}
               </button>
               <button 
                 onClick={() => setActiveTab('ghost')}
-                className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all relative flex items-center gap-1.5 ${activeTab === 'ghost' ? 'text-amber-600 dark:text-amber-400 font-extrabold' : 'text-text-muted hover:text-foreground'}`}
+                className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all relative flex items-center gap-1.5 whitespace-nowrap ${activeTab === 'ghost' ? 'text-amber-600 dark:text-amber-400 font-extrabold' : 'text-text-muted hover:text-foreground'}`}
               >
                 Rejected / Flagged
                 <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-black text-[9px]">
                   {results.filter(j => j.status === 'Rejected').length}
                 </span>
-                {activeTab === 'ghost' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-600 dark:bg-amber-400 animate-in fade-in duration-300" />}
+                {activeTab === 'ghost' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-amber-600 dark:bg-amber-400 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.5)] animate-in fade-in duration-300" />}
               </button>
               <button 
                 onClick={() => setActiveTab('companies')}
-                className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all relative ${activeTab === 'companies' ? 'text-indigo-600 dark:text-indigo-400 font-extrabold' : 'text-text-muted hover:text-foreground'}`}
+                className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all relative whitespace-nowrap ${activeTab === 'companies' ? 'text-indigo-600 dark:text-indigo-400 font-extrabold' : 'text-text-muted hover:text-foreground'}`}
               >
                 Dream Companies
-                {activeTab === 'companies' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600 dark:bg-indigo-400 animate-in fade-in duration-300" />}
+                {activeTab === 'companies' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-indigo-600 dark:bg-indigo-400 rounded-full shadow-[0_0_8px_rgba(99,102,241,0.5)] animate-in fade-in duration-300" />}
               </button>
               <button 
                 onClick={() => setActiveTab('boards')}
-                className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all relative ${activeTab === 'boards' ? 'text-emerald-600 dark:text-emerald-400 font-extrabold' : 'text-text-muted hover:text-foreground'}`}
+                className={`pb-3 text-xs font-bold uppercase tracking-wider transition-all relative whitespace-nowrap ${activeTab === 'boards' ? 'text-emerald-600 dark:text-emerald-400 font-extrabold' : 'text-text-muted hover:text-foreground'}`}
               >
                 Niche Boards
-                {activeTab === 'boards' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-600 dark:bg-emerald-400 animate-in fade-in duration-300" />}
+                {activeTab === 'boards' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-emerald-600 dark:bg-emerald-400 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-in fade-in duration-300" />}
               </button>
             </div>
             
-            {/* Stacking Buttons on Right into two rows for cleaner spacing */}
-            <div className="flex flex-col gap-2 shrink-0 md:items-end">
-              {/* Row 1: Actions */}
-              <div className="flex flex-wrap items-center gap-2">
+            {/* Command Bar Header (Actions & View controls in single row) */}
+            <div className="flex flex-col sm:flex-row gap-2 shrink-0 items-stretch sm:items-center">
+              <div className="flex items-center gap-2">
                 <button 
                   onClick={selectAll}
-                  className="btn-secondary py-1 px-2.5 text-[9px] font-bold uppercase tracking-wider cursor-pointer"
+                  className="btn-secondary py-1.5 px-3 text-xs font-semibold tracking-wide cursor-pointer transition-all duration-200"
                   title="Select or deselect all visible jobs on the current tab for bulk actions"
                 >
                   {selectedIds.length === filteredResults.length ? "Deselect All" : "Select All"}
@@ -1351,101 +1477,141 @@ export default function SearchPage() {
                 <button 
                   onClick={() => handleBulkAnalyze(filteredResults.map(j => j.id))}
                   disabled={isBulkAnalyzing || filteredResults.length === 0}
-                  className={`btn-secondary py-1 px-2.5 text-[9px] font-bold uppercase tracking-wider cursor-pointer bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all ${isBulkAnalyzing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`btn-secondary py-1.5 px-3 text-xs font-semibold tracking-wide cursor-pointer bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all ${isBulkAnalyzing ? 'opacity-50 cursor-not-allowed' : ''}`}
                   title="Analyze all currently visible jobs sequentially using Gemini AI"
                 >
                   {isBulkAnalyzing ? "Analyzing..." : `AI Analyze All (${filteredResults.length})`}
                 </button>
+              </div>
+
+              <div className="flex items-center gap-2">
                 <button 
                   onClick={() => setShowHighScoresOnly(!showHighScoresOnly)}
-                  className={`btn-secondary py-1 px-2.5 text-[9px] font-bold uppercase tracking-wider cursor-pointer flex items-center gap-1 transition-all ${showHighScoresOnly ? 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border-indigo-500/50 shadow-lg shadow-indigo-500/10' : ''}`}
+                  className={`btn-secondary py-1.5 px-3 text-xs font-semibold tracking-wide cursor-pointer flex items-center gap-1.5 transition-all ${showHighScoresOnly ? 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border-indigo-500/50 shadow-lg shadow-indigo-500/10' : ''}`}
                   title="Filter the list to only show jobs with an AI match score of 80% or higher"
                 >
-                  <Sparkles className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                   {showHighScoresOnly ? "Showing 80%+" : "High Fit (80%+)"}
                 </button>
                 <button 
-                  onClick={() => setShowStrategyPanel(!showStrategyPanel)}
-                  className={`btn-secondary py-1 px-2.5 text-[9px] font-bold uppercase tracking-wider cursor-pointer flex items-center gap-1 transition-all ${showStrategyPanel ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20' : ''}`}
-                  title={showStrategyPanel ? "Hide the Discovery Strategy sidebar config panel" : "Show the Discovery Strategy sidebar config panel"}
+                  onClick={() => setHideGhostJobs(!hideGhostJobs)}
+                  className={`btn-secondary py-1.5 px-3 text-xs font-semibold tracking-wide cursor-pointer flex items-center gap-1.5 transition-all ${hideGhostJobs ? 'bg-amber-500/20 text-amber-500 border-amber-500/40 shadow-lg shadow-amber-500/10' : ''}`}
+                  title="Hide jobs with a ghost/harvest score of 80% or higher"
                 >
-                  <SlidersHorizontal className="w-3 h-3" />
-                  {showStrategyPanel ? "Hide Config" : "Show Config"}
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                  {hideGhostJobs ? "Ghost Hidden" : "Hide Ghost"}
                 </button>
-              </div>
-
-              {/* Row 2: Select Filters */}
-              <div className="flex flex-wrap items-center gap-2">
-                {/* Sort By Dropdown */}
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
-                  className="btn-secondary py-1 px-2 text-[9px] font-bold uppercase tracking-wider bg-card border border-indigo-500/20 rounded-lg outline-none cursor-pointer text-indigo-600 dark:text-indigo-400 font-extrabold"
-                  title="Sort the results display"
+                <button 
+                  onClick={() => setShowFilterGrid(!showFilterGrid)}
+                  className={`btn-secondary py-1.5 px-3 text-xs font-semibold tracking-wide cursor-pointer flex items-center gap-1.5 transition-all ${showFilterGrid ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20' : ''}`}
+                  title="Toggle collapsible search filter drawer"
                 >
-                  <option value="newest">🕒 Newest First</option>
-                  <option value="match">✦ Best Match (AI)</option>
-                  <option value="oldest">⏳ Oldest First</option>
-                </select>
-
-                <select
-                  value={selectedJobType}
-                  onChange={(e) => setSelectedJobType(e.target.value)}
-                  className="btn-secondary py-1 px-2 text-[9px] font-bold uppercase tracking-wider bg-card border border-card-border rounded-lg outline-none cursor-pointer"
-                >
-                  <option value="all">All Job Types</option>
-                  <option value="full-time">Full-Time</option>
-                  <option value="part-time">Part-Time</option>
-                  <option value="contract">Contract (1099)</option>
-                  <option value="internship">Internship</option>
-                </select>
-
-                <select
-                  value={selectedLocationFilter}
-                  onChange={(e) => setSelectedLocationFilter(e.target.value)}
-                  className="btn-secondary py-1 px-2 text-[9px] font-bold uppercase tracking-wider bg-card border border-card-border rounded-lg outline-none cursor-pointer"
-                >
-                  <option value="all">All Locations</option>
-                  {targetLocations.map((loc, index) => (
-                    <option key={index} value={loc}>{loc}</option>
-                  ))}
-                </select>
-
-                <select
-                  value={selectedSiteFilter}
-                  onChange={(e) => setSelectedSiteFilter(e.target.value)}
-                  className="btn-secondary py-1 px-2 text-[9px] font-bold uppercase tracking-wider bg-card border border-card-border rounded-lg outline-none cursor-pointer"
-                >
-                  <option value="all">All Sites</option>
-                  {siteOptions.map((site, index) => (
-                    <option key={index} value={site.toLowerCase()}>{site}</option>
-                  ))}
-                </select>
-
-                <select
-                  value={postedWithinFilter}
-                  onChange={(e) => setPostedWithinFilter(e.target.value)}
-                  className="btn-secondary py-1 px-2 text-[9px] font-bold uppercase tracking-wider bg-card border border-card-border rounded-lg outline-none cursor-pointer"
-                >
-                  <option value="all">Anytime</option>
-                  <option value="3d">Last 3 Days</option>
-                  <option value="1w">Last Week</option>
-                  <option value="2w">Last 2 Weeks</option>
-                  <option value="1m">Last Month</option>
-                </select>
-
-                <label className="flex items-center gap-1.5 px-2.5 py-1 bg-black/10 dark:bg-white/5 border border-card-border rounded-lg text-[9px] font-bold uppercase tracking-wider cursor-pointer hover:bg-black/20 dark:hover:bg-white/10 transition-colors select-none shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={hideGhostJobs}
-                    onChange={(e) => setHideGhostJobs(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded border-card-border bg-black/5 dark:bg-white/5 text-amber-500 focus:ring-amber-500 focus:ring-offset-0 transition-all cursor-pointer"
-                  />
-                  <span>Hide Ghost/Harvest (80%+)</span>
-                </label>
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>Filters</span>
+                  {(selectedJobType !== 'all' || selectedLocationFilter !== 'all' || selectedSiteFilter !== 'all' || postedWithinFilter !== 'all' || hideGhostJobs) && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                  )}
+                </button>
               </div>
             </div>
           </div>
+
+          {/* Collapsible Filter Grid */}
+          {showFilterGrid && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 p-4 bg-card/45 backdrop-blur-xl border border-card-border/60 rounded-2xl animate-in slide-in-from-top-2 duration-200">
+              {/* Sort By */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block">Sort By</span>
+                <div className="relative">
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="w-full btn-secondary py-2 pl-3 pr-8 text-xs bg-card border border-card-border rounded-xl outline-none cursor-pointer appearance-none text-indigo-600 dark:text-indigo-400 font-bold"
+                    title="Sort the results display"
+                  >
+                    <option value="newest">🕒 Newest First</option>
+                    <option value="match">✦ Best Match (AI)</option>
+                    <option value="oldest">⏳ Oldest First</option>
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Job Type */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block">Job Type</span>
+                <div className="relative">
+                  <select
+                    value={selectedJobType}
+                    onChange={(e) => setSelectedJobType(e.target.value)}
+                    className="w-full btn-secondary py-2 pl-3 pr-8 text-xs bg-card border border-card-border rounded-xl outline-none cursor-pointer appearance-none"
+                  >
+                    <option value="all">All Job Types</option>
+                    <option value="full-time">Full-Time</option>
+                    <option value="part-time">Part-Time</option>
+                    <option value="contract">Contract (1099)</option>
+                    <option value="internship">Internship</option>
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-text-muted absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Location */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block">Location</span>
+                <div className="relative">
+                  <select
+                    value={selectedLocationFilter}
+                    onChange={(e) => setSelectedLocationFilter(e.target.value)}
+                    className="w-full btn-secondary py-2 pl-3 pr-8 text-xs bg-card border border-card-border rounded-xl outline-none cursor-pointer appearance-none"
+                  >
+                    <option value="all">All Locations</option>
+                    {targetLocations.map((loc, index) => (
+                      <option key={index} value={loc}>{loc}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-text-muted absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Site Source */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block">Site Source</span>
+                <div className="relative">
+                  <select
+                    value={selectedSiteFilter}
+                    onChange={(e) => setSelectedSiteFilter(e.target.value)}
+                    className="w-full btn-secondary py-2 pl-3 pr-8 text-xs bg-card border border-card-border rounded-xl outline-none cursor-pointer appearance-none"
+                  >
+                    <option value="all">All Sites</option>
+                    {siteOptions.map((site, index) => (
+                      <option key={index} value={site.toLowerCase()}>{site}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-text-muted absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Recency */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block">Recency</span>
+                <div className="relative">
+                  <select
+                    value={postedWithinFilter}
+                    onChange={(e) => setPostedWithinFilter(e.target.value)}
+                    className="w-full btn-secondary py-2 pl-3 pr-8 text-xs bg-card border border-card-border rounded-xl outline-none cursor-pointer appearance-none"
+                  >
+                    <option value="all">Anytime</option>
+                    <option value="3d">Last 3 Days</option>
+                    <option value="1w">Last Week</option>
+                    <option value="2w">Last 2 Weeks</option>
+                    <option value="1m">Last Month</option>
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-text-muted absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+          )}
 
 
 
@@ -1477,10 +1643,10 @@ export default function SearchPage() {
                   setSelectedTabRole("all");
                   setActiveRole("");
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
                   selectedTabRole === "all"
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/10'
-                    : 'bg-black/5 dark:bg-white/5 border border-card-border text-text-muted hover:text-foreground'
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-500/10'
+                    : 'bg-card border-card-border/60 text-text-muted hover:text-foreground'
                 }`}
               >
                 All Roles ({results.length})
@@ -1497,46 +1663,46 @@ export default function SearchPage() {
                 const reason = rank?.reason;
                 
                 return (
-                  <div key={idx} className="flex items-center">
-                    <button
-                      onClick={() => {
-                        setSelectedTabRole(role);
-                        setActiveRole(role);
-                      }}
-                      title={reason}
-                      className={`px-3 py-1.5 rounded-l-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                        selectedTabRole === role 
-                          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/10' 
-                          : 'bg-black/5 dark:bg-white/5 border border-card-border border-r-0 text-text-muted hover:text-foreground'
-                      }`}
-                    >
-                      {role} ({count})
-                      {score !== undefined && (
-                        <span className={`text-[9px] px-1 py-0.5 rounded font-black ${
-                          score >= 80 
-                            ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
-                            : score >= 50 
-                              ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400' 
-                              : 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
-                        }`}>
-                          {score}%
-                        </span>
-                      )}
-                    </button>
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setSelectedTabRole(role);
+                      setActiveRole(role);
+                    }}
+                    title={reason}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 border group/role ${
+                      selectedTabRole === role 
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-500/10' 
+                        : 'bg-card border-card-border/60 text-text-muted hover:text-foreground'
+                    }`}
+                  >
+                    <span>{role} ({count})</span>
+                    {score !== undefined && (
+                      <span className={`text-[9px] px-1 py-0.5 rounded font-black ${
+                        score >= 80 
+                          ? 'bg-emerald-500/25 text-emerald-600 dark:text-emerald-400' 
+                          : score >= 50 
+                            ? 'bg-amber-500/25 text-amber-600 dark:text-amber-400' 
+                            : 'bg-rose-500/25 text-rose-600 dark:text-rose-400'
+                      }`}>
+                        {score}%
+                      </span>
+                    )}
                     <a 
                       href={`/search?activeRole=${encodeURIComponent(role)}`} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className={`p-1.5 rounded-r-lg border text-xs flex items-center justify-center transition-all ${
-                        selectedTabRole === role
-                          ? 'bg-indigo-700 border-indigo-700 text-white hover:bg-indigo-800'
-                          : 'bg-black/5 dark:bg-white/5 border-card-border text-text-muted hover:text-foreground hover:bg-black/10 dark:hover:bg-white/10'
+                      className={`text-xs flex items-center justify-center transition-opacity shrink-0 ml-0.5 ${
+                        selectedTabRole === role 
+                          ? 'opacity-85 hover:opacity-100 text-white' 
+                          : 'opacity-0 group-hover/role:opacity-60 hover:!opacity-100 text-text-muted'
                       }`}
+                      onClick={(e) => e.stopPropagation()} // Prevent triggering parent button click
                       title="Open this role feed in a new tab"
                     >
-                      <ExternalLink size={12} />
+                      <ExternalLink size={11} />
                     </a>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -1734,7 +1900,7 @@ export default function SearchPage() {
                          {/* Local Presence & Commute */}
                          <div className="flex items-center gap-3 mt-1.5 mb-3">
                            {company.commuteDistance && (
-                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-2 py-0.5 rounded">
+                             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-text-muted bg-black/5 dark:bg-white/5 border border-card-border px-2 py-0.5 rounded">
                                🚗 {company.commuteDistance} commute
                              </span>
                            )}
@@ -1746,14 +1912,14 @@ export default function SearchPage() {
                          <p className="text-xs text-text-muted leading-relaxed mb-3 italic">&ldquo;{company.reasoning}&rdquo;</p>
                          
                          {company.localPresence && (
-                           <div className="mb-3 text-[11px] leading-relaxed text-slate-700 dark:text-slate-400 bg-black/5 dark:bg-white/5 p-2 rounded border border-card-border/50">
-                             <strong className="text-slate-800 dark:text-slate-200">Local Footprint:</strong> {company.localPresence}
+                           <div className="mb-3 text-[11px] leading-relaxed text-text-muted bg-black/5 dark:bg-white/5 p-2 rounded border border-card-border/50">
+                             <strong className="text-foreground">Local Footprint:</strong> {company.localPresence}
                            </div>
                          )}
 
                          {company.typicalRoles && company.typicalRoles.length > 0 && (
                            <div className="mb-4 text-[10px] text-text-muted flex items-center gap-1.5 flex-wrap">
-                             <span className="font-bold text-slate-800 dark:text-slate-200">Hires for:</span>
+                             <span className="font-bold text-foreground">Hires for:</span>
                              {company.typicalRoles.map((role: string, idx: number) => (
                                <span key={idx} className="bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded border border-card-border/50">{role}</span>
                              ))}
@@ -1775,7 +1941,7 @@ export default function SearchPage() {
                                href={company.recruiterSearchUrl} 
                                target="_blank" 
                                rel="noopener noreferrer"
-                               className="py-2 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 hover:text-indigo-500 rounded-lg text-text-muted border border-card-border flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-widest"
+                               className="py-2 px-3 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 hover:text-indigo-500 rounded-lg text-text-muted border border-card-border flex items-center justify-center gap-1.5 text-[10px] font-black uppercase tracking-widest"
                                title="Search local recruiters on LinkedIn"
                              >
                                <Users className="w-3.5 h-3.5 shrink-0 text-indigo-500" />
@@ -1793,33 +1959,124 @@ export default function SearchPage() {
                </div>
             </div>
           ) : results.length === 0 && isSearching ? (
-            <div className="space-y-4">
-              {scanningTitles.map((scan, i) => (
-                <div key={i} className={`glass-card flex items-center justify-between p-6 transition-all ${scan.status === 'scanning' ? 'border-indigo-500 bg-indigo-500/5 shadow-lg shadow-indigo-500/5' : 'border-card-border/60 opacity-60'}`}>
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-3">
-                      {scan.status === 'scanning' ? (
-                        <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
-                      ) : scan.status === 'done' ? (
-                        <div className="w-5 h-5 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-xs font-bold">✓</div>
-                      ) : scan.status === 'failed' ? (
-                        <div className="w-5 h-5 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center text-xs font-bold">!</div>
-                      ) : (
-                        <div className="w-5 h-5 rounded-full bg-slate-500/10 text-slate-500 flex items-center justify-center text-xs font-bold">•</div>
-                      )}
-                      <div>
-                        <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
-                          Scanning for &quot;{scan.title}&quot;
-                        </h4>
-                        <p className="text-[10px] text-text-muted font-black uppercase tracking-wider">
-                          {scan.status === 'scanning' ? 'Active Scraping...' : scan.status === 'done' ? 'Completed' : scan.status === 'failed' ? 'Failed' : 'Pending Queue'}
-                        </p>
-                      </div>
-                    </div>
+            <div className="space-y-6">
+              {/* Stepper Active Header Card */}
+              <div className="glass-card p-6 border-indigo-500/20 bg-indigo-500/5 dark:bg-indigo-500/[0.02] rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 animate-in fade-in duration-300">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center relative">
+                    <Loader2 className="w-5 h-5 text-indigo-500 animate-spin shrink-0" />
+                    <div className="absolute inset-0 border border-indigo-500/20 rounded-full animate-ping" />
                   </div>
-                  <div className="animate-pulse bg-slate-200 dark:bg-white/5 h-8 w-24 rounded-lg" />
+                  <div>
+                    <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                      Stealth Search Engine Active
+                    </h4>
+                    <p className="text-xs text-text-muted">
+                      Probing career platforms. Monitor telemetry in the progress dashboard.
+                    </p>
+                  </div>
                 </div>
-              ))}
+                <button
+                  onClick={() => setIsProgressModalMinimized(false)}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-lg shadow-indigo-500/20 w-full md:w-auto text-center font-bold"
+                >
+                  View Telemetry Console
+                </button>
+              </div>
+
+              {/* Pulsing loading skeletons */}
+              <div className="space-y-4">
+                {[1, 2, 3].map((idx) => (
+                  <div key={idx} className="glass-card p-6 space-y-4 animate-pulse border-card-border/60">
+                    <div className="flex justify-between items-center">
+                      <div className="flex gap-2">
+                        <div className="h-4 w-16 bg-black/10 dark:bg-white/10 rounded" />
+                        <div className="h-4 w-12 bg-black/10 dark:bg-white/10 rounded" />
+                      </div>
+                      <div className="h-4 w-20 bg-black/10 dark:bg-white/10 rounded" />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="h-6 w-2/3 bg-black/15 dark:bg-white/15 rounded" />
+                      <div className="h-4 w-1/3 bg-black/10 dark:bg-white/10 rounded" />
+                    </div>
+                    <div className="h-12 w-full bg-black/5 dark:bg-white/5 rounded-lg" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : results.length === 0 && !isSearching && lastSearchTime !== null ? (
+            <div className="glass-card py-16 px-8 text-center space-y-6 max-w-2xl mx-auto border border-amber-500/20 bg-amber-500/[0.02] dark:bg-amber-500/[0.01] rounded-[2.5rem] shadow-xl shadow-amber-500/[0.01] animate-in fade-in duration-300">
+              <div className="relative w-20 h-20 bg-amber-500/10 rounded-full flex items-center justify-center mx-auto">
+                <MapPin className="w-10 h-10 text-amber-500" />
+                <div className="absolute inset-0 border border-amber-500/20 rounded-full animate-ping" style={{ animationDuration: '3s' }} />
+              </div>
+              
+              <div className="space-y-2">
+                <h3 className="font-bold text-xl text-foreground font-outfit">No Opportunities Discovered</h3>
+                <p className="text-sm text-text-muted max-w-lg mx-auto leading-relaxed">
+                  Sorry Dominic, no local companies shown within <strong className="text-foreground">{radius} miles</strong> radius of: <span className="text-foreground font-semibold">{targetLocations.join(", ") || "your target locations"}</span> matching roles: <span className="text-foreground font-semibold">{targetTitles.join(", ") || "your target roles"}</span>.
+                </p>
+              </div>
+
+              {/* Suggestions Panel */}
+              <div className="bg-black/5 dark:bg-white/5 border border-card-border rounded-2xl p-6 text-left max-w-xl mx-auto space-y-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-text-muted">Recommended Strategies to Widen Search</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div className="space-y-1">
+                    <p className="font-bold text-foreground flex items-center gap-1.5 font-bold">
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-500" />
+                      1. Widen Search Radius
+                    </p>
+                    <p className="text-text-muted text-[11px]">Increase search radius to 50 or 100 miles in strategy settings.</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-bold text-foreground flex items-center gap-1.5 font-bold">
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                      2. Add Alternative Roles
+                    </p>
+                    <p className="text-text-muted text-[11px]">Add more keywords (e.g. UX, Product Designer) in your profile.</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-bold text-foreground flex items-center gap-1.5 font-bold">
+                      <Wand2 className="w-3.5 h-3.5 text-emerald-500" />
+                      3. Deep Scan (ATS Direct)
+                    </p>
+                    <p className="text-text-muted text-[11px]">Switch search mode to 'Deep' to directly probe company career sites.</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-bold text-foreground flex items-center gap-1.5 font-bold">
+                      <Globe className="w-3.5 h-3.5 text-emerald-500" />
+                      4. Verify Local API Keys
+                    </p>
+                    <p className="text-text-muted text-[11px]">Ensure JSearch or Adzuna API credentials are configured.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 justify-center max-w-md mx-auto pt-2">
+                <button
+                  onClick={() => {
+                    const expanded = Math.min(radius + 25, 100);
+                    setRadius(expanded);
+                    handleSearch(targetTitles, targetLocations);
+                  }}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-lg shadow-indigo-500/20 font-bold"
+                >
+                  Expand Radius to {Math.min(radius + 25, 100)} Miles & Retry
+                </button>
+                {searchMode === 'standard' && (
+                  <button
+                    onClick={() => {
+                      setSearchMode('deep');
+                      setStatus("Switched to Precision Deep Search mode.");
+                      setTimeout(() => setStatus(""), 3000);
+                    }}
+                    className="px-5 py-2.5 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-foreground border border-card-border text-xs font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer font-bold"
+                  >
+                    Switch to Deep Search
+                  </button>
+                )}
+              </div>
             </div>
           ) : results.length === 0 && !isSearching ? (
             <div className="glass-card py-20 text-center space-y-4">
@@ -1827,36 +2084,35 @@ export default function SearchPage() {
                 <Search className="w-8 h-8 text-text-muted" />
               </div>
               <div>
-                <p className="font-bold">No active search running</p>
+                <p className="font-bold text-foreground">No active search running</p>
                 <p className="text-sm text-text-muted">Trigger the agent to scan platforms for matches.</p>
               </div>
             </div>
           ) : filteredResults.length === 0 ? (
-            <div className="glass-card py-20 text-center space-y-4 border-dashed border-card-border">
-              <div className="w-16 h-16 bg-black/5 dark:bg-white/5 rounded-full flex items-center justify-center mx-auto">
-                <Filter className="w-8 h-8 text-text-muted" />
+            <div className="glass-card py-20 text-center space-y-6 border-dashed border-card-border max-w-xl mx-auto rounded-[2rem]">
+              <div className="w-16 h-16 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto animate-pulse">
+                <Filter className="w-8 h-8 text-indigo-500" />
               </div>
-              <div>
-                <p className="font-bold">No matching opportunities found</p>
-                <p className="text-sm text-text-muted mb-4">
-                  {results.length > 0 
-                    ? `All ${results.length} discovered opportunities are currently hidden by your active filters.` 
-                    : "No search results match your strategy."}
+              <div className="space-y-2">
+                <p className="font-bold text-foreground text-lg font-outfit">Opportunities filtered out</p>
+                <p className="text-xs text-text-muted max-w-md mx-auto leading-relaxed">
+                  All {results.length} discovered opportunities are currently hidden by your active filter criteria (e.g. setting, site, or job type).
                 </p>
-                {results.length > 0 && (
-                  <button
-                    onClick={() => {
-                      setSelectedJobType("all");
-                      setSelectedLocationFilter("all");
-                      setSelectedSiteFilter("all");
-                      setWorkSettingFilter("all");
-                    }}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer shadow-lg shadow-indigo-500/20"
-                  >
-                    Clear Active Filters
-                  </button>
-                )}
               </div>
+              <button
+                onClick={() => {
+                  setSelectedJobType("all");
+                  setSelectedLocationFilter("all");
+                  setSelectedSiteFilter("all");
+                  setWorkSettingFilter("all");
+                  setPostedWithinFilter("all");
+                  setShowHighScoresOnly(false);
+                  setHideGhostJobs(false);
+                }}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-lg shadow-indigo-500/20 font-bold"
+              >
+                Clear All Active Filters
+              </button>
             </div>
           ) : (
             <div className="space-y-4">
@@ -1902,8 +2158,8 @@ export default function SearchPage() {
                 </div>
               )}
               {isSearching && (
-                <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden shrink-0 relative mb-4">
-                  <div className="bg-indigo-655 !bg-indigo-600 h-full rounded-full animate-pulse w-2/3" />
+                <div className="w-full bg-black/5 dark:bg-white/5 h-1.5 rounded-full overflow-hidden shrink-0 relative mb-4">
+                  <div className="bg-indigo-600 h-full rounded-full animate-pulse w-2/3" />
                 </div>
               )}
               {isSearching && scanningTitles.length > 0 && (
@@ -1911,7 +2167,7 @@ export default function SearchPage() {
                   <h3 className="font-bold text-xs uppercase tracking-widest text-indigo-600 dark:text-indigo-400">Stealth Engine Active Scanning Process</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {scanningTitles.map((scan, i) => (
-                      <div key={i} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${scan.status === 'scanning' ? 'border-indigo-500 bg-indigo-500/5' : 'border-card-border/60 opacity-60'}`}>
+                      <div key={i} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${scan.status === 'scanning' ? 'border-indigo-500 bg-indigo-500/5' : 'border-card-border'}`}>
                         {scan.status === 'scanning' ? (
                           <div className="w-4 h-4 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shrink-0" />
                         ) : scan.status === 'done' ? (
@@ -1919,7 +2175,7 @@ export default function SearchPage() {
                         ) : scan.status === 'failed' ? (
                           <div className="w-4 h-4 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center text-[10px] font-bold shrink-0">!</div>
                         ) : (
-                          <div className="w-4 h-4 rounded-full bg-slate-500/10 text-slate-500 flex items-center justify-center text-[10px] font-bold shrink-0">•</div>
+                          <div className="w-4 h-4 rounded-full bg-foreground/5 text-text-muted flex items-center justify-center text-[10px] font-bold shrink-0">•</div>
                         )}
                         <div className="min-w-0 flex-1">
                           <p className="font-bold text-xs text-foreground truncate">Scanning &quot;{scan.title}&quot;</p>
@@ -1973,11 +2229,11 @@ export default function SearchPage() {
                               </span>
                             )}
                             {jobTypeDetected && (
-                              <span className="text-[9px] font-bold bg-black/5 dark:bg-white/5 border border-card-border text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                              <span className="text-[9px] font-bold bg-black/5 dark:bg-white/5 border border-card-border text-foreground px-1.5 py-0.5 rounded uppercase tracking-wider">
                                 {jobTypeDetected}
                               </span>
                             )}
-                            <span className="w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-700" />
+                            <span className="w-1 h-1 rounded-full bg-card-border" />
                             <span className={`text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-bold ${getPostingAgeBadge(job.postedAt, job.createdAt).className}`} title="Job posting age">
                               <Clock className="w-3 h-3" />
                               {getPostingAgeBadge(job.postedAt, job.createdAt).text}
@@ -2012,7 +2268,7 @@ export default function SearchPage() {
                                     {badge.label}
                                   </span>
                                   {hoveredGhostJobId === job.id && (
-                                    <div className="absolute bottom-full left-0 mb-2 p-3 bg-slate-905/95 dark:bg-slate-900 border border-card-border text-slate-100 text-[10px] rounded-xl shadow-2xl z-50 w-72 leading-relaxed whitespace-pre-line animate-in fade-in duration-200">
+                                    <div className="absolute bottom-full left-0 mb-2 p-3 bg-slate-900 border border-card-border text-slate-100 text-[10px] rounded-xl shadow-2xl z-50 w-72 leading-relaxed whitespace-pre-line animate-in fade-in duration-200">
                                       {badge.description}
                                     </div>
                                   )}
@@ -2024,7 +2280,7 @@ export default function SearchPage() {
                           <div className="flex gap-1.5">
                             {userSkills.length > 0 && (
                               <span 
-                                className="text-[9px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 px-2 py-0.5 rounded text-slate-700 dark:text-slate-400 hover:text-foreground transition-all cursor-default" 
+                                className="text-[9px] font-bold bg-black/5 dark:bg-white/5 border border-card-border px-2 py-0.5 rounded text-foreground hover:bg-card-hover transition-all cursor-default" 
                                 title={`Matched skills: ${matchedSkills.join(', ') || 'None'}. Missing: ${userSkills.filter(s => !matchedSkills.includes(s)).join(', ')}`}
                               >
                                 Skills: {matchedSkills.length}/{userSkills.length}
@@ -2032,7 +2288,7 @@ export default function SearchPage() {
                             )}
                             {userRoles.length > 0 && (
                               <span 
-                                className="text-[9px] font-bold bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 border border-slate-200 dark:border-white/10 px-2 py-0.5 rounded text-slate-700 dark:text-slate-400 hover:text-foreground transition-all cursor-default" 
+                                className="text-[9px] font-bold bg-black/5 dark:bg-white/5 border border-card-border px-2 py-0.5 rounded text-foreground hover:bg-card-hover transition-all cursor-default" 
                                 title={`Matched target roles: ${matchedRoles.join(', ') || 'None'}`}
                               >
                                 Roles: {matchedRoles.length}/{userRoles.length}
@@ -2044,8 +2300,8 @@ export default function SearchPage() {
                           {highlightKeywords(job.title, [...(profile.skills || []), ...targetTitles])}
                         </h4>
                         <div className="flex items-center gap-3 text-sm mt-1">
-                          <span className="font-bold card-company-text">{job.company}</span>
-                          <div className="flex items-center gap-1 font-medium card-location-text" title={`Matched for location query: ${job.location}`}>
+                          <span className="font-bold text-foreground">{job.company}</span>
+                          <div className="flex items-center gap-1 font-medium text-text-muted" title={`Matched for location query: ${job.location}`}>
                             <MapPin className="w-3.5 h-3.5 text-text-muted" />
                             {job.location}
                           </div>
@@ -2055,19 +2311,19 @@ export default function SearchPage() {
                             </span>
                           ) : job.aiSalaryEstimate ? (
                             <span
-                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 px-1.5 py-0.5 rounded cursor-help"
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-text-muted bg-black/5 dark:bg-white/5 border border-card-border px-1.5 py-0.5 rounded cursor-help"
                               title={`AI Salary Estimate — not posted by employer. ${job.aiSalaryBasis || 'Based on market data for this role and location.'}`}
                             >
                               <Sparkles className="w-2.5 h-2.5 text-indigo-400" />
                               AI Est. {job.aiSalaryEstimate}
                             </span>
                           ) : (estimatingSalaryIds.has(job.id) && job.score >= 75) ? (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 animate-pulse">
+                            <span className="inline-flex items-center gap-1 text-[10px] text-text-muted animate-pulse">
                               <Sparkles className="w-2.5 h-2.5" />
                               Estimating salary...
                             </span>
                           ) : (
-                            <span className="text-slate-400 dark:text-slate-500 text-xs italic">Salary not disclosed</span>
+                            <span className="text-text-muted text-xs italic">Salary not disclosed</span>
                           )}
                         </div>
                       
@@ -2076,7 +2332,7 @@ export default function SearchPage() {
                         <div className="mt-3 p-3 rounded-lg bg-indigo-50/70 dark:bg-indigo-500/5 border border-indigo-500/20 animate-in fade-in slide-in-from-top-1">
                           <div className="flex items-start gap-2">
                             <Sparkles className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 mt-0.5 shrink-0" />
-                            <p className="text-xs card-reason-text leading-relaxed font-medium italic">{job.reason}</p>
+                            <p className="text-xs text-foreground leading-relaxed font-medium italic">{job.reason}</p>
                           </div>
                         </div>
                       )}
@@ -2105,7 +2361,7 @@ export default function SearchPage() {
                               onMouseEnter={() => setHoveredPendingJobId(job.id)}
                               onMouseLeave={() => setHoveredPendingJobId(null)}
                             >
-                              <span className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-400 uppercase tracking-widest">Pending</span>
+                              <span className="px-2 py-0.5 rounded bg-black/5 dark:bg-white/5 text-[10px] font-bold text-text-muted uppercase tracking-widest">Pending</span>
                               {hoveredPendingJobId === job.id && (
                                 <div className="absolute bottom-full right-0 mb-2 p-2 bg-slate-900 border border-card-border text-slate-100 text-[10px] rounded shadow-2xl z-50 w-40 leading-relaxed text-left normal-case font-normal animate-in fade-in duration-200">
                                   Click &apos;Analyze Match&apos; for AI scoring, or this will auto-score shortly.
@@ -2201,7 +2457,7 @@ export default function SearchPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="bg-slate-200 dark:bg-white/5 h-8 w-24 rounded-lg shrink-0" />
+                    <div className="bg-black/5 dark:bg-white/5 h-8 w-24 rounded-lg shrink-0" />
                   </div>
 
                   {/* Pulsing Skeleton Opportunities */}
@@ -2228,7 +2484,7 @@ export default function SearchPage() {
       {/* Discovery Strategy (Right Column) */}
       <aside 
         aria-label="Discovery Strategy"
-        className={`${showStrategyPanel ? "w-80 shrink-0 border-l border-card-border" : "w-0 border-0"} h-full flex flex-col transition-all duration-300 ease-in-out overflow-hidden bg-card/65 backdrop-blur-xl shadow-2xl md:shadow-none`}
+        className={`relative ${showStrategyPanel ? "w-80 shrink-0 border-l border-card-border overflow-visible" : "w-0 border-0 overflow-hidden"} h-full flex flex-col transition-all duration-300 ease-in-out bg-card/65 backdrop-blur-xl shadow-2xl md:shadow-none`}
       >
         {/* Toggle Chevron Pin */}
         <button 
@@ -2325,7 +2581,7 @@ export default function SearchPage() {
 
               {/* Presets Explanation Tooltip Card */}
               {showPresetHelp && (
-                <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-lg text-[10px] text-slate-700 dark:text-slate-350 leading-relaxed animate-in fade-in duration-200">
+                <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-lg text-[10px] text-text-muted leading-relaxed animate-in fade-in duration-200">
                   <p className="font-bold text-indigo-600 dark:text-indigo-400 mb-1">How Presets Work</p>
                   Presets allow you to save specific combinations of job titles, locations, radius, and sites. Configure your filters to the desired values, click <strong className="text-foreground">+ Save Current</strong>, and name it (up to 50 characters) to save shortcuts like <strong>&quot;Remote Only&quot;</strong> or <strong>&quot;Local Hybrid&quot;</strong>. Custom presets persist on your device across reloads.
                 </div>
@@ -2335,7 +2591,7 @@ export default function SearchPage() {
                 {savedConfigs.map((config, index) => (
                   <div
                     key={index}
-                    className="group relative flex items-center bg-black/20 dark:bg-white/5 border border-card-border hover:border-indigo-500/30 rounded text-[10px] font-semibold text-slate-700 dark:text-slate-350 hover:text-white transition-all overflow-hidden"
+                    className="group relative flex items-center bg-black/20 dark:bg-white/5 border border-card-border hover:border-indigo-500/30 rounded text-[10px] font-semibold text-text-muted hover:text-foreground transition-all overflow-hidden"
                   >
                     <button
                       onClick={() => {
@@ -2409,7 +2665,7 @@ export default function SearchPage() {
                         )}
                       </button>
                       
-                      <div className="flex items-center gap-1 opacity-60 group-hover/role:opacity-100 transition-opacity shrink-0">
+                      <div className="flex items-center gap-1 opacity-80 group-hover/role:opacity-100 transition-opacity shrink-0">
                         <button
                           onClick={() => {
                             setActiveRole(title);
@@ -2525,17 +2781,74 @@ export default function SearchPage() {
               )}
             </div>
 
-            {/* Target Locations */}
+            {/* Target Locations — with pill toggles for active search selection */}
             <div>
-              <label className="text-xs text-text-muted font-bold uppercase tracking-wider mb-2 block">Locations / Postcodes</label>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {targetLocations.map((loc, i) => (
-                  <span key={i} className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded text-[11px] text-emerald-600 dark:text-emerald-500 flex items-center gap-1.5 font-semibold">
-                    {loc}
-                    <button onClick={() => removeArrayItem('targetLocations', i)} className="hover:text-white cursor-pointer" aria-label={`Delete location: ${loc}`}>&times;</button>
-                  </span>
-                ))}
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-text-muted font-bold uppercase tracking-wider">Locations / Postcodes</label>
+                <span className="text-[10px] text-text-muted">
+                  {activeSearchLocations.length}/{targetLocations.length} active
+                </span>
               </div>
+              {/* Interactive Pill Toggles — click to include/exclude from next search */}
+              <div className="flex flex-wrap gap-2 mb-2">
+                {targetLocations.map((loc, i) => {
+                  const isActive = activeSearchLocations.includes(loc);
+                  return (
+                    <span
+                      key={i}
+                      className={`px-2 py-1 rounded text-[11px] flex items-center gap-1.5 font-semibold border transition-all cursor-pointer select-none ${
+                        isActive
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 shadow-sm shadow-emerald-500/10'
+                          : 'bg-card border-card-border/40 text-text-muted opacity-50 line-through'
+                      }`}
+                      onClick={() => {
+                        setActiveSearchLocations(prev =>
+                          isActive
+                            ? prev.filter(l => l !== loc)
+                            : [...prev, loc]
+                        );
+                      }}
+                      title={isActive ? `Click to exclude "${loc}" from next search` : `Click to include "${loc}" in next search`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                      {loc}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveSearchLocations(prev => prev.filter(l => l !== loc));
+                          removeArrayItem('targetLocations', i);
+                        }}
+                        className="hover:text-red-400 cursor-pointer ml-0.5"
+                        aria-label={`Delete location: ${loc}`}
+                      >
+                        &times;
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+              {/* Quick-select helpers */}
+              {targetLocations.length > 1 && (
+                <div className="flex gap-1.5 mb-2">
+                  <button
+                    onClick={() => setActiveSearchLocations([...targetLocations])}
+                    className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
+                  >
+                    Select All
+                  </button>
+                  <span className="text-text-muted text-[10px]">·</span>
+                  <button
+                    onClick={() => {
+                      if (activeSearchLocations.length > 0) {
+                        setActiveSearchLocations([activeSearchLocations[0]]);
+                      }
+                    }}
+                    className="text-[10px] text-text-muted hover:underline cursor-pointer"
+                  >
+                    Focus on First
+                  </button>
+                </div>
+              )}
               <input 
                 type="text" 
                 placeholder="Add location & press Enter..." 
@@ -2544,7 +2857,10 @@ export default function SearchPage() {
                 onKeyDown={(e) => { 
                   if (e.key === 'Enter') { 
                     if (e.currentTarget.value.trim()) {
-                      addArrayItem('targetLocations', e.currentTarget.value); 
+                      const newLoc = e.currentTarget.value.trim();
+                      addArrayItem('targetLocations', newLoc);
+                      // Auto-activate new locations
+                      setActiveSearchLocations(prev => [...prev, newLoc]);
                       e.currentTarget.value = ''; 
                     } else {
                       handleSearch();
@@ -2552,6 +2868,11 @@ export default function SearchPage() {
                   } 
                 }}
               />
+              {activeSearchLocations.length === 0 && targetLocations.length > 0 && (
+                <p className="text-[10px] text-amber-500 mt-1.5">
+                  ⚠️ No locations active — all pills are deselected. Click a pill to activate it.
+                </p>
+              )}
             </div>
 
             {/* Target Job Sites */}
@@ -3086,6 +3407,7 @@ export default function SearchPage() {
                   // Execute search directly with the new params
                   setIsSearching(true);
                   setStatus("Launching stealth browser...");
+                  setSearchLogs(["[System] Initializing Discovery Agent...", "[System] Launching stealth browser..."]);
                   try {
                     let newJobs: Job[] = [];
                     if (searchMode === 'deep') {
@@ -3137,6 +3459,365 @@ export default function SearchPage() {
             </div>
             </div> {/* closing max-w-md wrapper */}
           </div>
+        </div>,
+        document.body
+      )}
+
+      {/* ── Quota Guardrail Modal ────────────────────────────────────────── */}
+      {mounted && showQuotaGuardrailModal && createPortal(
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md animate-in fade-in duration-300 flex items-center justify-center p-5">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="quota-guardrail-title"
+            className="glass-card w-full max-w-lg border border-amber-500/30 bg-card rounded-2xl overflow-hidden shadow-2xl shadow-amber-900/20 animate-in zoom-in-95 duration-200"
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/5 border-b border-amber-500/20 px-6 py-5 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-amber-500" />
+              </div>
+              <div>
+                <h3 id="quota-guardrail-title" className="font-bold text-base text-foreground">
+                  High API Usage Warning
+                </h3>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Searching {activeSearchLocations.length} locations will consume significant API quota.
+                </p>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-sm text-text-muted leading-relaxed">
+                Your search will run <span className="font-bold text-foreground">{(pendingSearchTitles?.length || 1)} role{(pendingSearchTitles?.length || 1) > 1 ? 's' : ''}</span> across <span className="font-bold text-amber-500">{activeSearchLocations.length} locations</span>. This may take several minutes and exhaust your monthly API budget faster.
+              </p>
+
+              {/* Active locations display */}
+              <div className="bg-card-hover/60 rounded-xl p-3 border border-card-border">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-2">Locations in this search:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {activeSearchLocations.map((loc, i) => (
+                    <span
+                      key={i}
+                      className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/30 rounded text-[11px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1"
+                    >
+                      <button
+                        onClick={() => setActiveSearchLocations(prev => prev.filter(l => l !== loc))}
+                        className="text-amber-500/60 hover:text-red-400 cursor-pointer text-[10px] leading-none"
+                        title={`Remove ${loc} from this search`}
+                      >
+                        ×
+                      </button>
+                      {loc}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[10px] text-text-muted mt-2">
+                  💡 Tip: Click × on a location above to remove it, then proceed.
+                </p>
+              </div>
+
+              {/* Recommendation */}
+              <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3">
+                <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold mb-1">
+                  ✦ Recommended: Focus on 1–3 locations per run
+                </p>
+                <p className="text-[11px] text-text-muted">
+                  Search your primary city first, then re-run for others. Results accumulate — you won't lose previous finds.
+                </p>
+                {activeSearchLocations.length > 1 && (
+                  <button
+                    onClick={() => {
+                      setActiveSearchLocations([activeSearchLocations[0]]);
+                    }}
+                    className="mt-2 text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold cursor-pointer"
+                  >
+                    Focus on "{activeSearchLocations[0]}" only →
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Footer actions */}
+            <div className="px-6 pb-6 flex gap-3">
+              <button
+                onClick={() => {
+                  setShowQuotaGuardrailModal(false);
+                  setPendingSearchTitles(null);
+                }}
+                className="flex-1 py-3 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-sm transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const titles = pendingSearchTitles;
+                  const locs = activeSearchLocations.filter(isValidLocation);
+                  setShowQuotaGuardrailModal(false);
+                  setPendingSearchTitles(null);
+                  if (titles && locs.length > 0) {
+                    // Pass locations as override to bypass guardrail on re-entry
+                    await (handleSearch as any)(titles, locs);
+                  }
+                }}
+                disabled={activeSearchLocations.length === 0}
+                className="flex-1 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-black text-sm transition-all shadow-lg shadow-amber-600/20 disabled:opacity-50 cursor-pointer"
+              >
+                Proceed with {activeSearchLocations.length} Location{activeSearchLocations.length !== 1 ? 's' : ''}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Search Progress Modal */}
+
+      {mounted && isSearching && !isProgressModalMinimized && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-955/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div 
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-progress-title"
+            className="glass-card w-full max-w-3xl border border-zinc-800 bg-zinc-900/95 dark:bg-zinc-955/95 text-white rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col p-6 md:p-8 animate-in zoom-in-95 duration-200"
+          >
+            {/* Header */}
+            <div className="flex justify-between items-start mb-6 shrink-0 pb-4 border-b border-zinc-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center shrink-0">
+                  <Activity className="w-5 h-5 text-indigo-400 animate-pulse" />
+                </div>
+                <div>
+                  <h3 id="modal-progress-title" className="font-bold text-lg font-outfit text-white tracking-wide">
+                    Identity-Stealth Discovery Agent
+                  </h3>
+                  <p className="text-xs text-zinc-400">
+                    {searchMode === 'deep' ? 'Precision crawler scanning direct ATS platforms' : 'Standard agent scanning global channels'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsProgressModalMinimized(true)}
+                  className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-all cursor-pointer"
+                  title="Minimize to Dock (Keep running in background)"
+                >
+                  <Minimize2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Progress Bar Area */}
+            <div className="space-y-2 mb-6 shrink-0">
+              <div className="flex justify-between items-center text-xs font-bold text-zinc-400">
+                <span className="flex items-center gap-1.5 font-bold">
+                  {totalSteps > 0 ? (
+                    `Scanning Role ${completedSteps + 1} of ${totalSteps}`
+                  ) : (
+                    'Initializing agent engine...'
+                  )}
+                </span>
+                <span className="text-indigo-400 font-extrabold text-sm">
+                  {totalSteps > 0 ? `${progressPercent}%` : 'Connecting...'}
+                </span>
+              </div>
+              
+              <div className="w-full bg-zinc-800 h-2.5 rounded-full overflow-hidden relative">
+                {totalSteps > 0 ? (
+                  <div 
+                    className="bg-gradient-to-r from-indigo-500 to-emerald-500 h-full rounded-full transition-all duration-500 relative"
+                    style={{ width: `${progressPercent}%` }}
+                  >
+                    <div className="absolute inset-0 bg-white/20 animate-pulse" />
+                  </div>
+                ) : (
+                  <div className="bg-indigo-600 h-full rounded-full animate-pulse w-1/3" />
+                )}
+              </div>
+              
+              {/* Stats and query badge */}
+              <div className="flex justify-between items-center text-[10px] uppercase font-bold text-zinc-550 pt-1">
+                <span>Radius: {radius} miles</span>
+                <span className="px-2 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-350">
+                  Strictness: {profile.matchStrictness || 'exact'}
+                </span>
+              </div>
+            </div>
+
+            {/* Stepper + Logs Layout Grid */}
+            <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-5 gap-6 mb-6">
+              {/* Stepper (Left 2 columns) */}
+              <div className="md:col-span-2 flex flex-col min-h-0 bg-zinc-900/50 rounded-2xl border border-zinc-800 p-4 space-y-4">
+                <h4 className="text-[10px] font-black uppercase text-zinc-450 tracking-widest flex items-center gap-2 shrink-0">
+                  <Target className="w-3.5 h-3.5 text-indigo-400" />
+                  Scanned Target Roles
+                </h4>
+                
+                <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+                  {totalSteps > 0 ? (
+                    scanningTitles.map((scan, i) => {
+                      const isActive = scan.status === 'scanning';
+                      const isDone = scan.status === 'done';
+                      const isFailed = scan.status === 'failed';
+                      
+                      return (
+                        <div 
+                          key={i} 
+                          className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                            isActive 
+                              ? 'bg-indigo-500/10 border-indigo-500/30' 
+                              : isDone 
+                              ? 'bg-zinc-800/30 border-zinc-800/80 opacity-70' 
+                              : 'bg-zinc-900 border-zinc-850 opacity-50'
+                          }`}
+                        >
+                          <div className="shrink-0">
+                            {isActive ? (
+                              <div className="w-5 h-5 rounded-full bg-indigo-600/20 flex items-center justify-center relative">
+                                <Loader2 className="w-3 h-3 text-indigo-400 animate-spin" />
+                                <div className="absolute inset-0 border border-indigo-500 rounded-full animate-ping" />
+                              </div>
+                            ) : isDone ? (
+                              <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                                <Check className="w-3.5 h-3.5" />
+                              </div>
+                            ) : isFailed ? (
+                              <div className="w-5 h-5 rounded-full bg-rose-500/25 text-rose-400 flex items-center justify-center text-xs font-bold font-mono">
+                                !
+                              </div>
+                            ) : (
+                              <div className="w-5 h-5 rounded-full border border-zinc-750 bg-zinc-850 text-zinc-550 flex items-center justify-center text-xs font-bold">
+                                •
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-grow">
+                            <p className="font-bold text-xs text-white truncate">{scan.title}</p>
+                            <p className="text-[9px] font-black uppercase text-zinc-500 tracking-wider">
+                              {isActive ? 'Crawling sources...' : isDone ? 'Scanned successfully' : isFailed ? 'Quota limited' : 'Pending queue'}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-center p-4">
+                      <p className="text-xs text-zinc-500 italic">Syncing targeted search sequences...</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Logs Console (Right 3 columns) */}
+              <div className="md:col-span-3 flex flex-col min-h-0 bg-black/40 border border-zinc-800 rounded-2xl p-4">
+                <div className="flex justify-between items-center mb-2 shrink-0">
+                  <h4 className="text-[10px] font-black uppercase text-zinc-400 tracking-widest flex items-center gap-2">
+                    <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+                    Agent Telemetry Logs
+                  </h4>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(searchLogs.join("\n"));
+                      alert("Logs copied to clipboard.");
+                    }}
+                    className="text-[9px] font-bold text-zinc-405 hover:text-white uppercase tracking-wider flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="w-2.5 h-2.5" /> Copy
+                  </button>
+                </div>
+
+                <div className="flex-grow overflow-y-auto font-mono text-[10px] text-zinc-300 leading-relaxed pr-2 space-y-1.5 scrollbar-thin scrollbar-thumb-zinc-800 select-text">
+                  {searchLogs.length > 0 ? (
+                    searchLogs.map((log, i) => (
+                      <div key={i} className="whitespace-pre-wrap truncate-none break-words">
+                        <span className="text-zinc-500 select-none mr-1.5">›</span>
+                        {log.includes("⚠️") || log.includes("Error") || log.includes("Failed") ? (
+                          <span className="text-rose-400">{log}</span>
+                        ) : log.includes("widening") || log.includes("radius") ? (
+                          <span className="text-amber-400 font-semibold">{log}</span>
+                        ) : log.includes("Found") || log.includes("Complete") ? (
+                          <span className="text-emerald-400 font-bold">{log}</span>
+                        ) : (
+                          <span>{log}</span>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-zinc-550 italic font-sans text-xs">
+                      Awaiting connection telemetry...
+                    </div>
+                  )}
+                  <div ref={logEndRef} />
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-4 border-t border-zinc-800 shrink-0">
+              <span className="text-[10px] text-zinc-500 font-medium leading-relaxed max-w-sm text-center sm:text-left">
+                The agent operates in the background on the server. You can safely hide this modal or close the tab without cancelling the discovery engine.
+              </span>
+              
+              <div className="flex items-center gap-3 w-full sm:w-auto shrink-0 font-bold">
+                <button
+                  onClick={() => setIsProgressModalMinimized(true)}
+                  className="flex-1 sm:flex-none px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  Run in Background
+                </button>
+                
+                <button
+                  onClick={async () => {
+                    setIsSearching(false);
+                    await setAgentStatus({ isSearching: false, status: "Search aborted by user." });
+                    setStatus("Search cancelled.");
+                    setTimeout(() => setStatus(""), 3000);
+                  }}
+                  className="flex-1 sm:flex-none px-4 py-2.5 bg-rose-500/10 text-rose-450 hover:bg-rose-500/20 border border-rose-500/20 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer"
+                >
+                  Abort Search
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Minimized Dock Bubble */}
+      {mounted && isSearching && isProgressModalMinimized && createPortal(
+        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom duration-300">
+          <button 
+            onClick={() => setIsProgressModalMinimized(false)}
+            className="flex items-center gap-3 p-4 bg-slate-900/90 dark:bg-zinc-950/90 hover:bg-slate-800/90 dark:hover:bg-zinc-900/90 border border-indigo-500/30 text-white rounded-2xl shadow-2xl backdrop-blur-md cursor-pointer transition-all hover:scale-105 group relative overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/10 to-emerald-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+            
+            <div className="relative w-8 h-8 flex items-center justify-center shrink-0">
+              <div className="absolute inset-0 border-2 border-zinc-800 rounded-full" />
+              <div 
+                className="absolute inset-0 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"
+                style={{ animationDuration: '1.5s' }}
+              />
+              <span className="text-[10px] font-bold text-indigo-400">
+                {totalSteps > 0 ? `${progressPercent}%` : '...'}
+              </span>
+            </div>
+
+            <div className="text-left max-w-xs min-w-[120px]">
+              <p className="text-[9px] text-indigo-400 font-black uppercase tracking-widest">Discovery Engine</p>
+              <p className="text-xs font-bold truncate text-zinc-100 max-w-[160px]">
+                {status.split(" (Found")[0] || "Searching..."}
+              </p>
+            </div>
+
+            <div className="px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-md text-[10px] font-black uppercase tracking-wider shrink-0 flex items-center gap-1 font-bold">
+              <Sparkles className="w-3 h-3 animate-pulse" />
+              {results.filter(j => newJobIds.has(j.id)).length} New
+            </div>
+          </button>
         </div>,
         document.body
       )}

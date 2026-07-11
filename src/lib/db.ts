@@ -125,6 +125,10 @@ export type UserProfile = {
   targetTitles?: string[];
   alternativeTitles?: string[];
   targetLocations?: string[];
+  /** The user's chosen anchor city for proximity-sorted searches (e.g. "Edgewater, FL") */
+  baseLocation?: string;
+  /** The subset of targetLocations currently selected for the next search run */
+  activeSearchLocations?: string[];
   searchRadius?: number;
   matchStrictness?: 'exact' | 'strong' | 'flexible';
   booleanSearchString?: string;
@@ -137,6 +141,10 @@ export type UserProfile = {
   noticePeriod?: string;          // e.g. "1 month", "Immediately available"
   applicationDailyLimit?: number; // Max applications per day (default: 15)
   supervisedModeCount?: number;   // How many supervised rounds before going autonomous
+  dreamCompanies?: any[];
+  nicheBoards?: any[];
+  geminiApiKey?: string;
+  preferredModel?: string;
 };
 
 
