@@ -39,7 +39,7 @@ export default function MatcherPage() {
     <div className="p-8 space-y-8 max-w-6xl mx-auto">
       <div>
         <h2 className="text-3xl font-bold font-outfit">AI Matcher Sandbox</h2>
-        <p className="text-slate-400 mt-1">Test how your profile scores against any job description in real-time.</p>
+        <p className="text-text-muted mt-1">Test how your profile scores against any job description in real-time.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -80,12 +80,12 @@ export default function MatcherPage() {
         <div className="space-y-6">
           {!result && !isAnalyzing ? (
             <div className="glass-card h-full flex flex-col items-center justify-center py-20 text-center space-y-4 border-dashed">
-              <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center text-slate-700">
+              <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center text-text-muted">
                 <Target className="w-8 h-8" />
               </div>
               <div>
-                <p className="font-bold text-slate-400">Analysis Pending</p>
-                <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                <p className="font-bold text-text-muted">Analysis Pending</p>
+                <p className="text-xs text-text-muted max-w-xs mx-auto">
                   Paste a job description on the left to see how your Staff Designer profile stacks up.
                 </p>
               </div>
@@ -107,12 +107,12 @@ export default function MatcherPage() {
                   <Sparkles className="w-12 h-12 text-indigo-500/20" />
                 </div>
                 <div className="relative">
-                  <p className="text-[10px] text-slate-400 uppercase font-bold tracking-widest mb-1">Compatibility Score</p>
+                  <p className="text-[10px] text-text-muted uppercase font-bold tracking-widest mb-1">Compatibility Score</p>
                   <div className="flex items-end gap-3">
                     <span className={`text-6xl font-bold font-outfit ${result.score > 80 ? 'text-emerald-400' : 'text-yellow-400'}`}>
                       {result.score}%
                     </span>
-                    <span className="text-slate-500 font-medium mb-2">Match</span>
+                    <span className="text-text-muted font-medium mb-2">Match</span>
                   </div>
                   <div className="h-2 w-full bg-white/5 rounded-full mt-6 overflow-hidden">
                     <div 
@@ -125,11 +125,11 @@ export default function MatcherPage() {
 
               {/* Analysis Text */}
               <div className="glass-card space-y-4">
-                <div className="flex items-center gap-2 text-slate-200">
+                <div className="flex items-center gap-2 text-foreground">
                   <BarChart3 className="w-5 h-5 text-indigo-400" />
                   <h3 className="font-bold text-lg">AI Analysis Summary</h3>
                 </div>
-                <div className="p-4 bg-white/5 rounded-xl border border-white/5 leading-relaxed text-slate-300 italic">
+                <div className="p-4 bg-white/5 rounded-xl border border-white/5 leading-relaxed text-foreground italic">
                   "{result.reason}"
                 </div>
               </div>
@@ -139,7 +139,7 @@ export default function MatcherPage() {
                 <h4 className="font-bold">Next Steps</h4>
                 <div className="grid grid-cols-2 gap-4">
                   <button className="flex items-center justify-center gap-2 p-4 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-all text-sm font-medium">
-                    <FileText className="w-4 h-4 text-slate-400" />
+                    <FileText className="w-4 h-4 text-text-muted" />
                     Customize Resume
                   </button>
                   <button className="flex items-center justify-center gap-2 p-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 transition-all text-sm font-medium">

@@ -36,7 +36,7 @@ export async function generateWithAI(prompt: string, options: { retries?: number
 
   const retries = options.retries || 3;
   // Allow callers to specify a longer timeout for heavy prompts (e.g. full resume tailoring)
-  const timeoutMs = options.timeoutMs || 15000;
+  const timeoutMs = options.timeoutMs || 30000;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
   for (let i = 0; i < retries; i++) {

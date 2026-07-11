@@ -110,7 +110,7 @@ export default function SettingsPage() {
     return (
       <div className="h-[70vh] flex flex-col items-center justify-center gap-4">
         <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
-        <p className="text-slate-400 font-medium animate-pulse">Loading identity settings...</p>
+        <p className="text-text-muted font-medium animate-pulse">Loading identity settings...</p>
       </div>
     );
   }
@@ -119,8 +119,8 @@ export default function SettingsPage() {
     <div className="p-8 max-w-4xl mx-auto space-y-8 animate-in fade-in duration-300">
       <div className="flex justify-between items-end">
         <div>
-          <h2 className="text-3xl font-bold font-outfit text-white">Agent Settings</h2>
-          <p className="text-slate-400 mt-1">Configure your custom AI models, API authentication, and execution modes.</p>
+          <h2 className="text-3xl font-bold font-outfit text-foreground">Agent Settings</h2>
+          <p className="text-text-muted mt-1">Configure your custom AI models, API authentication, and execution modes.</p>
         </div>
         
         <button
@@ -157,9 +157,9 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-indigo-400">
               <Key className="w-5 h-5" />
-              <h3 className="font-bold text-lg text-white">AI Engine & Platform Credentials</h3>
+              <h3 className="font-bold text-lg text-foreground">AI Engine & Platform Credentials</h3>
             </div>
-            <span className="text-[9px] uppercase font-bold tracking-widest text-slate-500 bg-white/5 px-2.5 py-1 rounded-full border border-white/5">
+            <span className="text-[9px] uppercase font-bold tracking-widest text-text-muted bg-white/5 px-2.5 py-1 rounded-full border border-white/5">
               Secure Local Storage
             </span>
           </div>
@@ -168,7 +168,7 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
-                  <label className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Google Gemini API Key</label>
+                  <label className="text-[10px] text-text-muted uppercase font-bold tracking-widest">Google Gemini API Key</label>
                   <a 
                     href="https://aistudio.google.com/app/apikey" 
                     target="_blank" 
@@ -190,7 +190,7 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => setShowKey(!showKey)}
-                    className="absolute right-4 top-3 text-slate-500 hover:text-white transition-colors"
+                    className="absolute right-4 top-3 text-text-muted hover:text-foreground transition-colors"
                   >
                     {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -198,7 +198,7 @@ export default function SettingsPage() {
               </div>
               
               <div className="space-y-2">
-                <label className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Active Model Tier</label>
+                <label className="text-[10px] text-text-muted uppercase font-bold tracking-widest">Active Model Tier</label>
                 <select 
                   value={preferredModel}
                   onChange={(e) => setPreferredModel(e.target.value)}
@@ -215,10 +215,10 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-2">
-                    <label className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">LinkedIn Session Cookie (li_at)</label>
+                    <label className="text-[10px] text-text-muted uppercase font-bold tracking-widest">LinkedIn Session Cookie (li_at)</label>
                     <span className="text-[8px] font-bold px-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded">Session Token Bypass</span>
                   </div>
-                  <span className="text-[9px] text-slate-400">Ex: AQEDAT... (inspect cookies on linkedin.com to copy)</span>
+                  <span className="text-[9px] text-text-muted">Ex: AQEDAT... (inspect cookies on linkedin.com to copy)</span>
                 </div>
                 
                 <div className="relative">
@@ -232,7 +232,7 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => setShowCookie(!showCookie)}
-                    className="absolute right-4 top-3 text-slate-500 hover:text-white transition-colors"
+                    className="absolute right-4 top-3 text-text-muted hover:text-foreground transition-colors"
                   >
                     {showCookie ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -243,8 +243,8 @@ export default function SettingsPage() {
             {/* Inline validation checker */}
             <div className="pt-2 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between bg-white/[0.01] p-4 rounded-xl border border-white/5">
               <div>
-                <p className="text-xs font-bold text-slate-300">Validate AI Integration</p>
-                <p className="text-[10px] text-slate-500 mt-0.5">Test if the customized API key can connect to Google AI Studio.</p>
+                <p className="text-xs font-bold text-foreground">Validate AI Integration</p>
+                <p className="text-[10px] text-text-muted mt-0.5">Test if the customized API key can connect to Google AI Studio.</p>
               </div>
               
               <div className="flex items-center gap-3 w-full md:w-auto justify-end">
@@ -261,7 +261,7 @@ export default function SettingsPage() {
                   type="button"
                   onClick={handleValidateKey}
                   disabled={isValidating}
-                  className="px-4 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold rounded-lg border border-white/10 transition-all flex items-center gap-2"
+                  className="px-4 py-1.5 bg-white/5 hover:bg-white/10 text-text-muted text-xs font-bold rounded-lg border border-white/10 transition-all flex items-center gap-2"
                 >
                   {isValidating && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   Test Connection
@@ -273,12 +273,12 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-slate-200">LinkedIn Stealth Authentication</p>
+                    <p className="text-sm font-medium text-foreground">LinkedIn Stealth Authentication</p>
                     <span className="text-[9px] uppercase font-black px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                       Stealth Mode
                     </span>
                   </div>
-                  <p className="text-[10px] text-slate-500 mt-0.5">Automate job searches and descriptions using our anti-bot stealth parameters.</p>
+                  <p className="text-[10px] text-text-muted mt-0.5">Automate job searches and descriptions using our anti-bot stealth parameters.</p>
                 </div>
                 
                 <button
@@ -302,7 +302,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-emerald-400">
               <Mail className="w-5 h-5" />
-              <h3 className="font-bold text-lg text-white">Email Inbox Monitoring</h3>
+              <h3 className="font-bold text-lg text-foreground">Email Inbox Monitoring</h3>
             </div>
             <span className="text-[9px] uppercase font-bold text-emerald-400 bg-emerald-500/5 px-2 py-0.5 rounded border border-emerald-500/10">
               Addon
@@ -310,16 +310,16 @@ export default function SettingsPage() {
           </div>
           
           <div className="space-y-4">
-            <p className="text-sm text-slate-400 leading-relaxed">
+            <p className="text-sm text-text-muted leading-relaxed">
               Connect a dedicated job search email address to allow the agent to automatically scan recruiter replies, index interview requests, and coordinate application status updates.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <button className="p-4 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-all flex items-center justify-center gap-2 text-sm font-bold text-slate-300">
-                <Globe className="w-4 h-4 text-slate-500" />
+              <button className="p-4 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-all flex items-center justify-center gap-2 text-sm font-bold text-text-muted">
+                <Globe className="w-4 h-4 text-text-muted" />
                 Connect Google Workspace / Gmail
               </button>
-              <button className="p-4 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-all flex items-center justify-center gap-2 text-sm font-bold text-slate-300">
-                <Mail className="w-4 h-4 text-slate-500" />
+              <button className="p-4 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-all flex items-center justify-center gap-2 text-sm font-bold text-text-muted">
+                <Mail className="w-4 h-4 text-text-muted" />
                 Configure Custom IMAP Server
               </button>
             </div>
@@ -328,19 +328,19 @@ export default function SettingsPage() {
 
         {/* Data Management */}
         <section className="glass-card space-y-6">
-          <div className="flex items-center gap-2 text-purple-400">
+           <div className="flex items-center gap-2 text-purple-400">
             <Database className="w-5 h-5" />
-            <h3 className="font-bold text-lg text-white">Identity Database & Data Portability</h3>
+            <h3 className="font-bold text-lg text-foreground">Identity Database & Data Portability</h3>
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button className="p-4 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-all text-left space-y-1">
-              <p className="text-sm font-bold text-slate-200">Export Application History</p>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider">CSV or Structured JSON Format</p>
+              <p className="text-sm font-bold text-foreground">Export Application History</p>
+              <p className="text-[10px] text-text-muted uppercase tracking-wider">CSV or Structured JSON Format</p>
             </button>
             <button className="p-4 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-all text-left space-y-1">
-              <p className="text-sm font-bold text-slate-200">Local Database Backup</p>
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider">Download SQLite package (.sqlite)</p>
+              <p className="text-sm font-bold text-foreground">Local Database Backup</p>
+              <p className="text-[10px] text-text-muted uppercase tracking-wider">Download SQLite package (.sqlite)</p>
             </button>
           </div>
 
@@ -354,8 +354,8 @@ export default function SettingsPage() {
       </div>
 
       <div className="text-center pt-4">
-        <p className="text-[9px] text-slate-600 font-black tracking-widest uppercase flex items-center justify-center gap-1.5">
-          <Sparkles className="w-3 h-3 text-slate-700" />
+        <p className="text-[9px] text-text-muted font-black tracking-widest uppercase flex items-center justify-center gap-1.5">
+          <Sparkles className="w-3 h-3 text-text-muted" />
           Job Sentinel v1.0.0 &bull; Powered by Gemini 2.0 &bull; Built for Lea Wenban
         </p>
       </div>

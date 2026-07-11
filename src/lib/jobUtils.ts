@@ -355,4 +355,88 @@ export function isTitleMatch(
   });
 }
 
+/**
+ * Consolidates a list of target locations to prevent sequential queries
+ * for small cities in the same state or redundant national queries.
+ * Returns a deduplicated and consolidated list of locations (max 3).
+ */
+export function consolidateLocations(locations: string[], profileLocation?: string): string[] {
+  if (!locations || locations.length === 0) {
+    return profileLocation ? [profileLocation] : ["United States"];
+  }
 
+  // 1. Detect if a national/country-level location is present.
+  const hasUS = locations.some(loc => {
+    const l = loc.toLowerCase().trim();
+    return l === "us" || l === "usa" || l === "united states" || l === "united states of america" || l === "nationwide";
+  });
+  const hasUK = locations.some(loc => {
+    const l = loc.toLowerCase().trim();
+    return l === "uk" || l === "gb" || l === "united kingdom" || l === "england" || l === "great britain";
+  });
+
+  // If a national search is requested alongside specific local cities, consolidate to the national level to avoid redundant queries
+  if (hasUS) return ["United States"];
+  if (hasUK) return ["United Kingdom"];
+
+  // 2. Identify the default state/country context from profileLocation (e.g. "Edgewater, FL" -> "FL")
+  let defaultStateOrCountry = "";
+  if (profileLocation) {
+    const parts = profileLocation.split(",");
+    defaultStateOrCountry = parts[parts.length - 1]?.trim() || "";
+  }
+
+  const consolidated = new Set<string>();
+  const statesAdded = new Set<string>();
+
+  const stateNames: Record<string, string> = {
+    "al": "Alabama", "ak": "Alaska", "az": "Arizona", "ar": "Arkansas", "ca": "California",
+    "co": "Colorado", "ct": "Connecticut", "de": "Delaware", "fl": "Florida", "ga": "Georgia",
+    "hi": "Hawaii", "id": "Idaho", "il": "Illinois", "in": "Indiana", "ia": "Iowa",
+    "ks": "Kansas", "ky": "Kentucky", "la": "Louisiana", "me": "Maine", "md": "Maryland",
+    "ma": "Massachusetts", "mi": "Michigan", "mn": "Minnesota", "ms": "Mississippi", "mo": "Missouri",
+    "mt": "Montana", "ne": "Nebraska", "nv": "Nevada", "nh": "New Hampshire", "nj": "New Jersey",
+    "nm": "New Mexico", "ny": "New York", "nc": "North Carolina", "nd": "North Dakota", "oh": "Ohio",
+    "ok": "Oklahoma", "or": "Oregon", "pa": "Pennsylvania", "ri": "Rhode Island", "sc": "South Carolina",
+    "sd": "South Dakota", "tn": "Tennessee", "tx": "Texas", "ut": "Utah", "vt": "Vermont",
+    "va": "Virginia", "wa": "Washington", "wv": "West Virginia", "wi": "Wisconsin", "wy": "Wyoming"
+  };
+
+  const getStateCode = (locStr: string) => {
+    const matches = locStr.match(/\b(al|ak|az|ar|ca|co|ct|de|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|ma|mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy|florida|london|uk|gb)\b/i);
+    return matches ? matches[1].toLowerCase() : null;
+  };
+
+  for (const loc of locations) {
+    const trimmed = loc.trim();
+    if (!trimmed) continue;
+
+    let state = getStateCode(trimmed);
+    
+    // If no state is explicitly mentioned in this location string, try to infer it from profile
+    if (!state && defaultStateOrCountry) {
+      state = getStateCode(defaultStateOrCountry);
+    }
+
+    if (state && stateNames[state]) {
+      const stateName = stateNames[state];
+      if (!statesAdded.has(stateName)) {
+        consolidated.add(stateName);
+        statesAdded.add(stateName);
+      }
+    } else if (state && (state === "uk" || state === "gb" || state === "london")) {
+      if (!statesAdded.has("United Kingdom")) {
+        consolidated.add("United Kingdom");
+        statesAdded.add("United Kingdom");
+      }
+    } else {
+      // Capitalize the first letter of each word for clean formatting
+      const formattedLoc = trimmed.split(/\s+/).map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
+      consolidated.add(formattedLoc);
+    }
+  }
+
+  const result = Array.from(consolidated);
+  // Cap consolidated locations to 3 to prevent excessive sequential API queries and function timeouts
+  return result.slice(0, 3);
+}

@@ -62,6 +62,7 @@ import { Job, UserProfile } from "@/lib/db";
 import Link from "next/link";
 import { useProfile } from "@/components/ProfileContext";
 import { getSourceBadgeClass, computeGhostScore, getGhostBadge } from "@/lib/jobUtils";
+import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
 
 const isValidLocation = (loc: string): boolean => {
   const l = loc.toLowerCase().trim();
@@ -1415,10 +1416,11 @@ export default function SearchPage() {
   const progressPercent = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
 
   return (
-    <div className="flex h-[calc(100vh-54px)] overflow-hidden w-full relative">
+    <PanelGroup orientation="horizontal" className="flex h-[calc(100vh-54px)] overflow-hidden w-full relative">
       
       {/* Center Main Window (Top Nav and Discovery Engine Content) */}
-      <main role="main" className="flex-1 flex flex-col h-full overflow-y-auto p-8 space-y-8 min-w-0 transition-all duration-300">
+      <Panel defaultSize="75%" minSize="40%" className="flex flex-col h-full">
+        <main role="main" className="flex-1 flex flex-col h-full overflow-y-auto p-8 space-y-8 min-w-0 transition-all duration-300">
         
         {searchFeedback && searchFeedback.show && (
           <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 rounded-xl flex items-center justify-between animate-in slide-in-from-top duration-300">
@@ -2521,27 +2523,30 @@ export default function SearchPage() {
           )}
         </div>
       </main>
+      </Panel>
 
 
       {/* Discovery Strategy (Right Column) */}
-      <aside 
-        aria-label="Discovery Strategy"
-        className={`relative ${showStrategyPanel ? "w-80 shrink-0 border-l border-card-border overflow-visible" : "w-0 border-0 overflow-hidden"} h-full flex flex-col transition-all duration-300 ease-in-out bg-card/65 backdrop-blur-xl shadow-2xl md:shadow-none`}
-      >
-        {/* Toggle Chevron Pin */}
-        <button 
-          id="toggle-strategy-btn"
-          onClick={() => setShowStrategyPanel(!showStrategyPanel)}
-          className="absolute -left-3 top-20 w-6 h-6 bg-foreground hover:bg-foreground/90 rounded-full flex items-center justify-center border border-card-border text-background shadow-md transition-all duration-200 hover:scale-110 z-50 cursor-pointer"
-          title={showStrategyPanel ? "Collapse Discovery Strategy" : "Expand Discovery Strategy"}
-          aria-label={showStrategyPanel ? "Collapse Discovery Strategy" : "Expand Discovery Strategy"}
-          aria-expanded={showStrategyPanel}
-        >
-          {showStrategyPanel ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
-        </button>
+      {showStrategyPanel && (
+        <>
+          <PanelResizeHandle className="relative w-1 hover:w-1.5 active:w-1.5 bg-card-border hover:bg-indigo-500/50 active:bg-indigo-500 transition-all cursor-col-resize z-50 shrink-0 flex items-center justify-center group/handle">
+            <button 
+              id="toggle-strategy-btn"
+              onClick={() => setShowStrategyPanel(false)}
+              className="absolute -left-3 top-20 w-6 h-6 bg-foreground hover:bg-foreground/90 rounded-full flex items-center justify-center border border-card-border text-background shadow-md transition-all duration-200 cursor-pointer hover:scale-110 z-50"
+              title="Collapse Discovery Strategy"
+              aria-label="Collapse Discovery Strategy"
+            >
+              <ChevronRight className="w-3 h-3" />
+            </button>
+          </PanelResizeHandle>
 
-        {showStrategyPanel && (
-          <div className="flex-1 overflow-y-auto p-6 space-y-6 animate-in fade-in duration-300 relative">
+          <Panel defaultSize="25%" minSize="20%" maxSize="50%" className="flex flex-col h-full bg-card/65 backdrop-blur-xl">
+            <aside 
+              aria-label="Discovery Strategy"
+              className="relative h-full w-full flex flex-col shadow-2xl md:shadow-none overflow-hidden"
+            >
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-6 animate-in fade-in duration-300 relative">
             {isDataLoading && (
               <div className="absolute inset-0 bg-background/70 backdrop-blur-sm z-50 flex flex-col items-center justify-center space-y-3 min-h-[400px]">
                 <div className="w-8 h-8 border-3 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
@@ -3119,34 +3124,7 @@ export default function SearchPage() {
               </div>
             </div>
 
-            {/* Primary Search CTA — sits above the fold */}
-            <button 
-              onClick={() => handleSearch()}
-              disabled={isSearching}
-              className={`w-full btn-primary justify-center disabled:opacity-50 !py-4 transition-all ${searchMode === 'deep' ? '!bg-emerald-600 hover:!bg-emerald-500 shadow-emerald-600/20 shadow-xl' : ''}`}
-            >
-              {isSearching ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Agent Scanning...
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 fill-current" />
-                  Search Jobs
-                </>
-              )}
-            </button>
-
-            {/* AI Suggestion Button */}
-            <button 
-              onClick={handleRegenerate}
-              disabled={isRegenerating}
-              className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-500/20 transition-all mb-2"
-            >
-              <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
-              {isRegenerating ? "Analyzing Resume..." : "Suggest Smart Targets"}
-            </button>
+            {/* Primary Search CTA moved to sticky footer */}
 
 
 
@@ -3282,8 +3260,42 @@ export default function SearchPage() {
               </div>
             </div>
           </div>
-        )}
+          
+          {/* Sticky CTA Footer */}
+          <div className="shrink-0 p-6 bg-card/90 backdrop-blur-md border-t border-card-border shadow-[0_-10px_30px_-10px_rgba(0,0,0,0.3)] z-10 flex flex-col gap-3">
+            {/* Primary Search CTA */}
+            <button 
+              onClick={() => handleSearch()}
+              disabled={isSearching}
+              className={`w-full btn-primary justify-center disabled:opacity-50 !py-4 transition-all shadow-xl cursor-pointer ${searchMode === 'deep' ? '!bg-emerald-600 hover:!bg-emerald-500 shadow-emerald-600/20' : ''}`}
+            >
+              {isSearching ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />
+                  Agent Scanning...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 fill-current shrink-0" />
+                  Search Jobs
+                </>
+              )}
+            </button>
+
+            {/* AI Suggestion Button */}
+            <button 
+              onClick={handleRegenerate}
+              disabled={isRegenerating}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-500/20 transition-all cursor-pointer"
+            >
+              <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
+              {isRegenerating ? "Analyzing Resume..." : "Suggest Smart Targets"}
+            </button>
+          </div>
       </aside>
+      </Panel>
+      </>
+      )}
 
       {/* Discovery Strategy Toggle tab when collapsed */}
       {!showStrategyPanel && (
@@ -3990,7 +4002,7 @@ export default function SearchPage() {
         </div>,
         document.body
       )}
-    </div>
+    </PanelGroup>
   );
 }
 

@@ -96,6 +96,7 @@ export default function TrackerPage() {
   const { activeProfileId } = useProfile();
   const [contextMenu, setContextMenu] = useState<{ job: Job; top: number; right: number } | null>(null);
   const [reviewingJob, setReviewingJob] = useState<Job | null>(null);
+  const [isLoadingDescription, setIsLoadingDescription] = useState(false);
   const [refineInstruction, setRefineInstruction] = useState("");
   const [isRefining, setIsRefining] = useState(false);
   const [qaRefineInstructions, setQaRefineInstructions] = useState<Record<number, string>>({});
@@ -184,6 +185,38 @@ export default function TrackerPage() {
     const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
   }, [activeProfileId]);
+
+  useEffect(() => {
+    if (!reviewingJob) return;
+
+    const isPlaceholder = 
+      !reviewingJob.description || 
+      reviewingJob.description === "Details fetched during search." || 
+      reviewingJob.description.startsWith("Job listing on") || 
+      reviewingJob.description.length < 150;
+
+    if (isPlaceholder) {
+      setIsLoadingDescription(true);
+      import("@/app/actions/jobActions").then(async ({ fetchJobDetails }) => {
+        try {
+          const details = await fetchJobDetails(reviewingJob.id, activeProfileId);
+          if (details && details.description) {
+            setReviewingJob(prev => prev && prev.id === reviewingJob.id ? { ...prev, description: details.description } : prev);
+            setJobs(prev => prev.map(j => j.id === reviewingJob.id ? { ...j, description: details.description } : j));
+          } else {
+            const { fetchFullJobDescription } = await import("@/app/actions/jobActions");
+            const fullDesc = await fetchFullJobDescription(reviewingJob.id, reviewingJob.url, activeProfileId);
+            setReviewingJob(prev => prev && prev.id === reviewingJob.id ? { ...prev, description: fullDesc } : prev);
+            setJobs(prev => prev.map(j => j.id === reviewingJob.id ? { ...j, description: fullDesc } : j));
+          }
+        } catch (err) {
+          console.error("Auto-description extraction failed:", err);
+        } finally {
+          setIsLoadingDescription(false);
+        }
+      });
+    }
+  }, [reviewingJob?.id, activeProfileId]);
 
   async function loadJobs() {
     setLoading(true);
@@ -1305,7 +1338,7 @@ export default function TrackerPage() {
             </button>
             <button
               onClick={() => { handleUpdateStatus(contextMenu.job.id, 'Cancelled' as any); setContextMenu(null); }}
-              className="w-full text-left px-3 py-2 text-[11px] font-semibold text-slate-500 hover:bg-slate-500/10 rounded transition-colors flex items-center gap-2"
+              className="w-full text-left px-3 py-2 text-[11px] font-semibold text-text-muted hover:bg-foreground/5 rounded transition-colors flex items-center gap-2"
             >
               <Trash2 className="w-3.5 h-3.5" /> Withdraw Application
             </button>
@@ -1723,8 +1756,8 @@ export default function TrackerPage() {
                         </div>
 
                         {/* Real-time agent collaboration feed */}
-                        <div className="flex-1 flex flex-col min-h-0 bg-black/10 dark:bg-black/35 rounded-2xl border border-card-border p-4 font-mono text-[9px] text-slate-300 dark:text-slate-400">
-                          <p className="font-bold border-b border-card-border/30 pb-1.5 mb-2 text-text-muted uppercase tracking-widest text-[8px] flex items-center gap-1.5 shrink-0 select-none">
+                        <div className="flex-1 flex flex-col min-h-0 bg-[#0a0a0c] rounded-2xl border border-card-border/60 p-4 font-mono text-[9px] text-slate-300">
+                          <p className="font-bold border-b border-card-border/20 pb-1.5 mb-2 text-text-muted/80 uppercase tracking-widest text-[8px] flex items-center gap-1.5 shrink-0 select-none">
                             <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-ping" />
                             Peer Review Log Board
                           </p>
@@ -1736,12 +1769,12 @@ export default function TrackerPage() {
                               const isAuditor = log.includes("[Auditor]");
                               const isSystem = log.includes("[System]");
 
-                              let colorClass = "text-slate-400";
-                              if (isWarning) colorClass = "text-amber-500 font-semibold";
-                              else if (isError) colorClass = "text-red-500 font-bold animate-pulse";
+                              let colorClass = "text-slate-300";
+                              if (isWarning) colorClass = "text-amber-400 font-semibold";
+                              else if (isError) colorClass = "text-red-400 font-bold animate-pulse";
                               else if (isRefiner) colorClass = "text-blue-400";
-                              else if (isAuditor) colorClass = "text-teal-400";
-                              else if (isSystem) colorClass = "text-emerald-500 font-semibold";
+                              else if (isAuditor) colorClass = "text-teal-300";
+                              else if (isSystem) colorClass = "text-emerald-400 font-semibold";
 
                               return (
                                 <div key={lIdx} className={`${colorClass} break-words`}>
@@ -1848,21 +1881,21 @@ export default function TrackerPage() {
                           return alignedRows.map((row, rIdx) => {
                             let statusText = "Unchanged";
                             let badgeClass = "bg-black/5 dark:bg-white/5 text-text-muted/70";
-                            let origStyle = "text-slate-700 dark:text-slate-300";
-                            let tailStyle = "text-slate-700 dark:text-slate-300";
+                            let origStyle = "text-text-muted font-medium";
+                            let tailStyle = "text-text-muted font-medium";
 
                             if (row.status === 'modified') {
                               statusText = "Modified 🔀";
                               badgeClass = "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20";
-                              tailStyle = "bg-amber-500/10 dark:bg-amber-500/5 text-slate-800 dark:text-slate-100 font-medium px-1 py-0.5 rounded border border-amber-500/10";
+                              tailStyle = "bg-amber-500/10 dark:bg-amber-500/5 text-foreground font-semibold px-2 py-1 rounded-xl border border-amber-500/25";
                             } else if (row.status === 'added') {
                               statusText = "Added 🟢";
                               badgeClass = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20";
-                              tailStyle = "bg-emerald-500/10 dark:bg-emerald-500/5 text-slate-800 dark:text-slate-100 font-semibold px-1 py-0.5 rounded border border-emerald-500/10";
+                              tailStyle = "bg-emerald-500/10 dark:bg-emerald-500/5 text-foreground font-semibold px-2 py-1 rounded-xl border border-emerald-500/25";
                             } else if (row.status === 'removed') {
                               statusText = "Omitted 🔴";
                               badgeClass = "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20";
-                              origStyle = "text-text-muted/60 line-through";
+                              origStyle = "text-text-muted/50 line-through font-medium";
                             }
 
                             return (
@@ -2169,7 +2202,7 @@ export default function TrackerPage() {
               {showCopilot && optimizeModal.result && (
                 <>
                   {/* Slide-over panel */}
-                  <div className="absolute right-0 top-0 bottom-0 z-50 w-96 bg-card/98 dark:bg-slate-950/98 backdrop-blur-md border-l border-card-border flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-right duration-200">
+                  <div className="absolute right-0 top-0 bottom-0 z-50 w-96 bg-background border-l border-card-border flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-right duration-200">
                     {/* Floating Header with Tabs & Close button */}
                     <div className="p-4 border-b border-card-border flex items-center justify-between gap-2 bg-black/[0.02] dark:bg-white/[0.02]">
                       <div className="flex gap-2 flex-1">
@@ -2528,7 +2561,7 @@ export default function TrackerPage() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-bold truncate text-[11px]">Tailoring Application...</p>
-            <p className="text-[9px] text-slate-400 truncate capitalize">{tailoringStep.toLowerCase()} phase active</p>
+            <p className="text-[9px] text-slate-300 truncate capitalize">{tailoringStep.toLowerCase()} phase active</p>
           </div>
           <button 
             onClick={() => setTailoringInBackground(false)}
@@ -2563,7 +2596,7 @@ export default function TrackerPage() {
                   <textarea 
                     value={jdMatchInput}
                     onChange={(e) => setJdMatchInput(e.target.value)}
-                    className="w-full h-48 bg-black/[0.03] dark:bg-white/[0.03] border border-card-border rounded-2xl p-4 text-xs font-mono text-slate-750 dark:text-slate-400 focus:border-amber-500/50 outline-none transition-all"
+                    className="w-full h-48 bg-black/[0.03] dark:bg-white/[0.03] border border-card-border rounded-2xl p-4 text-xs font-mono text-foreground focus:border-amber-500/50 outline-none transition-all"
                     placeholder="Paste the JD here to analyze keyword gaps and match score..."
                   />
                   <button 
@@ -2648,7 +2681,7 @@ export default function TrackerPage() {
                     <Sparkles className="w-4 h-4 animate-spin-slow" />
                     AI Reasoning & Fit Details
                   </h4>
-                  <p className="text-slate-900 dark:text-slate-300 text-sm leading-relaxed whitespace-pre-wrap italic">
+                  <p className="card-reason-text text-sm leading-relaxed whitespace-pre-wrap italic">
                     {reviewingJob.reason}
                   </p>
                 </div>
@@ -2656,8 +2689,15 @@ export default function TrackerPage() {
               
               <div className="space-y-2">
                 <h4 className="text-xs font-bold uppercase text-text-muted tracking-wider">Job Description</h4>
-                <div className="p-5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.03] border border-card-border text-sm leading-relaxed text-slate-800 dark:text-slate-300 whitespace-pre-wrap font-sans max-h-96 overflow-y-auto">
-                  {reviewingJob.description || "No description available."}
+                <div className="p-5 rounded-2xl bg-black/[0.03] dark:bg-white/[0.03] border border-card-border text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap font-sans max-h-96 overflow-y-auto relative min-h-[120px]">
+                  {isLoadingDescription ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center space-y-2 bg-black/[0.01] dark:bg-white/[0.01]">
+                      <div className="w-5 h-5 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted animate-pulse">Extracting full description...</span>
+                    </div>
+                  ) : (
+                    reviewingJob.description || "No description available."
+                  )}
                 </div>
               </div>
             </div>

@@ -71,19 +71,19 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
-            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Operator Identity</label>
+            <label className="text-[10px] text-slate-300 uppercase font-bold tracking-widest">Operator Identity</label>
             <input
               type="text"
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Username"
-              className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-4 py-3 text-sm focus:outline-none transition-all placeholder:text-slate-500 font-medium"
+              className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-4 py-3 text-sm focus:outline-none transition-all placeholder:text-slate-400 font-medium"
             />
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Access Key</label>
+            <label className="text-[10px] text-slate-300 uppercase font-bold tracking-widest">Access Key</label>
             <div className="relative">
               <input
                 type="password"
@@ -91,9 +91,9 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Password"
-                className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-4 py-3 text-sm focus:outline-none transition-all placeholder:text-slate-500 font-mono tracking-widest"
+                className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-4 py-3 text-sm focus:outline-none transition-all placeholder:text-slate-400 font-mono tracking-widest"
               />
-              <Lock className="absolute right-4 top-3.5 w-4 h-4 text-slate-400" />
+              <Lock className="absolute right-4 top-3.5 w-4 h-4 text-slate-300" />
             </div>
           </div>
 

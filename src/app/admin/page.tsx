@@ -236,7 +236,7 @@ export default function AdminPage() {
                           {u.email}
                         </td>
                         {/* Access Key */}
-                        <td className="py-4 pr-4 text-xs font-mono text-slate-400">
+                        <td className="py-4 pr-4 text-xs font-mono text-text-muted">
                           {editingEmail === u.email ? (
                             <div className="flex items-center gap-2">
                               <input 
@@ -339,7 +339,7 @@ export default function AdminPage() {
                   onChange={(e) => setNewEmail(e.target.value)}
                   placeholder="operator@email.com"
                   required
-                  className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none transition-all placeholder:text-slate-600 font-medium"
+                  className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none transition-all placeholder:text-text-muted/60 font-medium"
                 />
               </div>
 
@@ -351,7 +351,7 @@ export default function AdminPage() {
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Password"
                   required
-                  className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none transition-all placeholder:text-slate-600 font-medium"
+                  className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none transition-all placeholder:text-text-muted/60 font-medium"
                 />
               </div>
 
@@ -450,7 +450,7 @@ export default function AdminPage() {
                           </span>
                         </div>
                         {log.details && Object.keys(log.details).length > 0 && (
-                          <pre className="text-[10px] text-slate-400 mt-1.5 font-mono max-w-2xl overflow-x-auto bg-[#0a0a0c]/80 p-2 rounded-lg border border-white/5">
+                          <pre className="text-[10px] text-text-muted mt-1.5 font-mono max-w-2xl overflow-x-auto bg-[#0a0a0c]/80 p-2 rounded-lg border border-white/5">
                             {JSON.stringify(log.details, null, 2)}
                           </pre>
                         )}

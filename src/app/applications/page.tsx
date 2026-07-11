@@ -31,7 +31,7 @@ const statusConfig = {
   'Final Round': { icon: Mail, color: "text-fuchsia-400", bg: "bg-fuchsia-400/10", label: "Final Round" },
   Offer: { icon: CheckCircle2, color: "text-yellow-400", bg: "bg-yellow-400/10", label: "Offer" },
   Rejected: { icon: XCircle, color: "text-red-400", bg: "bg-red-400/10", label: "Rejected" },
-  Cancelled: { icon: XCircle, color: "text-slate-400", bg: "bg-slate-400/10", label: "Cancelled" },
+  Cancelled: { icon: XCircle, color: "text-text-muted", bg: "bg-foreground/5", label: "Cancelled" },
 };
 
 export default function ApplicationsPage() {
@@ -107,7 +107,7 @@ export default function ApplicationsPage() {
         <div className="flex justify-between items-end">
           <div>
             <h2 className="text-3xl font-bold font-outfit">Submission Log</h2>
-            <p className="text-slate-400 mt-1">Audit trail of all your manual and automated job applications.</p>
+            <p className="text-text-muted mt-1">Audit trail of all your manual and automated job applications.</p>
           </div>
           <div className="flex gap-3">
             <button className="btn-secondary">Export History</button>
@@ -116,7 +116,7 @@ export default function ApplicationsPage() {
 
         <div className="flex gap-4 items-center">
           <div className="flex-1 relative">
-            <Search className="w-4 h-4 absolute left-4 top-3 text-slate-500" />
+            <Search className="w-4 h-4 absolute left-4 top-3 text-text-muted" />
             <input 
               type="text" 
               value={searchTerm}
@@ -142,7 +142,7 @@ export default function ApplicationsPage() {
 
         <div className="glass-card overflow-hidden !p-0 border-white/5">
           <table className="w-full text-left border-collapse">
-            <thead className="bg-white/5 text-[10px] uppercase font-bold tracking-widest text-slate-500 border-b border-white/5">
+            <thead className="bg-white/5 text-[10px] uppercase font-bold tracking-widest text-text-muted border-b border-white/5">
               <tr>
                 <th className="px-6 py-4 w-12 text-center">
                   <input 
@@ -173,10 +173,10 @@ export default function ApplicationsPage() {
                 });
 
                 if (isLoading) {
-                  return <tr><td colSpan={7} className="p-12 text-center text-slate-500">Loading your applications...</td></tr>;
+                  return <tr><td colSpan={7} className="p-12 text-center text-text-muted">Loading your applications...</td></tr>;
                 }
                 if (filteredJobs.length === 0) {
-                  return <tr><td colSpan={7} className="p-12 text-center text-slate-500">No applications found matching search criteria.</td></tr>;
+                  return <tr><td colSpan={7} className="p-12 text-center text-text-muted">No applications found matching search criteria.</td></tr>;
                 }
 
                 return filteredJobs.map((job) => {
@@ -202,27 +202,27 @@ export default function ApplicationsPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div>
-                        <p className="font-bold text-slate-200 group-hover:text-white transition-colors">{job.title}</p>
-                        <p className="text-xs text-slate-500">{job.company}</p>
+                        <p className="font-bold text-foreground group-hover:text-white dark:group-hover:text-white transition-colors">{job.title}</p>
+                        <p className="text-xs text-text-muted">{job.company}</p>
                       </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="font-mono font-bold text-emerald-400">{job.score}%</span>
                     </td>
-                    <td className="px-6 py-4 text-slate-400">
+                    <td className="px-6 py-4 text-text-muted">
                       {job.location}
                     </td>
-                    <td className="px-6 py-4 text-slate-500 text-xs">
+                    <td className="px-6 py-4 text-text-muted text-xs">
                       {job.submittedAt || job.createdAt ? new Date(job.submittedAt || job.createdAt).toLocaleDateString() : "Pending"}
                     </td>
                     <td className="px-6 py-4 text-right relative">
                       <div className="flex items-center justify-end gap-2">
-                        <a href={job.url} target="_blank" className="p-2 hover:bg-white/5 rounded-lg transition-all text-slate-500 hover:text-white">
+                        <a href={job.url} target="_blank" className="p-2 hover:bg-white/5 rounded-lg transition-all text-text-muted hover:text-foreground">
                           <ExternalLink className="w-4 h-4" />
                         </a>
                         <button 
                           onClick={() => setActiveMenu(isMenuOpen ? null : job.id)}
-                          className={`p-2 rounded-lg transition-all ${isMenuOpen ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:bg-white/5 hover:text-white'}`}
+                          className={`p-2 rounded-lg transition-all ${isMenuOpen ? 'bg-indigo-600 text-white' : 'text-text-muted hover:bg-foreground/5 hover:text-foreground'}`}
                         >
                           <MoreHorizontal className="w-4 h-4" />
                         </button>
@@ -231,25 +231,25 @@ export default function ApplicationsPage() {
                       {/* Dropdown Menu */}
                       {isMenuOpen && (
                         <div className="absolute right-6 top-14 w-56 glass-card !p-2 z-50 shadow-2xl border-white/10 text-left">
-                          <button onClick={() => handleTailor(job.id)} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5 rounded-lg transition-colors">
+                          <button onClick={() => handleTailor(job.id)} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-text-muted hover:bg-white/5 rounded-lg transition-colors">
                             <FileText className="w-4 h-4 text-indigo-400" />
                             Tailor Cover Letter
                           </button>
-                          <button className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5 rounded-lg transition-colors">
-                            <Edit2 className="w-4 h-4 text-slate-400" />
+                          <button className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-text-muted hover:bg-white/5 rounded-lg transition-colors">
+                            <Edit2 className="w-4 h-4 text-text-muted" />
                             Edit Job Details
                           </button>
                           <div className="h-px bg-white/5 my-1" />
-                          <p className="px-3 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-widest">Update Status</p>
-                          <button onClick={() => handleStatusUpdate(job.id, 'Applied')} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5 rounded-lg transition-colors">
+                          <p className="px-3 py-1 text-[10px] uppercase font-bold text-text-muted tracking-widest">Update Status</p>
+                          <button onClick={() => handleStatusUpdate(job.id, 'Applied')} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-text-muted hover:bg-white/5 rounded-lg transition-colors">
                             <Calendar className="w-4 h-4 text-indigo-400" />
                             Mark as Applied
                           </button>
-                          <button onClick={() => handleStatusUpdate(job.id, 'Recruiter Screen')} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5 rounded-lg transition-colors">
+                          <button onClick={() => handleStatusUpdate(job.id, 'Recruiter Screen')} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-text-muted hover:bg-white/5 rounded-lg transition-colors">
                             <Mail className="w-4 h-4 text-purple-400" />
                             Mark as Screen
                           </button>
-                          <button onClick={() => handleStatusUpdate(job.id, 'Rejected')} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/5 rounded-lg transition-colors">
+                          <button onClick={() => handleStatusUpdate(job.id, 'Rejected')} className="w-full flex items-center gap-3 px-3 py-2 text-xs font-medium text-text-muted hover:bg-white/5 rounded-lg transition-colors">
                             <XCircle className="w-4 h-4 text-red-400" />
                             Mark as Rejected
                           </button>
@@ -285,17 +285,17 @@ export default function ApplicationsPage() {
                 </div>
                 <div>
                   <h3 className="font-bold text-xl">Delete Log Entry?</h3>
-                  <p className="text-xs text-slate-500">This audit trail item will be permanently removed.</p>
+                  <p className="text-xs text-text-muted">This audit trail item will be permanently removed.</p>
                 </div>
               </div>
               
               <div className="bg-red-500/5 border border-red-500/10 p-4 rounded-xl space-y-2">
-                <p className="text-sm text-slate-300 font-medium">Deleting record for:</p>
-                <p className="text-lg font-black text-white truncate">{jobs.find(j => j.id === jobToDelete)?.title || "Unknown Job"}</p>
+                <p className="text-sm text-text-muted font-medium">Deleting record for:</p>
+                <p className="text-lg font-black text-foreground truncate">{jobs.find(j => j.id === jobToDelete)?.title || "Unknown Job"}</p>
               </div>
 
               <div className="flex gap-3">
-                <button onClick={() => setJobToDelete(null)} className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl font-bold text-sm transition-all">Cancel</button>
+                <button onClick={() => setJobToDelete(null)} className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-text-muted rounded-xl font-bold text-sm transition-all">Cancel</button>
                 <button onClick={handleDelete} className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-black text-sm transition-all shadow-lg shadow-red-600/20">Delete Entry</button>
               </div>
             </div>
@@ -312,12 +312,12 @@ export default function ApplicationsPage() {
                 </div>
                 <div>
                   <h3 className="font-bold text-xl">Bulk Delete {selectedJobs.length} Entries?</h3>
-                  <p className="text-xs text-slate-500">This will purge multiple records from your audit log.</p>
+                  <p className="text-xs text-text-muted">This will purge multiple records from your audit log.</p>
                 </div>
               </div>
               
               <div className="flex gap-3">
-                <button onClick={() => setShowBulkDeleteModal(false)} className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl font-bold text-sm transition-all">Cancel</button>
+                <button onClick={() => setShowBulkDeleteModal(false)} className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-text-muted rounded-xl font-bold text-sm transition-all">Cancel</button>
                 <button onClick={handleBulkDelete} className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-black text-sm transition-all shadow-lg shadow-red-600/20">Delete All selected</button>
               </div>
             </div>

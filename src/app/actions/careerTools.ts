@@ -3,6 +3,7 @@
 import { generateWithAI } from "@/lib/gemini";
 import { getActiveProfileId } from "./profileSwitch";
 import { getProfile } from "@/lib/storage";
+import { consolidateLocations } from "@/lib/jobUtils";
 
 async function getProfileContext(profileIdOverride?: string) {
   const profileId = profileIdOverride || await getActiveProfileId();
@@ -105,7 +106,7 @@ export async function rewriteResume(resumeText?: string): Promise<string> {
 
   const prompt = `Here is my resume:\n\n${context}\n\nRewrite it to maximize interview callbacks. Use strong action verbs, quantified results, and ATS-friendly formatting. CRITICAL ANTI-HALLUCINATION GUARDRAILS: Rely ONLY on the provided resume content. Do NOT invent, fabricate, or exaggerate achievements, credentials, job roles, projects, technologies, KPIs, metrics, or experiences. Only optimize the phrasing, clarity, and layout of the existing content. Keep it 100% faithful to the source facts. Return the rewritten resume as plain text, preserving section headers.`;
   
-  const result: any = await generateWithAI(prompt);
+  const result: any = await generateWithAI(prompt, { timeoutMs: 45000 });
   return result;
 }
 
@@ -380,7 +381,7 @@ Return ONLY a JSON object (no markdown):
   `;
 
   try {
-    return await generateWithAI(prompt, { jsonMode: true });
+    return await generateWithAI(prompt, { jsonMode: true, timeoutMs: 55000 });
   } catch (e) {
     throw new Error("AI failed to generate a valid application package.");
   }
@@ -432,11 +433,17 @@ ${ANTI_DETECTION_RULES}
 // Researches and lists top-tier companies within a radius for the user's background.
 // ────────────────────────────────────────────────────────
 export async function generateDreamCompanies(locations: string[], radius: number, roles?: string[], profileIdOverride?: string): Promise<Array<{ name: string; industry: string; reasoning: string; localPresence: string; commuteDistance: string; typicalRoles: string[]; careerUrl?: string; recruiterSearchUrl?: string }>> {
-  const context = await getProfileContext(profileIdOverride);
+  const profileId = profileIdOverride || await getActiveProfileId();
+  const profile = await getProfile(profileId);
+  const context = await getProfileContext(profileId);
   if (!context) return [];
 
   const rolesQuery = roles && roles.length > 0 ? roles : [];
-  const targetLocationsText = locations.length > 0 ? locations.join(", ") : "Edgewater, FL";
+  
+  // Consolidate and sanitize locations for AI to prevent huge payloads/stalling
+  const consolidated = consolidateLocations(locations, profile?.location);
+  const targetLocationsText = consolidated.length > 0 ? consolidated.join(", ") : (profile?.location || "Edgewater, FL");
+  const centerLocation = consolidated[0] || profile?.location || "Edgewater, FL";
 
   const prompt = `
   Context:
@@ -445,8 +452,9 @@ export async function generateDreamCompanies(locations: string[], radius: number
   Active Target Roles to prioritize: ${rolesQuery.join(", ")}
   Target Locations: ${targetLocationsText}
   Search Radius: ${radius} miles
+  Center Location for Commute: ${centerLocation}
   
-  TASK: Identify 10-15 "Dream Companies" that have a physical facility, warehouse, distribution center, port terminal, manufacturing plant, hospitality operations, or local branch office within ${radius} miles of ${targetLocationsText}. 
+  TASK: Identify 5-7 high-yield "Dream Companies" that have a physical facility, warehouse, distribution center, port terminal, manufacturing plant, hospitality operations, or local branch office within ${radius} miles of ${centerLocation}.
   CRITICAL: This professional is in logistics, operations, warehousing, safety compliance, and training. Do NOT suggest remote software companies or generic tech startups unless they have a massive physical footprint in the area (like Amazon Logistics hubs or theme parks). Prioritize real local operations employers:
   - 3PL and Warehousing providers (e.g., FedEx, UPS, local logistics firms)
   - Manufacturing/industrial plants (e.g., Boston Whaler/Brunswick in Edgewater, local aviation/defense builders)
@@ -454,7 +462,7 @@ export async function generateDreamCompanies(locations: string[], radius: number
   - Marine and aerospace logistics
   - Hospitality operations hubs (e.g., Disney, Universal in Orlando)
   
-  For each company, return the following details. Estimate commute distance and pre-build search URLs:
+  For each company, return the following details. Estimate commute distance from ${centerLocation} and pre-build search URLs:
   
   Return ONLY a JSON array (no markdown):
   [
@@ -463,7 +471,7 @@ export async function generateDreamCompanies(locations: string[], radius: number
       "industry": "Industry Type", 
       "reasoning": "One sentence stating why this is a strategic match for this professional's skills.",
       "localPresence": "Specific details of their local physical facility or operations in this area (e.g., 'Large manufacturing plant in Edgewater' or 'Distributor center near Daytona airport').",
-      "commuteDistance": "Estimated road distance in miles from the center of the target location (e.g., '12 miles'). Make it realistic.",
+      "commuteDistance": "Estimated road distance in miles from the center location ${centerLocation} (e.g., '12 miles'). Make it realistic.",
       "typicalRoles": ["Warehouse Lead", "Safety Specialist", "Logistics Operations Lead"],
       "careerUrl": "Best guess Greenhouse/Lever board URL (e.g., boards.greenhouse.io/company) or main career domain",
       "recruiterSearchUrl": "A pre-built LinkedIn search URL to find recruiting/talent acquisition contacts for this company in Florida. Format: https://www.linkedin.com/search/results/people/?keywords=recruiter%20[Company%20Name]%20Florida"
@@ -474,15 +482,16 @@ export async function generateDreamCompanies(locations: string[], radius: number
   `;
 
   try {
-    return await generateWithAI(prompt, { jsonMode: true });
+    return await generateWithAI(prompt, { jsonMode: true, timeoutMs: 45000 });
   } catch (e) {
+    console.error("Gemini failed to generate dream companies:", e);
     return [];
   }
 }
 
 // ────────────────────────────────────────────────────────
 // 10. Niche Job Board Finder
-// Suggests 8-12 niche job boards based on user profile and skills.
+// Suggests 5-6 niche job boards based on user profile and skills.
 // ────────────────────────────────────────────────────────
 export async function generateNicheJobBoards(profileIdOverride?: string): Promise<Array<{ name: string; industry: string; reasoning: string; searchUrl: string }>> {
   const context = await getProfileContext(profileIdOverride);
@@ -492,7 +501,7 @@ export async function generateNicheJobBoards(profileIdOverride?: string): Promis
   Context:
   ${context}
   
-  TASK: Identify 8-12 high-value, highly specific niche job boards or career platforms (e.g. BuiltIn, WeWorkRemotely, Dice, Dribbble, RemoteOK, Crunchboard, Behance, AngelList/Wellfound) that align perfectly with this professional's industry, tech stack, and target roles.
+  TASK: Identify 5-6 high-yield, highly specific niche job boards or career platforms (e.g. BuiltIn, WeWorkRemotely, Dice, Dribbble, RemoteOK, Crunchboard, Behance, AngelList/Wellfound) that align perfectly with this professional's industry, tech stack, and target roles.
   
   Do NOT suggest generic search aggregators like LinkedIn, Indeed, Glassdoor, or ZipRecruiter. Focus strictly on niche portals.
   
@@ -511,8 +520,9 @@ export async function generateNicheJobBoards(profileIdOverride?: string): Promis
   `;
 
   try {
-    return await generateWithAI(prompt, { jsonMode: true });
+    return await generateWithAI(prompt, { jsonMode: true, timeoutMs: 45000 });
   } catch (e) {
+    console.error("Gemini failed to generate niche job boards:", e);
     return [];
   }
 }
@@ -610,7 +620,7 @@ export async function generateInterviewPrepMaterial(
   };
 
   try {
-    const result = await generateWithAI(prompt, { jsonMode: true });
+    const result = await generateWithAI(prompt, { jsonMode: true, timeoutMs: 45000 });
     return {
       pitch: result.pitch || fallback.pitch,
       behavioralQuestions: result.behavioralQuestions || fallback.behavioralQuestions,

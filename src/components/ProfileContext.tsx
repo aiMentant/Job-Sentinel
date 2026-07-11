@@ -134,7 +134,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
         </div>
         <div className="text-center space-y-2 mt-4">
           <h3 className="text-sm font-bold uppercase tracking-widest text-indigo-400 animate-pulse">Initializing Console</h3>
-          <p className="text-xs text-slate-400">Verifying secure keys and checking profile setup...</p>
+          <p className="text-xs text-slate-300">Verifying secure keys and checking profile setup...</p>
         </div>
       </div>
     );

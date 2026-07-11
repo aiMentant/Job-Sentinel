@@ -106,7 +106,7 @@ export default function ProfileTabs() {
                 >
                   <span>{p.id === 'default' ? 'Lea W - Admin' : p.fullName}</span>
                   {p.targetTitle && (
-                    <span className="text-[9px] font-normal text-text-muted/80 dark:text-slate-400 mt-0.5">
+                    <span className="text-[9px] font-normal text-text-muted/80 mt-0.5">
                       {p.targetTitle}
                     </span>
                   )}
@@ -161,7 +161,7 @@ export default function ProfileTabs() {
               const el = document.getElementById("toggle-strategy-btn");
               if (el) el.click();
             }}
-            className="p-1.5 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-all cursor-pointer flex items-center justify-center"
+            className="p-1.5 bg-white/5 border border-white/10 hover:bg-white/10 rounded-lg text-text-muted hover:text-foreground transition-all cursor-pointer flex items-center justify-center"
             title="Toggle Discovery Strategy Sidebar"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-sidebar-right">
