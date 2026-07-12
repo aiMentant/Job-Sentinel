@@ -100,7 +100,16 @@ Return ONLY a JSON object (no markdown):
 
   try {
     // Draft is the heaviest call — full resume + cover letter + outreach in one JSON blob
-    return await generateWithAI(prompt, { jsonMode: true, profileIdOverride, timeoutMs: 55000 });
+    const draft: OptimizationResult = await generateWithAI(prompt, { jsonMode: true, profileIdOverride, timeoutMs: 55000 });
+    
+    // Strip markdown bold asterisks from all generated textual fields
+    if (draft.tailoredResumeText) draft.tailoredResumeText = draft.tailoredResumeText.replace(/\*\*/g, "");
+    if (draft.tailoredCoverLetter) draft.tailoredCoverLetter = draft.tailoredCoverLetter.replace(/\*\*/g, "");
+    if (draft.linkedinHook) draft.linkedinHook = draft.linkedinHook.replace(/\*\*/g, "");
+    if (draft.emailHook) draft.emailHook = draft.emailHook.replace(/\*\*/g, "");
+    if (draft.applicationStrategy) draft.applicationStrategy = draft.applicationStrategy.replace(/\*\*/g, "");
+    
+    return draft;
   } catch (e: any) {
     throw new Error("AI failed to generate initial tailoring draft: " + e.message);
   }
@@ -188,7 +197,12 @@ Return ONLY a JSON object (no markdown):
   `;
 
   try {
-    return await generateWithAI(prompt, { jsonMode: true, profileIdOverride, timeoutMs: 40000 });
+    const refined = await generateWithAI(prompt, { jsonMode: true, profileIdOverride, timeoutMs: 40000 });
+    
+    if (refined.tailoredResumeText) refined.tailoredResumeText = refined.tailoredResumeText.replace(/\*\*/g, "");
+    if (refined.tailoredCoverLetter) refined.tailoredCoverLetter = refined.tailoredCoverLetter.replace(/\*\*/g, "");
+    
+    return refined;
   } catch (e: any) {
     throw new Error("AI failed to refine tailored materials: " + e.message);
   }

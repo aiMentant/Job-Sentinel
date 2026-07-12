@@ -145,6 +145,7 @@ export type UserProfile = {
   nicheBoards?: any[];
   geminiApiKey?: string;
   preferredModel?: string;
+  lastSearchTime?: string;
 };
 
 

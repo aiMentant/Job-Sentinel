@@ -261,7 +261,7 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
   return allFallbackJobs;
 }
 
-async function fetchAdzunaJobs(title: string, location: string, radius: number): Promise<Job[]> {
+async function fetchAdzunaJobs(title: string, location: string, radius: number, fetchScope: string = "all"): Promise<Job[]> {
   const appId = process.env.ADZUNA_APP_ID;
   const appKey = process.env.ADZUNA_APP_KEY;
   if (!appId || !appKey) {
@@ -274,7 +274,25 @@ async function fetchAdzunaJobs(title: string, location: string, radius: number):
     const country = isUK ? "gb" : "us";
     const radiusKm = Math.ceil(radius * 1.60934);
     
-    const url = `https://api.adzuna.com/v1/api/jobs/${country}/search/1?app_id=${appId}&app_key=${appKey}&results_per_page=15&what=${encodeURIComponent(title)}&where=${encodeURIComponent(location)}&distance=${radiusKm}`;
+    // Add max_days_old parameter based on fetchScope (supports dynamic Xd string)
+    let scopeParam = "";
+    let days = 0;
+    if (fetchScope.endsWith("d")) {
+      days = parseInt(fetchScope.slice(0, -1), 10);
+    } else if (fetchScope === "1w") {
+      days = 7;
+    } else if (fetchScope === "2w") {
+      days = 14;
+    } else if (fetchScope === "1m") {
+      days = 30;
+    }
+
+    if (days > 0) {
+      const cappedDays = Math.min(30, days);
+      scopeParam = `&max_days_old=${cappedDays}`;
+    }
+
+    const url = `https://api.adzuna.com/v1/api/jobs/${country}/search/1?app_id=${appId}&app_key=${appKey}&results_per_page=15&what=${encodeURIComponent(title)}&where=${encodeURIComponent(location)}&distance=${radiusKm}${scopeParam}`;
     console.log(`[Adzuna] Querying: ${url}`);
     
     const res = await fetch(url, { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) });
@@ -308,7 +326,7 @@ async function fetchAdzunaJobs(title: string, location: string, radius: number):
   }
 }
 
-export async function fetchJSearchJobs(title: string, location: string): Promise<Job[]> {
+export async function fetchJSearchJobs(title: string, location: string, radius?: number, fetchScope: string = "all"): Promise<Job[]> {
   const apiKey = process.env.RAPIDAPI_KEY || process.env.JSEARCH_API_KEY;
   if (!apiKey) {
     console.log("[JSearch] Missing RAPIDAPI_KEY or JSEARCH_API_KEY. Skipping.");
@@ -316,8 +334,29 @@ export async function fetchJSearchJobs(title: string, location: string): Promise
   }
 
   try {
-    const query = `${title} in ${location}`;
-    const url = `https://jsearch.p.rapidapi.com/search-v2?query=${encodeURIComponent(query)}&num_pages=1&page=1`;
+    const isRemote = /remote|anywhere|worldwide/i.test(location);
+    const query = isRemote ? `${title} Remote` : `${title} in ${location}`;
+    
+    // Add date_posted parameter based on fetchScope (supports dynamic Xd string)
+    let dateParam = "any";
+    let days = 0;
+    if (fetchScope.endsWith("d")) {
+      days = parseInt(fetchScope.slice(0, -1), 10);
+    } else if (fetchScope === "1w") {
+      days = 7;
+    } else if (fetchScope === "2w") {
+      days = 14;
+    } else if (fetchScope === "1m") {
+      days = 30;
+    }
+
+    if (days > 0) {
+      if (days <= 3) dateParam = "3days";
+      else if (days <= 7) dateParam = "week";
+      else dateParam = "month";
+    }
+
+    const url = `https://jsearch.p.rapidapi.com/search-v2?query=${encodeURIComponent(query)}&num_pages=1&page=1&date_posted=${dateParam}`;
     console.log(`[JSearch] Querying JSearch for: ${query}`);
     
     const res = await fetch(url, {
@@ -414,7 +453,8 @@ export async function runJobSearch(
   targetSites?: string[],
   profileIdOverride?: string,
   matchStrictness: 'exact' | 'strong' | 'flexible' = 'exact',
-  alternativeTitles: string[] = []
+  alternativeTitles: string[] = [],
+  fetchScope: string = 'all'
 ) {
   const profileId = profileIdOverride || await getActiveProfileId();
   const profile = await getProfile(profileId);
@@ -462,13 +502,13 @@ export async function runJobSearch(
     
     for (const title of titles) {
       if (timedOut) break;
-      for (const rawLoc of locations) {
+      for (const loc of locations) {
         if (Date.now() - startTime > 22000) {
           console.warn("[Search] Approaching serverless function timeout (22s). Exiting search loop early to preserve found results.");
           timedOut = true;
           break;
         }
-        const location = rawLoc;
+        const location = loc;
         currentStep++;
 
         const remainingSteps = totalSteps - currentStep + 1;
@@ -481,13 +521,23 @@ export async function runJobSearch(
           resultsFound: allResults.length 
         });
         
-        const [adzunaJobs, jsearchJobs, usajobsJobs] = await Promise.all([
-          fetchAdzunaJobs(title, location, radius),
-          fetchJSearchJobs(title, location),
-          fetchUSAJobs(title, location, radius)
-        ]);
+        const jobsPromises = [];
+        const runAdzuna = !targetSites || targetSites.includes("Adzuna");
+        const runJSearch = !targetSites || targetSites.includes("JSearch");
+        const runUSAJobs = !targetSites || targetSites.includes("USAJobs");
 
-        let rawJobs = [...adzunaJobs, ...jsearchJobs, ...usajobsJobs];
+        if (runAdzuna) {
+          jobsPromises.push(fetchAdzunaJobs(title, loc, radius, fetchScope));
+        }
+        if (runJSearch) {
+          jobsPromises.push(fetchJSearchJobs(title, loc, radius, fetchScope));
+        }
+        if (runUSAJobs) {
+          jobsPromises.push(fetchUSAJobs(title, loc, radius));
+        }
+
+        const results = await Promise.all(jobsPromises);
+        let rawJobs = results.flat();
 
         if (rawJobs.length === 0) {
           console.log(`[Search] No API results found or credentials missing. Falling back to local browser scraper...`);
@@ -841,10 +891,16 @@ CRITICAL ANTI-HALLUCINATION GUARDRAILS:
 - If a skill/requirement is missing, focus on adjacent transferable skills found in the profile rather than inventing it.
 - Keep the cover letter under 300 words.
 - Sound professional, human, and direct.
+
+AI DETECTION BYPASS & FORMATTING RULES (MANDATORY):
+- BANNED WORDS & PHRASES: Do NOT use any of the following: "Moreover", "Furthermore", "Delve", "Testament", "Exciting mix", "Passion for", "Passionate about", "Foster", "Synergy", "Tapestry", "Leverage" (as a verb for skills), "Spearheaded" (unless directly in profile details), "Utilize", "Embark", "Journey", "Landscape", "Transformative", "Impactful", "Seamlessly", "Elevate", "Cutting-edge".
+- Hook the reader instantly. Do NOT use cliché openings like "I am writing to express my interest in..." or "I am thrilled to apply...". Start with a direct connection (e.g., "I am applying for the role because...").
+- Do NOT use markdown formatting, bolding, or double asterisks ("**"). Output clean, raw plain text only.
 `;
   
   try {
-    return await generateWithAI(prompt);
+    const rawLetter = await generateWithAI(prompt);
+    return rawLetter.replace(/\*\*/g, "");
   } catch (error) {
     return "Failed to generate cover letter.";
   }

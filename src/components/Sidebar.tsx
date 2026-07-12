@@ -61,8 +61,7 @@ export default function Sidebar() {
     }, 0);
   }, [pathname]);
 
-  const [showSetupModal, setShowSetupModal] = useState(false);
-  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   useEffect(() => {
     if (!activeProfileId || pathname === "/login") return;
@@ -82,7 +81,7 @@ export default function Sidebar() {
           if (!hasTitles || !hasLocations || !hasCookie) {
             // Mark as shown immediately so navigating pages never re-triggers it
             localStorage.setItem(`job_sentinel_setup_shown_${activeProfileId}`, "pending");
-            setShowSetupModal(true);
+            setShowHelpModal(true);
           }
         }
       } catch (err) {
@@ -169,20 +168,12 @@ export default function Sidebar() {
       {/* Secondary Navigation Group (Bottom) */}
       <div className="space-y-1 mb-4 border-t border-card-border/40 pt-4">
         <button
-          onClick={() => setShowSetupModal(true)}
+          onClick={() => setShowHelpModal(true)}
           className={`w-full flex items-center ${isCollapsed ? "justify-center" : "gap-3 px-4"} py-3 rounded-xl transition-all duration-200 group text-text-muted hover:bg-foreground/5 hover:text-foreground cursor-pointer`}
-          title={isCollapsed ? "Account Setup Guide" : ""}
+          title={isCollapsed ? "Guides & Playbook" : ""}
         >
           <HelpCircle className="w-5 h-5 flex-shrink-0 text-text-muted group-hover:text-foreground" />
-          {!isCollapsed && <span className="font-medium animate-in fade-in slide-in-from-left-2 duration-300 text-sm">Account Setup Guide</span>}
-        </button>
-        <button
-          onClick={() => setShowSearchModal(true)}
-          className={`w-full flex items-center ${isCollapsed ? "justify-center" : "gap-3 px-4"} py-3 rounded-xl transition-all duration-200 group text-text-muted hover:bg-foreground/5 hover:text-foreground cursor-pointer`}
-          title={isCollapsed ? "Search Engine Guide" : ""}
-        >
-          <HelpCircle className="w-5 h-5 flex-shrink-0 text-text-muted group-hover:text-foreground" />
-          {!isCollapsed && <span className="font-medium animate-in fade-in slide-in-from-left-2 duration-300 text-sm">Search Engine Guide</span>}
+          {!isCollapsed && <span className="font-medium animate-in fade-in slide-in-from-left-2 duration-300 text-sm">Guides & Playbook</span>}
         </button>
         {secondaryNavItems.map((item) => {
           const isActive = pathname === item.href;
@@ -265,16 +256,10 @@ export default function Sidebar() {
         </div>
       )}
       <HelpModal 
-        isOpen={showSetupModal} 
-        onClose={() => setShowSetupModal(false)} 
+        isOpen={showHelpModal} 
+        onClose={() => setShowHelpModal(false)} 
         activeProfileId={activeProfileId} 
         type="setup"
-      />
-      <HelpModal 
-        isOpen={showSearchModal} 
-        onClose={() => setShowSearchModal(false)} 
-        activeProfileId={activeProfileId} 
-        type="search"
       />
     </div>
   );

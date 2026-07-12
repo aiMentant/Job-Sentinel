@@ -158,7 +158,9 @@ export default function SearchPage() {
   const [workSettingFilter, setWorkSettingFilter] = useState<'all' | 'remote' | 'hybrid' | 'onsite'>('all');
   const [postedWithinFilter, setPostedWithinFilter] = useState<string>("all");
   const [undoDismissJob, setUndoDismissJob] = useState<Job | null>(null);
-  const [hideGhostJobs, setHideGhostJobs] = useState(false);
+  const [hideGhostJobs, setHideGhostJobs] = useState<boolean>(false);
+  const [apiFetchScope, setApiFetchScope] = useState<string>("auto");
+  const [hideApiWarning, setHideApiWarning] = useState<boolean>(false);
   const [showFilterGrid, setShowFilterGrid] = useState(false);
   const [searchHistory, setSearchHistory] = useState<Array<{ date: string; query: string; count: number; mode: 'standard' | 'deep' }>>([
     { date: new Date(Date.now() - 1000 * 60 * 30).toISOString(), query: "Senior UX Designer", count: 8, mode: "standard" },
@@ -580,15 +582,6 @@ export default function SearchPage() {
     if (selectedSiteFilter !== "all") {
       const sourceLower = (j.source || "").toLowerCase();
       if (!sourceLower.includes(selectedSiteFilter.toLowerCase())) return false;
-    }
-
-    // Filter by posting recency (time-based)
-    if (postedWithinFilter !== "all") {
-      const daysOld = getPostingDaysOld(j.postedAt, j.createdAt);
-      if (postedWithinFilter === "3d" && daysOld > 3) return false;
-      if (postedWithinFilter === "1w" && daysOld > 7) return false;
-      if (postedWithinFilter === "2w" && daysOld > 14) return false;
-      if (postedWithinFilter === "1m" && daysOld > 30) return false;
     }
 
     // Filter out jobs with a ghost score >= 80 if the toggle is checked
@@ -1038,6 +1031,32 @@ export default function SearchPage() {
       return;
     }
 
+    // 12-Hour Throttle Guard
+    if (profile?.lastSearchTime) {
+      const lastSearch = new Date(profile.lastSearchTime);
+      const diffMs = Date.now() - lastSearch.getTime();
+      const diffHours = diffMs / (1000 * 60 * 60);
+      if (diffHours < 12) {
+        const confirmSearch = confirm(`You searched very recently (${diffHours.toFixed(1)} hours ago). Running this search now will check for new listings posted today, which may yield few results. Continue?`);
+        if (!confirmSearch) {
+          return;
+        }
+      }
+    }
+
+    // Calculate Dynamic Search Scope for API
+    let searchScopeParam = apiFetchScope;
+    if (apiFetchScope === "auto") {
+      if (profile?.lastSearchTime) {
+        const lastSearch = new Date(profile.lastSearchTime);
+        const diffMs = Date.now() - lastSearch.getTime();
+        const diffDays = Math.max(1, Math.min(30, Math.ceil(diffMs / (1000 * 60 * 60 * 24))));
+        searchScopeParam = `${diffDays}d`;
+      } else {
+        searchScopeParam = "3d"; // Default fallback
+      }
+    }
+
     setIsSearching(true);
     setStatus("Launching stealth browser...");
     setSearchLogs(["[System] Initializing Discovery Agent...", "[System] Launching stealth browser..."]);
@@ -1081,6 +1100,12 @@ export default function SearchPage() {
           count: newJobs.length,
           mode: 'deep'
         });
+        // Update last search time in DB & State on deep search success
+        const nowString = new Date().toISOString();
+        const { patchUserProfile } = await import("@/app/actions/jobActions");
+        await patchUserProfile({ lastSearchTime: nowString }, activeProfileId);
+        setProfile(prev => ({ ...prev, lastSearchTime: nowString }));
+
         const queryText = precisionTitles.join(", ");
         setSearchHistory(prev => [
           { date: new Date().toISOString(), query: queryText, count: newJobs.length, mode: 'deep' },
@@ -1115,7 +1140,8 @@ export default function SearchPage() {
               activeTargetSites.length > 0 ? activeTargetSites : targetSites,
               activeProfileId,
               profile.matchStrictness || 'exact',
-              alternativeTitles
+              alternativeTitles,
+              searchScopeParam
             );
 
             // Auto-Expansion Fallback if 0 results found across ALL titles so far
@@ -1142,7 +1168,8 @@ export default function SearchPage() {
                 activeTargetSites.length > 0 ? activeTargetSites : targetSites,
                 activeProfileId,
                 profile.matchStrictness || 'exact',
-                alternativeTitles
+                alternativeTitles,
+                searchScopeParam
               );
             }
 
@@ -1195,6 +1222,12 @@ export default function SearchPage() {
           count: totalFound,
           mode: 'standard'
         });
+        // Update last search time in DB & State on standard search success
+        const nowString = new Date().toISOString();
+        const { patchUserProfile } = await import("@/app/actions/jobActions");
+        await patchUserProfile({ lastSearchTime: nowString }, activeProfileId);
+        setProfile(prev => ({ ...prev, lastSearchTime: nowString }));
+
         const queryText = titles.join(", ");
         setSearchHistory(prev => [
           { date: new Date().toISOString(), query: queryText, count: totalFound, mode: 'standard' },
@@ -1415,6 +1448,20 @@ export default function SearchPage() {
   const completedSteps = scanningTitles.filter(t => t.status === 'done' || t.status === 'failed').length;
   const progressPercent = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
 
+  // Calculate Dynamic Setup delta values
+  const lastSearchTimeVal = profile?.lastSearchTime ? new Date(profile.lastSearchTime) : null;
+  const daysSinceSearch = lastSearchTimeVal 
+    ? Math.max(1, Math.min(30, Math.ceil((Date.now() - lastSearchTimeVal.getTime()) / (1000 * 60 * 60 * 24)))) 
+    : 3;
+  const hoursSinceSearch = lastSearchTimeVal 
+    ? (Date.now() - lastSearchTimeVal.getTime()) / (1000 * 60 * 60) 
+    : null;
+
+  let catchupLabel = `Auto-Catchup (Last ${daysSinceSearch} ${daysSinceSearch === 1 ? 'Day' : 'Days'})`;
+  if (hoursSinceSearch !== null && hoursSinceSearch < 12) {
+    catchupLabel = "Auto-Catchup (Up to Date!)";
+  }
+
   return (
     <PanelGroup orientation="horizontal" className="flex h-[calc(100vh-54px)] overflow-hidden w-full relative">
       
@@ -1552,7 +1599,7 @@ export default function SearchPage() {
                 >
                   <Filter className="w-3.5 h-3.5" />
                   <span>Filters</span>
-                  {(selectedJobType !== 'all' || selectedLocationFilter !== 'all' || selectedSiteFilter !== 'all' || postedWithinFilter !== 'all' || hideGhostJobs) && (
+                  {(selectedJobType !== 'all' || selectedLocationFilter !== 'all' || selectedSiteFilter !== 'all' || hideGhostJobs) && (
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
                   )}
                 </button>
@@ -1636,32 +1683,15 @@ export default function SearchPage() {
                 </div>
               </div>
 
-              {/* Recency */}
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-text-muted block">Recency</span>
-                <div className="relative">
-                  <select
-                    value={postedWithinFilter}
-                    onChange={(e) => setPostedWithinFilter(e.target.value)}
-                    className="w-full btn-secondary py-2 pl-3 pr-8 text-xs bg-card border border-card-border rounded-xl outline-none cursor-pointer appearance-none"
-                  >
-                    <option value="all">Anytime</option>
-                    <option value="3d">Last 3 Days</option>
-                    <option value="1w">Last Week</option>
-                    <option value="2w">Last 2 Weeks</option>
-                    <option value="1m">Last Month</option>
-                  </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-text-muted absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                </div>
-              </div>
             </div>
           )}
 
 
 
           {/* API Credentials Warning Banner */}
-          {apiKeysStatus && (!apiKeysStatus.jsearch || !apiKeysStatus.adzuna || !apiKeysStatus.usajobs) && (
-            <div className="mb-6 p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400 text-xs flex items-start gap-3 animate-in fade-in duration-300">
+          {apiKeysStatus && (!apiKeysStatus.jsearch || !apiKeysStatus.adzuna || !apiKeysStatus.usajobs) && !hideApiWarning && (
+            <div className="mb-6 p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400 text-xs flex items-start gap-3 animate-in fade-in duration-300 relative">
+              <button onClick={() => setHideApiWarning(true)} className="absolute top-2 right-2 text-amber-600/50 hover:text-amber-600 dark:hover:text-amber-400">&times;</button>
               <span className="text-base leading-none">⚠️</span>
               <div className="space-y-1">
                 <p className="font-bold uppercase tracking-wider text-[10px]">Scraper APIs Offline / Missing Credentials</p>
@@ -1844,7 +1874,7 @@ export default function SearchPage() {
                   <div key={i} className="glass-card hover:border-emerald-500/30 transition-all group relative overflow-hidden flex flex-col justify-between h-full">
                     <div>
                       <div className="flex justify-between items-start mb-2">
-                        <h4 className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+                        <h4 className="font-outfit font-black text-foreground group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
                           {board.name}
                         </h4>
                         <span className="text-[9px] font-black uppercase tracking-widest bg-emerald-500/10 border border-emerald-500/20 dark:border-emerald-500/30 px-2 py-0.5 rounded text-emerald-600 dark:text-emerald-400">
@@ -1925,7 +1955,7 @@ export default function SearchPage() {
                     <div key={i} className={`glass-card p-5 hover:border-indigo-500/30 transition-all group relative flex flex-col justify-between ${company.scanningStatus === 'scanning' ? 'border-indigo-500/50 bg-indigo-500/5' : ''}`}>
                        <div>
                          <div className="flex justify-between items-start mb-2">
-                            <h4 className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors flex items-center gap-2 text-base">
+                            <h4 className="font-outfit font-black text-foreground group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors flex items-center gap-2 text-base">
                               <Building className="w-4 h-4 text-indigo-500 shrink-0 animate-pulse" />
                               {company.name}
                               {company.scanningStatus === 'scanning' && (
@@ -2149,7 +2179,6 @@ export default function SearchPage() {
                   setSelectedLocationFilter("all");
                   setSelectedSiteFilter("all");
                   setWorkSettingFilter("all");
-                  setPostedWithinFilter("all");
                   setShowHighScoresOnly(false);
                   setHideGhostJobs(false);
                 }}
@@ -2780,6 +2809,16 @@ export default function SearchPage() {
                   } 
                 }}
               />
+              <div className="mt-3">
+                <button 
+                  onClick={handleRegenerate}
+                  disabled={isRegenerating}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-500/20 transition-all cursor-pointer"
+                >
+                  <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
+                  {isRegenerating ? "Analyzing Resume..." : "Suggest Smart Targets"}
+                </button>
+              </div>
             </div>
 
             {/* Alternative Roles Accordion */}
@@ -3124,10 +3163,6 @@ export default function SearchPage() {
               </div>
             </div>
 
-            {/* Primary Search CTA moved to sticky footer */}
-
-
-
             {/* Boolean Search Strings (Advanced Tools) */}
             <div className="mt-4 pt-4 mb-4 border-t border-card-border">
               <label className="text-xs text-text-muted font-bold uppercase tracking-wider mb-2 block">Advanced Tools</label>
@@ -3192,23 +3227,6 @@ export default function SearchPage() {
               </div>
             </div>
 
-            {/* Search button moved above fold — renders above Suggest Smart Targets */}
-            {searchMode === 'deep' && (
-               <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10 space-y-2 animate-in slide-in-from-top-2 duration-300">
-                  <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-[10px] uppercase tracking-widest">
-                     <Wand2 className="w-3 h-3" />
-                     Precision Mode Active
-                  </div>
-                  <p className="text-[10px] text-text-muted leading-relaxed">
-                    Deep Web discovery is now optimized for your <b>top 3 roles</b>. This minimizes noise and focuses exclusively on high-value ATS boards.
-                  </p>
-               </div>
-            )}
-
-            {status && (
-              <p className="text-[10px] text-center text-text-muted animate-pulse">{status}</p>
-            )}
-
             {/* Sparkline trend indicator */}
             <div className="pt-4 border-t border-card-border space-y-2">
               <div className="flex justify-between items-center text-[10px] uppercase font-bold text-text-muted tracking-wider">
@@ -3262,34 +3280,47 @@ export default function SearchPage() {
           </div>
           
           {/* Sticky CTA Footer */}
-          <div className="shrink-0 p-6 bg-card/90 backdrop-blur-md border-t border-card-border shadow-[0_-10px_30px_-10px_rgba(0,0,0,0.3)] z-10 flex flex-col gap-3">
-            {/* Primary Search CTA */}
+          <div className="p-4 border-t border-card-border bg-card/80 backdrop-blur-xl relative z-10 space-y-3">
+            <div className="flex flex-col gap-1">
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-text-muted">Fetch Scope</label>
+              </div>
+              <div className="relative">
+                <select
+                  value={apiFetchScope}
+                  onChange={(e) => setApiFetchScope(e.target.value)}
+                  className="w-full btn-secondary py-1.5 pl-3 pr-8 text-xs bg-black/5 dark:bg-white/5 border border-card-border rounded outline-none cursor-pointer appearance-none"
+                >
+                  <option value="all">Deep Scan (All Time)</option>
+                  <option value="auto">{catchupLabel}</option>
+                  <option value="3d">Last 3 Days</option>
+                  <option value="1w">Last 7 Days</option>
+                  <option value="2w">Last 14 Days</option>
+                  <option value="1m">Last 30 Days</option>
+                </select>
+                <ChevronDown className="w-3.5 h-3.5 text-text-muted absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
             <button 
               onClick={() => handleSearch()}
-              disabled={isSearching}
-              className={`w-full btn-primary justify-center disabled:opacity-50 !py-4 transition-all shadow-xl cursor-pointer ${searchMode === 'deep' ? '!bg-emerald-600 hover:!bg-emerald-500 shadow-emerald-600/20' : ''}`}
+              disabled={isSearching || isRegenerating || targetTitles.length === 0}
+              className={`w-full py-3 rounded-xl flex items-center justify-center gap-2 font-bold uppercase tracking-wider shadow-xl shadow-indigo-500/20 transition-all ${
+                isSearching || isRegenerating || targetTitles.length === 0
+                  ? "bg-surface text-text-muted cursor-not-allowed opacity-50"
+                  : "bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer hover:scale-[1.02] active:scale-95"
+              }`}
             >
               {isSearching ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />
-                  Agent Scanning...
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Running...
                 </>
               ) : (
                 <>
-                  <Play className="w-4 h-4 fill-current shrink-0" />
+                  <Search className="w-4 h-4" />
                   Search Jobs
                 </>
               )}
-            </button>
-
-            {/* AI Suggestion Button */}
-            <button 
-              onClick={handleRegenerate}
-              disabled={isRegenerating}
-              className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold uppercase tracking-widest hover:bg-indigo-500/20 transition-all cursor-pointer"
-            >
-              <Sparkles className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : ''}`} />
-              {isRegenerating ? "Analyzing Resume..." : "Suggest Smart Targets"}
             </button>
           </div>
       </aside>

@@ -621,12 +621,26 @@ export async function generateInterviewPrepMaterial(
 
   try {
     const result = await generateWithAI(prompt, { jsonMode: true, timeoutMs: 45000 });
+    
+    // Strip double asterisks to prevent raw markdown in textareas
+    const cleanPitch = (result.pitch || fallback.pitch).replace(/\*\*/g, "");
+    const cleanSalary = (result.salaryNegotiation || fallback.salaryNegotiation).replace(/\*\*/g, "");
+    const cleanBehavioral = (result.behavioralQuestions || fallback.behavioralQuestions).map((q: any) => ({
+      q: q.q || "",
+      a: (q.a || "").replace(/\*\*/g, "")
+    }));
+    const cleanTechnical = (result.technicalQuestions || fallback.technicalQuestions).map((q: any) => ({
+      q: q.q || "",
+      a: (q.a || "").replace(/\*\*/g, "")
+    }));
+    const cleanReverse = (result.reverseQuestions || fallback.reverseQuestions).map((q: string) => q.replace(/\*\*/g, ""));
+
     return {
-      pitch: result.pitch || fallback.pitch,
-      behavioralQuestions: result.behavioralQuestions || fallback.behavioralQuestions,
-      technicalQuestions: result.technicalQuestions || fallback.technicalQuestions,
-      reverseQuestions: result.reverseQuestions || fallback.reverseQuestions,
-      salaryNegotiation: result.salaryNegotiation || fallback.salaryNegotiation
+      pitch: cleanPitch,
+      behavioralQuestions: cleanBehavioral,
+      technicalQuestions: cleanTechnical,
+      reverseQuestions: cleanReverse,
+      salaryNegotiation: cleanSalary
     };
   } catch (e) {
     console.error("Gemini failed to generate interview prep:", e);
@@ -882,7 +896,7 @@ Do NOT invent or exaggerate credentials, metrics, or experiences.
 
   try {
     const result: any = await generateWithAI(prompt);
-    return result.trim();
+    return result.trim().replace(/\*\*/g, "");
   } catch (e) {
     throw new Error("AI failed to refine the text.");
   }

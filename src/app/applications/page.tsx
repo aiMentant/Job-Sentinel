@@ -13,7 +13,9 @@ import {
   Calendar,
   Trash2,
   FileText,
-  Edit2
+  Edit2,
+  Copy,
+  Check
 } from "lucide-react";
 import { fetchJobs, updateJobStatus, deleteJob, generateCoverLetter, bulkDeleteJobs } from "@/app/actions/jobActions";
 import { useProfile } from "@/components/ProfileContext";
@@ -43,6 +45,9 @@ export default function ApplicationsPage() {
   const [jobToDelete, setJobToDelete] = useState<string | null>(null);
   const [showBulkDeleteModal, setShowBulkDeleteModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [tailoredCoverLetter, setTailoredCoverLetter] = useState<string | null>(null);
+  const [isTailoring, setIsTailoring] = useState<boolean>(false);
+  const [copied, setCopied] = useState<boolean>(false);
 
   useEffect(() => {
     loadJobs();
@@ -73,9 +78,16 @@ export default function ApplicationsPage() {
   };
 
   const handleTailor = async (id: string) => {
-    const letter = await generateCoverLetter(id);
-    alert("Tailored Cover Letter Generated:\n\n" + letter);
-    setActiveMenu(null);
+    setIsTailoring(true);
+    try {
+      const letter = await generateCoverLetter(id);
+      setTailoredCoverLetter(letter);
+    } catch (err) {
+      console.error("Cover letter tailoring failed:", err);
+    } finally {
+      setIsTailoring(false);
+      setActiveMenu(null);
+    }
   };
 
   const toggleSelectAll = () => {
@@ -321,6 +333,70 @@ export default function ApplicationsPage() {
                 <button onClick={handleBulkDelete} className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-black text-sm transition-all shadow-lg shadow-red-600/20">Delete All selected</button>
               </div>
             </div>
+          </div>
+        )}
+        {/* Tailored Cover Letter Preview Modal */}
+        {tailoredCoverLetter && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
+            <div className="glass-card w-full max-w-2xl h-[70vh] flex flex-col bg-card border-card-border p-6 shadow-2xl rounded-2xl animate-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-center pb-4 border-b border-card-border/60 shrink-0">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-indigo-500" />
+                  <h3 className="font-bold text-base text-foreground uppercase tracking-wider">Tailored Cover Letter</h3>
+                </div>
+                <button 
+                  onClick={() => { setTailoredCoverLetter(null); setCopied(false); }}
+                  className="p-1 rounded-lg hover:bg-foreground/5 text-text-muted hover:text-foreground transition-colors cursor-pointer"
+                >
+                  <XCircle className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="flex-1 my-4 overflow-hidden relative">
+                <textarea
+                  readOnly
+                  value={tailoredCoverLetter}
+                  className="w-full h-full p-4 rounded-xl bg-black/10 dark:bg-white/5 border border-card-border focus:border-foreground/30 text-foreground text-xs leading-relaxed font-sans resize-none outline-none overflow-y-auto"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4 border-t border-card-border/60 shrink-0">
+                <button
+                  onClick={() => { setTailoredCoverLetter(null); setCopied(false); }}
+                  className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-text-muted rounded-xl font-bold text-xs transition-all cursor-pointer text-center"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(tailoredCoverLetter);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  className="flex-grow py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      Copy Cover Letter
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Global Loading state when AI is generating */}
+        {isTailoring && (
+          <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black/75 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mb-4" />
+            <p className="text-xs uppercase font-black tracking-wider text-indigo-400 animate-pulse">Tailoring cover letter via Gemini...</p>
           </div>
         )}
       </div>
