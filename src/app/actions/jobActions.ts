@@ -338,7 +338,7 @@ export async function fetchJSearchJobs(title: string, location: string, radius?:
     const query = isRemote ? `${title} Remote` : `${title} in ${location}`;
     
     // Add date_posted parameter based on fetchScope (supports dynamic Xd string)
-    let dateParam = "any";
+    let dateParam = "anytime";
     let days = 0;
     if (fetchScope.endsWith("d")) {
       days = parseInt(fetchScope.slice(0, -1), 10);
