@@ -61,7 +61,7 @@ import { generateDreamCompanies, generateNicheJobBoards } from "@/app/actions/ca
 import { Job, UserProfile } from "@/lib/db";
 import Link from "next/link";
 import { useProfile } from "@/components/ProfileContext";
-import { getSourceBadgeClass, computeGhostScore, getGhostBadge } from "@/lib/jobUtils";
+import { getSourceBadgeClass, computeGhostScore, getGhostBadge, estimateCommuteMinutes, estimateRadiusFromCommute } from "@/lib/jobUtils";
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from "react-resizable-panels";
 
 const isValidLocation = (loc: string): boolean => {
@@ -119,6 +119,8 @@ export default function SearchPage() {
   const [activeTab, setActiveTab] = useState<'live' | 'ghost' | 'companies' | 'boards'>('live');
   const [nicheBoards, setNicheBoards] = useState<any[]>([]);
   const [isGeneratingNicheBoards, setIsGeneratingNicheBoards] = useState(false);
+  const [isScanningNiche, setIsScanningNiche] = useState(false);
+  const [showProgressModal, setShowProgressModal] = useState(false);
   const [isScanningAllCompanies, setIsScanningAllCompanies] = useState(false);
 
   // ── Location Pill-Toggle Architecture ──────────────────────────────────────
@@ -248,11 +250,22 @@ export default function SearchPage() {
           setActiveSearchLocations(savedActive.length > 0 ? savedActive : locs);
           // Initialize baseLocation from profile, default to first valid location
           setBaseLocation(p.baseLocation || locs[0] || "");
+          const US_DEFAULT_SITES = ["linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com", "usajobs.gov", "snagajob.com"];
+          const UK_DEFAULT_SITES = ["linkedin.com", "indeed.co.uk", "glassdoor.co.uk", "adzuna.co.uk", "reed.co.uk", "cv-library.co.uk", "totaljobs.com"];
+
+          const isUK = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(locs.join(" ")) || 
+                       /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(p.location || "");
+          const defaultSites = isUK ? UK_DEFAULT_SITES : US_DEFAULT_SITES;
+
           // Initialize activeTargetSites: all sites active by default
-          const sites = p.targetSites && p.targetSites.length > 0 ? p.targetSites : ["linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com", "usajobs.gov", "snagajob.com"];
+          const sites = p.targetSites && p.targetSites.length > 0 ? p.targetSites : defaultSites;
           setActiveTargetSites(sites);
-          const activeSites = p.targetSites && p.targetSites.length > 0 ? p.targetSites : ["linkedin.com", "indeed.com"];
-          if (p.targetSites && p.targetSites.length > 0) setTargetSites(p.targetSites);
+          const activeSites = p.targetSites && p.targetSites.length > 0 ? p.targetSites : defaultSites.slice(0, 2);
+          if (p.targetSites && p.targetSites.length > 0) {
+            setTargetSites(p.targetSites);
+          } else {
+            setTargetSites(defaultSites);
+          }
           if (p.searchRadius) setRadius(p.searchRadius);
 
           // Dynamically load search presets from localStorage, falling back to a fresh "My Profile Default"
@@ -310,6 +323,8 @@ export default function SearchPage() {
           let backgroundSearching = agent.isSearching;
           if (backgroundSearching) {
             setIsSearching(true);
+            setShowProgressModal(true);
+            setIsProgressModalMinimized(true);
             setStatus(`${agent.status} (Found ${agent.resultsFound || 0} matches so far)`);
             setSearchLogs([
               `[System] Syncing with background search...`,
@@ -431,6 +446,7 @@ export default function SearchPage() {
       if (!active) return;
       if (agent.isSearching) {
         setIsSearching(true);
+        setShowProgressModal(true);
         setStatus(`${agent.status} (Found ${agent.resultsFound || 0} matches so far)`);
         
         setSearchLogs(prev => {
@@ -1058,6 +1074,8 @@ export default function SearchPage() {
     }
 
     setIsSearching(true);
+    setShowProgressModal(true);
+    setIsProgressModalMinimized(false);
     setStatus("Launching stealth browser...");
     setSearchLogs(["[System] Initializing Discovery Agent...", "[System] Launching stealth browser..."]);
     setScanningTitles(titles.map(t => ({ title: t, status: 'pending' })));
@@ -1065,41 +1083,83 @@ export default function SearchPage() {
     try {
       if (searchMode === 'deep') {
         setStatus("Precision Mode: Scanning ATS Platforms...");
-        setScanningTitles(titles.slice(0, 3).map((t, idx) => ({ title: t, status: idx === 0 ? 'scanning' : 'pending' })));
         const precisionTitles = titles.slice(0, 3);
-        const newJobs = await runWebDiscovery(
-          precisionTitles, 
-          locations.length > 0 ? locations : (profile.location ? [profile.location] : ["USA"]), 
-          radius, 
-          dreamCompanies,
-          alternativeTitles,
-          profile.matchStrictness || 'exact'
-        );
-        
-        await addJobs(newJobs, activeProfileId);
-        setResults(prev => {
-          const existingUrls = new Set(prev.map(j => j.url));
-          const uniqueNew = newJobs.filter(j => !existingUrls.has(j.url));
-          
-          const newIds = uniqueNew.map(j => j.id);
-          setNewJobIds(prevSet => {
-            const updated = new Set(prevSet);
-            newIds.forEach(id => updated.add(id));
-            return updated;
-          });
+        const initialScans = precisionTitles.map((t, idx) => ({ title: t, status: (idx === 0 ? 'scanning' : 'pending') as any }));
+        setScanningTitles(initialScans);
 
-          const updated = [...uniqueNew, ...prev];
-          autoVetTopResults(updated);
-          return updated;
+        let totalFound = 0;
+        for (let i = 0; i < precisionTitles.length; i++) {
+          const currentTitle = precisionTitles[i];
+          setScanningTitles(prev => prev.map((item, idx) => {
+            if (idx === i) return { ...item, status: 'scanning' };
+            if (idx < i) return { ...item, status: 'done' };
+            return item;
+          }));
+          
+          setStatus(`Deep Scanning for "${currentTitle}"...`);
+          setSearchLogs(prev => [...prev, `[Deep Search] Initiating direct ATS scan for "${currentTitle}"...`]);
+
+          try {
+            const newJobs = await runWebDiscovery(
+              [currentTitle], 
+              locations.length > 0 ? locations : (profile.location ? [profile.location] : ["USA"]), 
+              radius, 
+              dreamCompanies,
+              alternativeTitles,
+              profile.matchStrictness || 'exact'
+            );
+            
+            totalFound += newJobs.length;
+            if (newJobs.length > 0) {
+              await addJobs(newJobs, activeProfileId);
+              setResults(prev => {
+                const existingUrls = new Set(prev.map(j => j.url));
+                const uniqueNew = newJobs.filter(j => !existingUrls.has(j.url));
+                
+                const newIds = uniqueNew.map(j => j.id);
+                setNewJobIds(prevSet => {
+                  const updated = new Set(prevSet);
+                  newIds.forEach(id => updated.add(id));
+                  return updated;
+                });
+
+                const updated = [...uniqueNew, ...prev];
+                autoVetTopResults(updated);
+                return updated;
+              });
+              setSearchLogs(prev => [...prev, `[Deep Search] Found ${newJobs.length} new matches for "${currentTitle}".`]);
+            } else {
+              setSearchLogs(prev => [...prev, `[Deep Search] No new matches found on ATS for "${currentTitle}".`]);
+            }
+
+            setScanningTitles(prev => prev.map((item, idx) => {
+              if (idx === i) return { ...item, status: 'done' };
+              return item;
+            }));
+          } catch (err: any) {
+            console.error(`Failed deep search for ${currentTitle}:`, err);
+            setSearchLogs(prev => [...prev, `⚠️ [Deep Search Error] Scan failed for "${currentTitle}": ${err.message || String(err)}`]);
+            setScanningTitles(prev => prev.map((item, idx) => {
+              if (idx === i) return { ...item, status: 'failed' };
+              return item;
+            }));
+          }
+        }
+        
+        await setAgentStatus({ 
+          isSearching: false, 
+          status: `Found ${totalFound} matches via deep search.`,
+          resultsFound: totalFound 
         });
-        setScanningTitles(titles.slice(0, 3).map(t => ({ title: t, status: 'done' })));
-        setStatus(`Found ${newJobs.length} new matches via deep search.`);
+
+        setStatus(`Found ${totalFound} new matches via deep search.`);
         setLastSearchTime(new Date());
         setSearchFeedback({
           show: true,
-          count: newJobs.length,
+          count: totalFound,
           mode: 'deep'
         });
+        
         // Update last search time in DB & State on deep search success
         const nowString = new Date().toISOString();
         const { patchUserProfile } = await import("@/app/actions/jobActions");
@@ -1108,7 +1168,7 @@ export default function SearchPage() {
 
         const queryText = precisionTitles.join(", ");
         setSearchHistory(prev => [
-          { date: new Date().toISOString(), query: queryText, count: newJobs.length, mode: 'deep' },
+          { date: new Date().toISOString(), query: queryText, count: totalFound, mode: 'deep' },
           ...prev
         ]);
 
@@ -1443,6 +1503,49 @@ export default function SearchPage() {
     }
   };
 
+  const handleScanNicheBoards = async () => {
+    if (nicheBoards.length === 0) return;
+    setIsScanningNiche(true);
+    setStatus("Scanning niche job boards for matches...");
+    try {
+      const { scanNicheBoardsJobs, addJobs } = await import("@/app/actions/jobActions");
+      const newJobs = await scanNicheBoardsJobs(
+        targetTitles,
+        activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations,
+        nicheBoards,
+        alternativeTitles
+      );
+      
+      if (newJobs.length > 0) {
+        await addJobs(newJobs, activeProfileId);
+        setResults(prev => {
+          const existingUrls = new Set(prev.map(j => j.url));
+          const uniqueNew = newJobs.filter(j => !existingUrls.has(j.url));
+          
+          const newIds = uniqueNew.map(j => j.id);
+          setNewJobIds(prevSet => {
+            const updated = new Set(prevSet);
+            newIds.forEach(id => updated.add(id));
+            return updated;
+          });
+
+          const updated = [...uniqueNew, ...prev];
+          autoVetTopResults(updated);
+          return updated;
+        });
+        setStatus(`Discovered ${newJobs.length} matches from niche boards!`);
+      } else {
+        setStatus("No new matches found on niche boards.");
+      }
+      setTimeout(() => setStatus(""), 4000);
+    } catch (e: any) {
+      console.error(e);
+      setStatus(e.message || "Failed to scan niche boards.");
+    } finally {
+      setIsScanningNiche(false);
+    }
+  };
+
   // Compute percentage based on scanningTitles status
   const totalSteps = scanningTitles.length;
   const completedSteps = scanningTitles.filter(t => t.status === 'done' || t.status === 'failed').length;
@@ -1491,27 +1594,6 @@ export default function SearchPage() {
           <div>
             <h1 className="text-3xl font-bold font-outfit">Discovery Engine</h1>
             <p className="text-text-muted mt-1">Configure your multi-platform scraper. Star jobs to send them to your Pipeline.</p>
-          </div>
-
-          {/* Global Platform Toggle */}
-          <div className="flex flex-col items-end gap-2">
-            <div className="p-1 bg-black/5 dark:bg-white/5 rounded-xl border border-card-border flex gap-1 w-64 shadow-2xl">
-              <button 
-                onClick={() => setSearchMode('standard')}
-                className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-widest rounded-lg transition-all ${searchMode === 'standard' ? 'bg-indigo-600 text-white shadow-lg' : 'text-text-muted hover:text-foreground'}`}
-              >
-                Standard
-              </button>
-              <button 
-                onClick={() => setSearchMode('deep')}
-                className={`flex-1 py-2 text-[11px] font-bold uppercase tracking-widest rounded-lg transition-all ${searchMode === 'deep' ? 'bg-emerald-600 text-white shadow-lg' : 'text-text-muted hover:text-foreground'}`}
-              >
-                Deep Web
-              </button>
-            </div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-text-muted mr-2">
-              {searchMode === 'standard' ? 'Aggregators: LinkedIn, Indeed, Reed' : 'Precision: Lever, Greenhouse, Workable'}
-            </p>
           </div>
         </div>
 
@@ -1855,13 +1937,31 @@ export default function SearchPage() {
                   <h3 className="font-bold text-lg">Niche Job Portals</h3>
                   <p className="text-xs text-text-muted">AI-suggested recruitment boards tailored precisely to your experience & active target roles.</p>
                 </div>
-                <button 
-                  onClick={handleGenerateNicheBoards}
-                  disabled={isGeneratingNicheBoards}
-                  className="btn-primary py-2 px-4 text-xs"
-                >
-                  {isGeneratingNicheBoards ? "AI Researching..." : "✦ Discover Niche Boards"}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={handleGenerateNicheBoards}
+                    disabled={isGeneratingNicheBoards || isScanningNiche}
+                    className="btn-primary py-2 px-4 text-xs shrink-0"
+                  >
+                    {isGeneratingNicheBoards ? "AI Researching..." : "✦ Discover Niche Boards"}
+                  </button>
+                  {nicheBoards.length > 0 && (
+                    <button
+                      onClick={handleScanNicheBoards}
+                      disabled={isScanningNiche || isGeneratingNicheBoards}
+                      className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+                    >
+                      {isScanningNiche ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
+                          Scanning Portals...
+                        </>
+                      ) : (
+                        "Scan Portals"
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in duration-300">
@@ -2377,6 +2477,24 @@ export default function SearchPage() {
                           <div className="flex items-center gap-1 font-medium text-text-muted" title={`Matched for location query: ${job.location}`}>
                             <MapPin className="w-3.5 h-3.5 text-text-muted" />
                             {job.location}
+                            {(() => {
+                              if (!baseLocation) return null;
+                              const matchedKey = Object.keys(locationDistances).find(key => 
+                                (job.location || "").toLowerCase().includes(key.toLowerCase()) || 
+                                key.toLowerCase().includes((job.location || "").toLowerCase())
+                              );
+                              if (matchedKey && locationDistances[matchedKey] !== undefined) {
+                                const dist = locationDistances[matchedKey];
+                                const isUK = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(profile.location || "") || targetLocations.some(l => /uk|united kingdom|gb/i.test(l));
+                                const commuteMins = estimateCommuteMinutes(dist, isUK);
+                                return (
+                                  <span className="text-[10px] bg-black/5 dark:bg-white/5 border border-card-border px-1.5 py-0.5 rounded text-text-muted ml-1.5 font-bold tabular-nums">
+                                    ~{dist}mi / ~{commuteMins}m drive
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                           {(job.salaryRange || job.salary_range) ? (
                             <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold">
@@ -2602,6 +2720,31 @@ export default function SearchPage() {
                   <RefreshCw className={`w-3.5 h-3.5 ${isRegenerating ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
                 </button>
               </div>
+            </div>
+
+            {/* Repositioned Search Mode Selector */}
+            <div className="space-y-2">
+              <label className="text-[10px] text-text-muted font-bold uppercase tracking-wider block">Search Strategy Mode</label>
+              <div className="p-1 bg-black/10 dark:bg-white/5 rounded-xl border border-card-border flex gap-1 shadow-inner">
+                <button 
+                  onClick={() => setSearchMode('standard')}
+                  className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${searchMode === 'standard' ? 'bg-indigo-600 text-white shadow' : 'text-text-muted hover:text-foreground'}`}
+                >
+                  Standard
+                </button>
+                <button 
+                  onClick={() => setSearchMode('deep')}
+                  className={`flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer ${searchMode === 'deep' ? 'bg-emerald-600 text-white shadow' : 'text-text-muted hover:text-foreground'}`}
+                >
+                  Deep Web
+                </button>
+              </div>
+              <p className="text-[9px] text-text-muted leading-tight">
+                {searchMode === 'standard' 
+                  ? '📡 Standard: Scans aggregator channels like LinkedIn, Indeed, and Adzuna.' 
+                  : '🎯 Deep Web: Scans Greenhouse/Lever REST endpoints & direct ATS landing pages.'
+                }
+              </p>
             </div>
 
             {/* Presets / Saved Configs */}
@@ -2929,21 +3072,24 @@ export default function SearchPage() {
                         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-500' : 'bg-gray-500'}`} />
                       )}
                       {loc}
-                      {/* Distance badge — only shown for non-base pills when a base is set */}
                       {!isBase && baseLocation && (
                         locationDistances[loc] !== undefined
-                          ? (
-                            <span
-                              className={`text-[9px] font-black tabular-nums px-1 py-0.5 rounded ${
-                                locationDistances[loc] <= radius
-                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                              }`}
-                              title={`~${locationDistances[loc]} miles from ${baseLocation}`}
-                            >
-                              ~{locationDistances[loc]}mi
-                            </span>
-                          )
+                          ? (() => {
+                              const isUK = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(profile.location || "") || targetLocations.some(l => /uk|united kingdom|gb/i.test(l));
+                              const commuteMins = estimateCommuteMinutes(locationDistances[loc], isUK);
+                              return (
+                                <span
+                                  className={`text-[9px] font-black tabular-nums px-1 py-0.5 rounded ${
+                                    locationDistances[loc] <= radius
+                                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                  }`}
+                                  title={`~${locationDistances[loc]} miles from ${baseLocation} (~${commuteMins} min drive)`}
+                                >
+                                  ~{locationDistances[loc]}mi (~{commuteMins}m drive)
+                                </span>
+                              );
+                            })()
                           : isFetchingDistances && (
                             <span className="w-2 h-2 rounded-full border border-current border-t-transparent animate-spin opacity-40 flex-shrink-0" />
                           )
@@ -3618,6 +3764,8 @@ export default function SearchPage() {
 
                   // Execute search directly with the new params
                   setIsSearching(true);
+                  setShowProgressModal(true);
+                  setIsProgressModalMinimized(false);
                   setStatus("Launching stealth browser...");
                   setSearchLogs(["[System] Initializing Discovery Agent...", "[System] Launching stealth browser..."]);
                   try {
@@ -3786,7 +3934,7 @@ export default function SearchPage() {
 
       {/* Search Progress Modal */}
 
-      {mounted && isSearching && !isProgressModalMinimized && createPortal(
+      {mounted && showProgressModal && !isProgressModalMinimized && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-955/80 backdrop-blur-md animate-in fade-in duration-300">
           <div 
             role="dialog"
@@ -3810,13 +3958,23 @@ export default function SearchPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsProgressModalMinimized(true)}
-                  className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-all cursor-pointer"
-                  title="Minimize to Dock (Keep running in background)"
-                >
-                  <Minimize2 className="w-4 h-4" />
-                </button>
+                {isSearching ? (
+                  <button
+                    onClick={() => setIsProgressModalMinimized(true)}
+                    className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-all cursor-pointer"
+                    title="Minimize to Dock (Keep running in background)"
+                  >
+                    <Minimize2 className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowProgressModal(false)}
+                    className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-all cursor-pointer"
+                    title="Close"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -3972,25 +4130,38 @@ export default function SearchPage() {
               </span>
               
               <div className="flex items-center gap-3 w-full sm:w-auto shrink-0 font-bold">
-                <button
-                  onClick={() => setIsProgressModalMinimized(true)}
-                  className="flex-1 sm:flex-none px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  <Minimize2 className="w-3.5 h-3.5" />
-                  Run in Background
-                </button>
-                
-                <button
-                  onClick={async () => {
-                    setIsSearching(false);
-                    await setAgentStatus({ isSearching: false, status: "Search aborted by user." });
-                    setStatus("Search cancelled.");
-                    setTimeout(() => setStatus(""), 3000);
-                  }}
-                  className="flex-1 sm:flex-none px-4 py-2.5 bg-rose-500/10 text-rose-450 hover:bg-rose-500/20 border border-rose-500/20 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer"
-                >
-                  Abort Search
-                </button>
+                {isSearching ? (
+                  <>
+                    <button
+                      onClick={() => setIsProgressModalMinimized(true)}
+                      className="flex-1 sm:flex-none px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Minimize2 className="w-3.5 h-3.5" />
+                      Run in Background
+                    </button>
+                    
+                    <button
+                      onClick={async () => {
+                        setIsSearching(false);
+                        setShowProgressModal(false);
+                        await setAgentStatus({ isSearching: false, status: "Search aborted by user." });
+                        setStatus("Search cancelled.");
+                        setTimeout(() => setStatus(""), 3000);
+                      }}
+                      className="flex-1 sm:flex-none px-4 py-2.5 bg-rose-500/10 text-rose-450 hover:bg-rose-500/20 border border-rose-500/20 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer"
+                    >
+                      Abort Search
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setShowProgressModal(false)}
+                    className="flex-1 sm:flex-none px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-lg shadow-indigo-600/20"
+                  >
+                    <Check className="w-4 h-4" />
+                    Close & View Results
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -3999,7 +4170,7 @@ export default function SearchPage() {
       )}
 
       {/* Minimized Dock Bubble */}
-      {mounted && isSearching && isProgressModalMinimized && createPortal(
+      {mounted && showProgressModal && isProgressModalMinimized && createPortal(
         <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom duration-300">
           <button 
             onClick={() => setIsProgressModalMinimized(false)}
@@ -4008,20 +4179,30 @@ export default function SearchPage() {
             <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/10 to-emerald-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
             
             <div className="relative w-8 h-8 flex items-center justify-center shrink-0">
-              <div className="absolute inset-0 border-2 border-zinc-800 rounded-full" />
-              <div 
-                className="absolute inset-0 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"
-                style={{ animationDuration: '1.5s' }}
-              />
-              <span className="text-[10px] font-bold text-indigo-400">
-                {totalSteps > 0 ? `${progressPercent}%` : '...'}
-              </span>
+              {isSearching ? (
+                <>
+                  <div className="absolute inset-0 border-2 border-zinc-800 rounded-full" />
+                  <div 
+                    className="absolute inset-0 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"
+                    style={{ animationDuration: '1.5s' }}
+                  />
+                  <span className="text-[10px] font-bold text-indigo-400">
+                    {totalSteps > 0 ? `${progressPercent}%` : '...'}
+                  </span>
+                </>
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <Check className="w-4 h-4" />
+                </div>
+              )}
             </div>
 
             <div className="text-left max-w-xs min-w-[120px]">
-              <p className="text-[9px] text-indigo-400 font-black uppercase tracking-widest">Discovery Engine</p>
+              <p className="text-[9px] text-indigo-400 font-black uppercase tracking-widest">
+                {isSearching ? "Discovery Engine" : "Scan Complete"}
+              </p>
               <p className="text-xs font-bold truncate text-zinc-100 max-w-[160px]">
-                {status.split(" (Found")[0] || "Searching..."}
+                {isSearching ? (status.split(" (Found")[0] || "Searching...") : "All roles scanned"}
               </p>
             </div>
 

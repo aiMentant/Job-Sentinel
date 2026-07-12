@@ -440,3 +440,36 @@ export function consolidateLocations(locations: string[], profileLocation?: stri
   // Cap consolidated locations to 3 to prevent excessive sequential API queries and function timeouts
   return result.slice(0, 3);
 }
+
+/**
+ * Estimates commute minutes based on distance and region context.
+ * For MVP Option A: Uses static speed assumptions based on US vs UK and urban vs rural context.
+ */
+export function estimateCommuteMinutes(distanceMiles: number, isUK: boolean, isUrban: boolean = false): number {
+  if (distanceMiles <= 0) return 0;
+  
+  let speedMph = 40; // Default US Suburban (e.g. Florida)
+  if (isUK) {
+    speedMph = isUrban ? 18 : 35; // UK Urban (London) vs UK Rural/Suburban
+  } else {
+    speedMph = isUrban ? 20 : 40; // US Urban vs US Suburban
+  }
+  
+  return Math.round((distanceMiles / speedMph) * 60);
+}
+
+/**
+ * Estimates search radius in miles from commute minutes and region context.
+ */
+export function estimateRadiusFromCommute(commuteMinutes: number, isUK: boolean, isUrban: boolean = false): number {
+  if (commuteMinutes <= 0) return 0;
+  
+  let speedMph = 40; // Default US Suburban
+  if (isUK) {
+    speedMph = isUrban ? 18 : 35;
+  } else {
+    speedMph = isUrban ? 20 : 40;
+  }
+  
+  return Math.round((commuteMinutes / 60) * speedMph);
+}

@@ -12,13 +12,21 @@ async function getProfileContext(profileIdOverride?: string) {
   const experience = (profile.experience || [])
     .map((e: any) => `${e.role} at ${e.company}: ${(e.achievements || []).join(". ")}`)
     .join("\n");
+  const resume = profile.resumeText ? `Resume Text:\n${profile.resumeText.slice(0, 8000)}` : "";
+  const location = profile.location ? `Primary Location: ${profile.location}` : "";
+  const targetLocations = (profile.targetLocations || []).length > 0 ? `Target Locations: ${(profile.targetLocations || []).join(", ")}` : "";
+
   return `
 Name: ${profile.fullName}
 Summary: ${profile.summary}
+${location}
+${targetLocations}
 Skills: ${(profile.skills || []).join(", ")}
-Experience:\n${experience}
+Experience:
+${experience}
 Education: ${(profile.education || []).map((e: any) => `${e.degree} from ${e.institution}`).join(", ")}
 Target Titles: ${(profile.targetTitles || []).join(", ")}
+${resume}
   `.trim();
 }
 
@@ -445,6 +453,29 @@ export async function generateDreamCompanies(locations: string[], radius: number
   const targetLocationsText = consolidated.length > 0 ? consolidated.join(", ") : (profile?.location || "Edgewater, FL");
   const centerLocation = consolidated[0] || profile?.location || "Edgewater, FL";
 
+  // Detect regional context (US vs UK)
+  const isUK = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(targetLocationsText) || 
+               /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(profile?.location || "");
+
+  const localPresencePrompt = isUK 
+    ? `Identify 5-7 high-yield "Dream Companies" that have a physical facility, warehouse, distribution center, fulfillment depot, manufacturing plant, or local branch office within ${radius} miles of ${centerLocation}.
+       CRITICAL: This professional is in logistics, operations, warehousing, safety compliance, and training. Do NOT suggest remote software companies or generic tech startups. Prioritize real local operations employers:
+       - 3PL and Warehousing providers (e.g., DHL, Wincanton, Royal Mail, DPD, local logistics firms)
+       - Manufacturing/industrial plants (e.g., Rolls-Royce, BAE Systems, local factories)
+       - Distribution centers & retail hubs (e.g., Tesco, Sainsbury's, Amazon UK fulfillment centers)
+       - Marine, airport, and aerospace logistics (e.g., Heathrow Logistics, Port of London)`
+    : `Identify 5-7 high-yield "Dream Companies" that have a physical facility, warehouse, distribution center, port terminal, manufacturing plant, hospitality operations, or local branch office within ${radius} miles of ${centerLocation}.
+       CRITICAL: This professional is in logistics, operations, warehousing, safety compliance, and training. Do NOT suggest remote software companies or generic tech startups. Prioritize real local operations employers:
+       - 3PL and Warehousing providers (e.g., FedEx, UPS, local logistics firms)
+       - Manufacturing/industrial plants (e.g., Boston Whaler/Brunswick in Edgewater, local builders)
+       - Distribution centers & retail hubs (e.g., Amazon, major retail supply chains)
+       - Marine and aerospace logistics
+       - Hospitality operations hubs (e.g., Disney, Universal in Orlando)`;
+
+  const recruiterSearchUrlTemplate = isUK
+    ? `A pre-built LinkedIn search URL to find recruiting/talent acquisition contacts for this company in the UK. Format: https://www.linkedin.com/search/results/people/?keywords=recruiter%20[Company%20Name]%20%22United%20Kingdom%22`
+    : `A pre-built LinkedIn search URL to find recruiting/talent acquisition contacts for this company in Florida. Format: https://www.linkedin.com/search/results/people/?keywords=recruiter%20[Company%20Name]%20Florida`;
+
   const prompt = `
   Context:
   ${context}
@@ -454,13 +485,7 @@ export async function generateDreamCompanies(locations: string[], radius: number
   Search Radius: ${radius} miles
   Center Location for Commute: ${centerLocation}
   
-  TASK: Identify 5-7 high-yield "Dream Companies" that have a physical facility, warehouse, distribution center, port terminal, manufacturing plant, hospitality operations, or local branch office within ${radius} miles of ${centerLocation}.
-  CRITICAL: This professional is in logistics, operations, warehousing, safety compliance, and training. Do NOT suggest remote software companies or generic tech startups unless they have a massive physical footprint in the area (like Amazon Logistics hubs or theme parks). Prioritize real local operations employers:
-  - 3PL and Warehousing providers (e.g., FedEx, UPS, local logistics firms)
-  - Manufacturing/industrial plants (e.g., Boston Whaler/Brunswick in Edgewater, local aviation/defense builders)
-  - Distribution centers & retail hubs (e.g., Amazon, major retail supply chains)
-  - Marine and aerospace logistics
-  - Hospitality operations hubs (e.g., Disney, Universal in Orlando)
+  TASK: ${localPresencePrompt}
   
   For each company, return the following details. Estimate commute distance from ${centerLocation} and pre-build search URLs:
   
@@ -474,7 +499,7 @@ export async function generateDreamCompanies(locations: string[], radius: number
       "commuteDistance": "Estimated road distance in miles from the center location ${centerLocation} (e.g., '12 miles'). Make it realistic.",
       "typicalRoles": ["Warehouse Lead", "Safety Specialist", "Logistics Operations Lead"],
       "careerUrl": "Best guess Greenhouse/Lever board URL (e.g., boards.greenhouse.io/company) or main career domain",
-      "recruiterSearchUrl": "A pre-built LinkedIn search URL to find recruiting/talent acquisition contacts for this company in Florida. Format: https://www.linkedin.com/search/results/people/?keywords=recruiter%20[Company%20Name]%20Florida"
+      "recruiterSearchUrl": "${recruiterSearchUrlTemplate}"
     }
   ]
   
@@ -497,11 +522,20 @@ export async function generateNicheJobBoards(profileIdOverride?: string): Promis
   const context = await getProfileContext(profileIdOverride);
   if (!context) return [];
 
+  const profileId = profileIdOverride || await getActiveProfileId();
+  const profile = await getProfile(profileId);
+  const locationsStr = [profile?.location, ...(profile?.targetLocations || [])].filter(Boolean).join(" ");
+  const isUK = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(locationsStr);
+
+  const nicheBoardsList = isUK
+    ? `Otta, CWJobs, Technojobs, Reed.co.uk (niche sections), Totaljobs, UK.Indeed, Jobserve, WorkInStartups`
+    : `BuiltIn, WeWorkRemotely, Dice, Dribbble, RemoteOK, Crunchboard, Behance, AngelList/Wellfound`;
+
   const prompt = `
   Context:
   ${context}
   
-  TASK: Identify 5-6 high-yield, highly specific niche job boards or career platforms (e.g. BuiltIn, WeWorkRemotely, Dice, Dribbble, RemoteOK, Crunchboard, Behance, AngelList/Wellfound) that align perfectly with this professional's industry, tech stack, and target roles.
+  TASK: Identify 5-6 high-yield, highly specific niche job boards or career platforms (e.g. ${nicheBoardsList}) that align perfectly with this professional's industry, tech stack, and target roles.
   
   Do NOT suggest generic search aggregators like LinkedIn, Indeed, Glassdoor, or ZipRecruiter. Focus strictly on niche portals.
   

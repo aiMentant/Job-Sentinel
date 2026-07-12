@@ -173,7 +173,12 @@ export async function runWebDiscovery(
 
   // 2. Query JSearch with target titles & locations, and filter for direct employer/ATS URLs
   console.log("[Deep Search] Searching web indexes for direct apply listings...");
+  const startTime = Date.now();
   for (const title of targetTitles) {
+    if (Date.now() - startTime > 20000) {
+      console.warn("[Deep Search] Approaching 22s function timeout. Breaking search loop early.");
+      break;
+    }
     for (const location of targetLocations) {
       await setAgentStatus({ status: `Deep Search: Crawling direct listings for "${title}"...` });
       try {

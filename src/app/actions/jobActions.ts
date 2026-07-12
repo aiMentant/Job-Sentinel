@@ -522,9 +522,18 @@ export async function runJobSearch(
         });
         
         const jobsPromises = [];
-        const runAdzuna = !targetSites || targetSites.includes("Adzuna");
-        const runJSearch = !targetSites || targetSites.includes("JSearch");
-        const runUSAJobs = !targetSites || targetSites.includes("USAJobs");
+        const runAdzuna = !targetSites || targetSites.length === 0 || targetSites.some(s => {
+          const lower = s.toLowerCase();
+          return lower.includes("adzuna") || lower.includes("indeed.com") || lower.includes("glassdoor.com") || lower.includes("snagajob.com");
+        });
+        const runJSearch = !targetSites || targetSites.length === 0 || targetSites.some(s => {
+          const lower = s.toLowerCase();
+          return lower.includes("jsearch") || lower.includes("linkedin.com") || lower.includes("indeed.com") || lower.includes("glassdoor.com") || lower.includes("ziprecruiter.com");
+        });
+        const runUSAJobs = !targetSites || targetSites.length === 0 || targetSites.some(s => {
+          const lower = s.toLowerCase();
+          return lower.includes("usajobs");
+        });
 
         if (runAdzuna) {
           jobsPromises.push(fetchAdzunaJobs(title, loc, radius, fetchScope));
@@ -1331,7 +1340,7 @@ export async function scanCompanyJobs(companyName: string, targetTitles: string[
         } catch (e) {}
 
         if (companyToken && companyToken !== "embed" && companyToken !== "job_board") {
-          const res = await fetch(`https://boards-api.greenhouse.io/v1/boards/${companyToken}/jobs`);
+          const res = await fetch(`https://boards-api.greenhouse.io/v1/boards/${companyToken}/jobs`, { signal: AbortSignal.timeout(6000) });
           if (res.ok) {
             const data = await res.json();
             const jobsList = data.jobs || [];
@@ -1377,7 +1386,7 @@ export async function scanCompanyJobs(companyName: string, targetTitles: string[
         } catch (e) {}
 
         if (companyToken) {
-          const res = await fetch(`https://api.lever.co/v0/postings/${companyToken}?mode=json`);
+          const res = await fetch(`https://api.lever.co/v0/postings/${companyToken}?mode=json`, { signal: AbortSignal.timeout(6000) });
           if (res.ok) {
             const jobsList = await res.json();
             console.log(`[ATS-Direct] Lever returned ${jobsList.length} total jobs.`);
@@ -1406,7 +1415,7 @@ export async function scanCompanyJobs(companyName: string, targetTitles: string[
         }
       }
     } catch (atsError) {
-      console.warn("[ATS-Direct] Direct API scrape failed. Falling back to multi-platform search.", atsError);
+      console.warn("[ATS-Direct] Direct API scrape failed. Falling back to JSearch.", atsError);
     }
   }
 
@@ -1414,9 +1423,27 @@ export async function scanCompanyJobs(companyName: string, targetTitles: string[
   const locationText = targetLocations.length > 0 ? targetLocations[0] : "United States";
   
   try {
-    const rawJobs = await fetchJSearchJobs(companyName, locationText);
-    const matches: Job[] = [];
+    // 1. Try a targeted boolean search for titles at this company first
+    const targetTitlesClean = targetTitles
+      .map(t => t.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+    const titleQuery = targetTitlesClean.length > 0 
+      ? `(${targetTitlesClean.map(t => `"${t}"`).join(" OR ")})` 
+      : "";
+    const query = titleQuery 
+      ? `${titleQuery} "${companyName}"` 
+      : companyName;
+
+    console.log(`[ATS-Direct] Querying JSearch for company ${companyName}: "${query}" in ${locationText}`);
+    let rawJobs = await fetchJSearchJobs(query, locationText);
     
+    // 2. If no jobs found, fall back to broad company name search
+    if (rawJobs.length === 0 && titleQuery) {
+      console.log(`[ATS-Direct] Targeted company search returned 0 results. Falling back to broad search for "${companyName}"...`);
+      rawJobs = await fetchJSearchJobs(companyName, locationText);
+    }
+
+    const matches: Job[] = [];
     for (const j of rawJobs) {
       const jobComp = (j.company || "").toLowerCase();
       const targetComp = companyName.toLowerCase();
@@ -1424,7 +1451,8 @@ export async function scanCompanyJobs(companyName: string, targetTitles: string[
       
       if (isCompanyMatch) {
         const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles, alternativeTitles) : 75;
-        if (score > 35) {
+        const threshold = titleQuery && rawJobs.length > 0 && query !== companyName ? 30 : 35;
+        if (score > threshold) {
           matches.push({
             ...j,
             score: score,
@@ -1437,6 +1465,58 @@ export async function scanCompanyJobs(companyName: string, targetTitles: string[
     return matches;
   } catch (err) {
     console.error(`[ATS-Direct] Scoped search failed for ${companyName}:`, err);
+    return [];
+  }
+}
+
+export async function scanNicheBoardsJobs(
+  targetTitles: string[],
+  targetLocations: string[],
+  nicheBoards: Array<{ name: string; searchUrl: string }>,
+  alternativeTitles: string[] = []
+): Promise<Job[]> {
+  const domains = nicheBoards.map(board => {
+    try {
+      const url = new URL(board.searchUrl.replace("{query}", ""));
+      return url.hostname.replace("www.", "");
+    } catch (e) {
+      return board.searchUrl.toLowerCase().replace(/https?:\/\/(www\.)?/, "").split("/")[0];
+    }
+  }).filter(Boolean);
+
+  if (domains.length === 0) return [];
+
+  const locationText = targetLocations.length > 0 ? targetLocations[0] : "United States";
+  
+  // Clean titles
+  const targetTitlesClean = targetTitles.map(t => t.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim()).filter(Boolean);
+  if (targetTitlesClean.length === 0) return [];
+
+  // Construct query: ("Title 1" OR "Title 2") ("domain1" OR "domain2")
+  const titleQuery = `(${targetTitlesClean.map(t => `"${t}"`).join(" OR ")})`;
+  const domainsQuery = `(${domains.map(d => `"${d}"`).join(" OR ")})`;
+  const query = `${titleQuery} ${domainsQuery}`;
+
+  console.log(`[Niche-Scraper] Querying JSearch for niche boards: ${query} in ${locationText}`);
+
+  try {
+    const rawJobs = await fetchJSearchJobs(query, locationText);
+    const matches: Job[] = [];
+    
+    for (const j of rawJobs) {
+      const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles, alternativeTitles) : 75;
+      if (score > 30) {
+        matches.push({
+          ...j,
+          score: score,
+          reason: `Niche board match found on ${j.source} (${score}% match score)`,
+          status: 'Discovery'
+        });
+      }
+    }
+    return matches;
+  } catch (err) {
+    console.error("[Niche-Scraper] Scan failed:", err);
     return [];
   }
 }
