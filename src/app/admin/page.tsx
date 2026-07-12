@@ -292,7 +292,7 @@ export default function AdminPage() {
                               list="profiles-datalist"
                               value={updatedProfileId}
                               onChange={(e) => setUpdatedProfileId(e.target.value)}
-                              className="bg-white/5 border border-white/10 focus:border-indigo-500 rounded-lg px-2.5 py-1 text-xs focus:outline-none w-28 font-semibold text-foreground"
+                              className="bg-[#0a0a0c] text-white border border-white/10 focus:border-indigo-500 rounded-lg px-2.5 py-1 text-xs focus:outline-none w-28 font-semibold"
                               placeholder="Profile ID"
                             />
                           ) : (
