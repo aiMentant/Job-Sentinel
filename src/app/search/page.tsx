@@ -2289,6 +2289,7 @@ export default function SearchPage() {
                   setWorkSettingFilter("all");
                   setShowHighScoresOnly(false);
                   setHideGhostJobs(false);
+                  setSelectedTabRole("all");
                 }}
                 className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-lg shadow-indigo-500/20 font-bold"
               >
@@ -2298,9 +2299,15 @@ export default function SearchPage() {
           ) : (
             <div className="space-y-4">
               {/* Active Filter Chips */}
-              {(selectedJobType !== "all" || selectedLocationFilter !== "all" || selectedSiteFilter !== "all" || workSettingFilter !== "all") && (
+              {(selectedJobType !== "all" || selectedLocationFilter !== "all" || selectedSiteFilter !== "all" || workSettingFilter !== "all" || (selectedTabRole && selectedTabRole !== "all")) && (
                 <div className="flex flex-wrap items-center gap-2 mb-4 p-2 bg-black/5 dark:bg-white/5 border border-card-border rounded-lg animate-in fade-in duration-300">
                   <span className="text-[10px] uppercase font-bold text-text-muted tracking-wider px-2">Active Filters:</span>
+                  {selectedTabRole && selectedTabRole !== "all" && (
+                    <span className="px-2 py-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-[10px] font-bold rounded flex items-center gap-1">
+                      Role Tab: {selectedTabRole}
+                      <button onClick={() => setSelectedTabRole("all")} className="hover:text-foreground cursor-pointer font-bold font-mono text-[9px]">&times;</button>
+                    </span>
+                  )}
                   {selectedJobType !== "all" && (
                     <span className="px-2 py-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-[10px] font-bold rounded flex items-center gap-1">
                       Type: {selectedJobType}
@@ -2331,6 +2338,7 @@ export default function SearchPage() {
                       setSelectedLocationFilter("all");
                       setSelectedSiteFilter("all");
                       setWorkSettingFilter("all");
+                      setSelectedTabRole("all");
                     }}
                     className="text-[9px] font-black uppercase tracking-widest text-text-muted hover:text-indigo-500 cursor-pointer ml-auto px-2"
                   >
@@ -2554,6 +2562,11 @@ export default function SearchPage() {
                               </div>
                               <p className="hidden lg:block text-[9px] text-text-muted uppercase font-bold tracking-tighter">AI Match</p>
                             </>
+                          ) : (job.reason && (job.reason.includes("analyzing") || job.reason.includes("vetting") || job.reason.includes("analyzed"))) ? (
+                            <div className="flex flex-col lg:items-center justify-center shrink-0">
+                              <Loader2 className="w-5 h-5 text-indigo-500 animate-spin mb-1 shrink-0 mx-auto" />
+                              <span className="text-[9px] text-indigo-400 uppercase font-black tracking-widest animate-pulse">Vetting...</span>
+                            </div>
                           ) : (
                             <div 
                               className="py-1 relative cursor-help"
