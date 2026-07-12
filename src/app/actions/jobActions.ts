@@ -356,7 +356,8 @@ export async function fetchJSearchJobs(title: string, location: string, radius?:
       else dateParam = "month";
     }
 
-    const url = `https://jsearch.p.rapidapi.com/search-v2?query=${encodeURIComponent(query)}&num_pages=1&page=1&date_posted=${dateParam}`;
+    const dateQueryParam = dateParam && dateParam !== "anytime" && dateParam !== "any" ? `&date_posted=${dateParam}` : "";
+    const url = `https://jsearch.p.rapidapi.com/search-v2?query=${encodeURIComponent(query)}&num_pages=1&page=1${dateQueryParam}`;
     console.log(`[JSearch] Querying JSearch for: ${query}`);
     
     const res = await fetch(url, {
@@ -473,8 +474,22 @@ export async function runJobSearch(
 
   try {
     const getStateCode = (locStr: string) => {
-      const matches = locStr.match(/\b(al|ak|az|ar|ca|co|ct|de|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|ma|mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy|florida|london|uk|gb)\b/i);
-      return matches ? matches[1].toLowerCase() : null;
+      const matches = locStr.match(/\b(al|ak|az|ar|ca|co|ct|de|fl|ga|hi|id|il|in|ia|ks|ky|la|me|md|ma|mi|mn|ms|mo|mt|ne|nv|nh|nj|nm|ny|nc|nd|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|vt|va|wa|wv|wi|wy|florida|california|texas|new york|georgia|illinois|pennsylvania|ohio|michigan|north carolina|new jersey|virginia|washington|arizona|massachusetts|indiana|tennessee|maryland|colorado|minnesota|wisconsin|missouri|kentucky|oregon|oklahoma|connecticut|iowa|mississippi|arkansas|utah|kansas|nevada|new mexico|nebraska|west virginia|idaho|hawaii|maine|new hampshire|rhode island|montana|delaware|south dakota|north dakota|alaska|vermont|wyoming|london|uk|gb)\b/i);
+      if (!matches) return null;
+      const val = matches[1].toLowerCase();
+      const stateMap: Record<string, string> = {
+        "florida": "fl", "california": "ca", "texas": "tx", "new york": "ny", "georgia": "ga",
+        "illinois": "il", "pennsylvania": "pa", "ohio": "oh", "michigan": "mi", "north carolina": "nc",
+        "new jersey": "nj", "virginia": "va", "washington": "wa", "arizona": "az", "massachusetts": "ma",
+        "indiana": "in", "tennessee": "tn", "maryland": "md", "colorado": "co", "minnesota": "mn",
+        "wisconsin": "wi", "missouri": "mo", "kentucky": "ky", "oregon": "or", "oklahoma": "ok",
+        "connecticut": "ct", "iowa": "ia", "mississippi": "ms", "arkansas": "ar", "utah": "ut",
+        "kansas": "ks", "nevada": "nv", "new mexico": "nm", "nebraska": "ne", "west virginia": "wv",
+        "idaho": "id", "hawaii": "hi", "maine": "me", "new hampshire": "nh", "rhode island": "ri",
+        "montana": "mt", "delaware": "de", "south dakota": "sd", "north dakota": "nd", "alaska": "ak",
+        "vermont": "vt", "wyoming": "wy"
+      };
+      return stateMap[val] || val;
     };
 
     let titles = targetTitles;
