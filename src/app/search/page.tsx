@@ -1577,7 +1577,7 @@ export default function SearchPage() {
     <PanelGroup orientation="horizontal" className="flex h-[calc(100vh-54px)] overflow-hidden w-full relative">
       
       {/* Center Main Window (Top Nav and Discovery Engine Content) */}
-      <Panel defaultSize="75%" minSize="40%" className="flex flex-col h-full">
+      <Panel defaultSize="75%" minSize="40%" className="flex flex-col h-full relative">
         <main role="main" className="flex-1 flex flex-col h-full overflow-y-auto p-8 space-y-8 min-w-0 transition-all duration-300">
         
         {searchFeedback && searchFeedback.show && (
@@ -2721,6 +2721,47 @@ export default function SearchPage() {
           )}
         </div>
       </main>
+
+      {/* Floating Active Status HUD */}
+      {isSearching && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-45 w-full max-w-xl px-4 animate-in slide-in-from-bottom duration-300">
+          <div className="glass-card bg-slate-900/90 dark:bg-zinc-950/90 border border-indigo-500/30 text-white rounded-2xl shadow-2xl p-3 flex items-center justify-between gap-4 backdrop-blur-md">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center shrink-0 relative">
+                <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-bold text-[11px] text-white flex items-center gap-1.5 leading-none">
+                  Discovery Agent Running
+                </p>
+                <p className="text-[10px] text-zinc-400 mt-0.5 truncate leading-none">
+                  Vetting roles: {completedSteps} / {totalSteps} ({progressPercent}%)
+                </p>
+              </div>
+            </div>
+
+            {/* Progress Slider (Inline HUD) */}
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="w-24 h-1.5 bg-zinc-800 rounded-full overflow-hidden shrink-0 hidden sm:block">
+                <div 
+                  className="bg-indigo-500 h-full rounded-full transition-all duration-300"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              
+              <button
+                onClick={() => {
+                  setIsProgressModalMinimized(false);
+                  setShowProgressModal(true);
+                }}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all cursor-pointer shadow-lg shadow-indigo-600/20"
+              >
+                View Console
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </Panel>
 
 
