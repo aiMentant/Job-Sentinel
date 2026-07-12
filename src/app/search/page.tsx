@@ -3327,7 +3327,15 @@ export default function SearchPage() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs text-text-muted font-bold uppercase tracking-wider">Search Radius</label>
-                <span className="text-xs font-bold text-foreground">{radius} miles</span>
+                {(() => {
+                  const isUK = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(profile?.location || "") || targetLocations.some(l => /uk|united kingdom|gb/i.test(l));
+                  const commuteMins = estimateCommuteMinutes(radius, isUK);
+                  return (
+                    <span className="text-xs font-bold text-foreground">
+                      {radius} miles (~{commuteMins}m drive)
+                    </span>
+                  );
+                })()}
               </div>
               <input 
                 type="range" 
@@ -3339,12 +3347,17 @@ export default function SearchPage() {
                 aria-label="Search radius in miles"
                 className="w-full accent-indigo-500"
               />
-              <div className="flex justify-between text-[10px] text-text-muted mt-1 font-medium">
-                <span>5m</span>
-                <span>50m</span>
-                <span>100m</span>
-                <span>200m</span>
-              </div>
+              {(() => {
+                const isUK = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(profile?.location || "") || targetLocations.some(l => /uk|united kingdom|gb/i.test(l));
+                return (
+                  <div className="flex justify-between text-[10px] text-text-muted mt-1 font-medium">
+                    <span>5m (~{estimateCommuteMinutes(5, isUK)}m)</span>
+                    <span>50m (~{estimateCommuteMinutes(50, isUK)}m)</span>
+                    <span>100m (~{estimateCommuteMinutes(100, isUK)}m)</span>
+                    <span>200m (~{estimateCommuteMinutes(200, isUK)}m)</span>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Match Strictness */}
