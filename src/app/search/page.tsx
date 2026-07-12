@@ -2140,7 +2140,7 @@ export default function SearchPage() {
                   ))}
                </div>
             </div>
-          ) : results.length === 0 && isSearching ? (
+          ) : (results.length === 0 || filteredResults.length === 0) && isSearching ? (
             <div className="space-y-6">
               {/* Stepper Active Header Card */}
               <div className="glass-card p-6 border-indigo-500/20 bg-indigo-500/5 dark:bg-indigo-500/[0.02] rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 animate-in fade-in duration-300">
@@ -2165,6 +2165,36 @@ export default function SearchPage() {
                   View Telemetry Console
                 </button>
               </div>
+
+              {/* Scanning Process Stepper inside the feed loader */}
+              {scanningTitles.length > 0 && (
+                <div className="p-6 glass-card rounded-[2rem] border-indigo-500/20 bg-indigo-500/5 dark:bg-indigo-500/[0.02] space-y-4 animate-in fade-in duration-300">
+                  <h3 className="font-bold text-xs uppercase tracking-widest text-indigo-600 dark:text-indigo-400">Stealth Engine Active Scanning Process</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {scanningTitles.map((scan, i) => (
+                      <div key={i} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${scan.status === 'scanning' ? 'border-indigo-500 bg-indigo-500/10' : 'border-card-border bg-black/5 dark:bg-white/5'}`}>
+                        {scan.status === 'scanning' ? (
+                          <div className="w-4 h-4 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin shrink-0" />
+                        ) : scan.status === 'done' ? (
+                          <div className="w-4 h-4 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-[10px] font-bold shrink-0 font-sans">✓</div>
+                        ) : scan.status === 'failed' ? (
+                          <div className="w-4 h-4 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center text-[10px] font-bold shrink-0 font-sans">!</div>
+                        ) : (
+                          <div className="w-4 h-4 rounded-full bg-foreground/5 text-text-muted flex items-center justify-center text-[10px] font-bold shrink-0">•</div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="font-bold text-xs text-foreground truncate">Scanning &quot;{scan.title}&quot;</p>
+                          <p className="text-[9px] text-text-muted font-black uppercase tracking-wider">
+                            {scan.status === 'scanning' ? 'Running Stealth Crawler...' : 
+                             scan.status === 'done' ? 'Completed' : 
+                             scan.status === 'failed' ? 'Quota Rate Limited' : 'Queued'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Pulsing loading skeletons */}
               <div className="space-y-4">
