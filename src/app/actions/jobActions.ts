@@ -7,7 +7,7 @@ import { getJobs, saveJobs, updateJobStatus as dbUpdateStatus, deleteJob as dbDe
 
 import { getAgentStatus, setAgentStatus } from "./agentStatus";
 import { getActiveProfileId } from "./profileSwitch";
-import { logActivity } from "./adminActions";
+import { logActivity, logServerActivity } from "./adminActions";
 import { heuristicMatchScore, getJaccardSimilarity, computeGhostScore, isTitleMatch, consolidateLocations } from "@/lib/jobUtils";
 
 export async function fetchJobs(profileIdOverride?: string) {

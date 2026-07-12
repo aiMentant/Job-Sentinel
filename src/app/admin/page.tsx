@@ -43,6 +43,7 @@ export default function AdminPage() {
   // Password update form states
   const [editingEmail, setEditingEmail] = useState<string | null>(null);
   const [updatedPassword, setUpdatedPassword] = useState("");
+  const [updatedProfileId, setUpdatedProfileId] = useState("default");
 
   async function loadData() {
     setIsLoading(true);
@@ -141,19 +142,19 @@ export default function AdminPage() {
         email,
         password: updatedPassword,
         role: existing?.role || "user",
-        profile_id: existing?.profile_id || "default"
+        profile_id: updatedProfileId
       });
 
       if (result.success) {
-        setSuccess(`Password updated for ${email}`);
+        setSuccess(`Account settings updated for ${email}`);
         setEditingEmail(null);
         setUpdatedPassword("");
         loadData();
       } else {
-        setError(result.error || "Failed to update password.");
+        setError(result.error || "Failed to update operator account settings.");
       }
     } catch (err: any) {
-      setError(err.message || "Failed to update password.");
+      setError(err.message || "Failed to update operator account settings.");
     }
   };
 
@@ -232,11 +233,11 @@ export default function AdminPage() {
                     {users.map((u) => (
                       <tr key={u.email} className="border-b border-white/5 hover:bg-white/[0.01] transition-all group">
                         {/* Identity */}
-                        <td className="py-4 pr-4 font-semibold text-sm text-foreground">
+                        <td className="py-4 pr-4 font-semibold text-sm text-slate-200">
                           {u.email}
                         </td>
                         {/* Access Key */}
-                        <td className="py-4 pr-4 text-xs font-mono text-text-muted">
+                        <td className="py-4 pr-4 text-xs font-mono text-slate-300">
                           {editingEmail === u.email ? (
                             <div className="flex items-center gap-2">
                               <input 
@@ -266,7 +267,7 @@ export default function AdminPage() {
                               </span>
                               <button 
                                 onClick={() => togglePasswordVisibility(u.email)}
-                                className="text-text-muted hover:text-white transition-colors cursor-pointer"
+                                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
                               >
                                 {visiblePasswords[u.email] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                               </button>
@@ -284,8 +285,20 @@ export default function AdminPage() {
                           </span>
                         </td>
                         {/* Profile ID */}
-                        <td className="py-4 pr-4 font-semibold text-xs text-text-muted">
-                          {u.profile_id}
+                        <td className="py-4 pr-4 font-semibold text-xs text-slate-300">
+                          {editingEmail === u.email ? (
+                            <select
+                              value={updatedProfileId}
+                              onChange={(e) => setUpdatedProfileId(e.target.value)}
+                              className="bg-[#0c0c0e] border border-white/10 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-indigo-500 w-28 font-semibold text-foreground cursor-pointer"
+                            >
+                              {profiles.map(id => (
+                                <option key={id} value={id}>{id}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            u.profile_id
+                          )}
                         </td>
                         {/* Actions */}
                         <td className="py-4 text-right">
@@ -295,9 +308,10 @@ export default function AdminPage() {
                                 onClick={() => {
                                   setEditingEmail(u.email);
                                   setUpdatedPassword(u.password);
+                                  setUpdatedProfileId(u.profile_id || "default");
                                 }}
                                 className="text-text-muted hover:text-white transition-colors cursor-pointer"
-                                title="Change Password"
+                                title="Edit Operator Settings"
                               >
                                 <Key className="w-4 h-4" />
                               </button>

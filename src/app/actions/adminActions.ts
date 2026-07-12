@@ -3,6 +3,7 @@
 import path from "path";
 import { isSupabaseEnabled } from "@/lib/storage";
 import { supabase } from "@/lib/supabaseClient";
+import { cookies } from "next/headers";
 
 const safeCwd = typeof process !== 'undefined' && typeof process.cwd === 'function' ? process.cwd() : '';
 const USERS_FILE_PATH = path.join(safeCwd, "data/users.json");
@@ -201,5 +202,15 @@ export async function getActivityLogs() {
     return JSON.parse(content);
   } catch (e) {
     return [];
+  }
+}
+
+export async function logServerActivity(action: string, details: Record<string, any> = {}) {
+  try {
+    const cookieStore = await cookies();
+    const email = cookieStore.get("auth_email")?.value || "system";
+    await logActivity(email, action, details);
+  } catch (e) {
+    await logActivity("system", action, details);
   }
 }
