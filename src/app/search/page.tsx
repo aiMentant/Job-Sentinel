@@ -143,8 +143,8 @@ export default function SearchPage() {
   const [showQuotaGuardrailModal, setShowQuotaGuardrailModal] = useState(false);
   // pendingSearch is used to hold the search until the user confirms the guardrail modal
   const [pendingSearchTitles, setPendingSearchTitles] = useState<string[] | null>(null);
-  // baseLocation: the anchor city for proximity sorting and Dream Company commute estimates
   const [baseLocation, setBaseLocation] = useState<string>("");
+  const [isLocationsExpanded, setIsLocationsExpanded] = useState(false);
   // Distance badges: map of { location -> miles from base }, loaded lazily
   const [locationDistances, setLocationDistances] = useState<Record<string, number>>({});
   const [isFetchingDistances, setIsFetchingDistances] = useState(false);
@@ -3020,16 +3020,24 @@ export default function SearchPage() {
 
             {/* Target Locations — with single active search origin selection */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs text-text-muted font-bold uppercase tracking-wider">Active Search Origin</label>
-                <span className="text-[10px] text-text-muted">
-                  {targetLocations.length}/4 limit
-                </span>
+              <div className="flex flex-col mb-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs text-text-muted font-bold uppercase tracking-wider">Active Search Origin</label>
+                  <span className="text-[10px] text-text-muted">
+                    {targetLocations.length}/4 limit
+                  </span>
+                </div>
+                <p className="text-[10px] text-amber-500/80 mt-0.5 leading-tight font-medium">
+                  Capped at 4 target locations to keep searches fast and focused.
+                </p>
               </div>
               
               {/* Interactive Pills — click to select active search origin */}
               <div className="flex flex-wrap gap-2 mb-2">
                 {targetLocations.map((loc, i) => {
+                  const isVisible = isLocationsExpanded || i < 3;
+                  if (!isVisible) return null;
+                  
                   const isActive = activeSearchLocation === loc;
                   const isBase = baseLocation === loc;
                   return (
@@ -3122,6 +3130,24 @@ export default function SearchPage() {
                   );
                 })}
               </div>
+
+              {/* Show More / Show Less toggle button */}
+              {!isLocationsExpanded && targetLocations.length > 3 && (
+                <button
+                  onClick={() => setIsLocationsExpanded(true)}
+                  className="text-[10px] text-indigo-500 hover:underline font-bold mb-2 cursor-pointer inline-block"
+                >
+                  +{targetLocations.length - 3} Show More
+                </button>
+              )}
+              {isLocationsExpanded && targetLocations.length > 3 && (
+                <button
+                  onClick={() => setIsLocationsExpanded(false)}
+                  className="text-[10px] text-text-muted hover:underline font-semibold mb-2 cursor-pointer inline-block"
+                >
+                  Show Less
+                </button>
+              )}
               
               {/* Base city info strip */}
               {baseLocation && (
@@ -3204,11 +3230,6 @@ export default function SearchPage() {
                    } 
                 }}
               />
-              {targetLocations.length >= 4 && (
-                <p className="text-[10px] text-amber-500/80 mt-1">
-                  Capped at 4 target locations to keep searches fast and focused.
-                </p>
-              )}
               {!activeSearchLocation && targetLocations.length > 0 && (
                 <p className="text-[10px] text-amber-500 mt-1.5">
                   ⚠️ No location active — select a pill above to define the search origin.
