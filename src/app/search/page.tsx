@@ -3915,7 +3915,7 @@ export default function SearchPage() {
                 </div>
                 <div>
                   <h3 id="modal-progress-title" className="font-bold text-lg font-outfit text-white tracking-wide">
-                    Identity-Stealth Discovery Agent
+                    Autonomous Discovery Agent
                   </h3>
                   <p className="text-xs text-zinc-400">
                     {searchMode === 'deep' ? 'Precision crawler scanning direct ATS platforms' : 'Standard agent scanning global channels'}
@@ -3979,6 +3979,62 @@ export default function SearchPage() {
                 </span>
               </div>
             </div>
+
+            {/* Execution Summary Card (Visible when crawl is complete) */}
+            {!isSearching && (() => {
+              const failedCount = scanningTitles.filter(s => s.status === 'failed').length;
+              const completedCount = scanningTitles.filter(s => s.status === 'done').length;
+              const totalCount = scanningTitles.length;
+              const newJobsCount = results.filter(j => newJobIds.has(j.id)).length;
+              
+              if (failedCount > 0) {
+                return (
+                  <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-300 flex items-center justify-between animate-in slide-in-from-top duration-300 shrink-0">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/25 flex items-center justify-center shrink-0 border border-amber-500/30">
+                        <AlertTriangle className="w-5 h-5 text-amber-400" />
+                      </div>
+                      <div className="text-left">
+                        <h4 className="font-bold text-sm text-white">
+                          Search Completed with Warnings
+                        </h4>
+                        <p className="text-[11px] text-zinc-400 mt-0.5">
+                          Successfully scanned <strong className="text-zinc-200">{completedCount}/{totalCount} roles</strong> in <strong className="text-zinc-200">{activeSearchLocation || 'your region'}</strong>. Matches found: <strong className="text-emerald-400 font-extrabold">{newJobsCount} new</strong> ({failedCount} failed due to external crawler API rate limits).
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0 hidden sm:block">
+                      <span className="text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 px-2.5 py-1 rounded-md">
+                        PARTIAL SYNC
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+              
+              return (
+                <div className="mb-6 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 flex items-center justify-between animate-in slide-in-from-top duration-300 shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-500/25 flex items-center justify-center shrink-0 border border-emerald-500/30">
+                      <Check className="w-5 h-5 text-emerald-400" />
+                    </div>
+                    <div className="text-left">
+                      <h4 className="font-bold text-sm text-white">
+                        Search Completed Successfully!
+                      </h4>
+                      <p className="text-[11px] text-zinc-400 mt-0.5">
+                        All <strong className="text-zinc-200">{totalCount} roles</strong> successfully scanned in <strong className="text-zinc-200">{activeSearchLocation || 'your region'}</strong>. Matches found: <strong className="text-emerald-400 font-extrabold">{newJobsCount} new opportunities</strong>.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0 hidden sm:block">
+                    <span className="text-[9px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 px-2.5 py-1 rounded-md">
+                      ALL SYNCED
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Stepper + Logs Layout Grid */}
             <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-5 gap-6 mb-6">
