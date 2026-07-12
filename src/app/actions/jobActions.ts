@@ -357,7 +357,7 @@ export async function fetchJSearchJobs(title: string, location: string, radius?:
     }
 
     const dateQueryParam = dateParam && dateParam !== "anytime" && dateParam !== "any" ? `&date_posted=${dateParam}` : "";
-    const url = `https://jsearch.p.rapidapi.com/search-v2?query=${encodeURIComponent(query)}&num_pages=3&page=1${dateQueryParam}`;
+    const url = `https://jsearch.p.rapidapi.com/search-v2?query=${encodeURIComponent(query)}&num_pages=2&page=1${dateQueryParam}`;
     console.log(`[JSearch] Querying JSearch for: ${query}`);
     
     const res = await fetch(url, {
@@ -367,7 +367,7 @@ export async function fetchJSearchJobs(title: string, location: string, radius?:
         "x-rapidapi-host": "jsearch.p.rapidapi.com",
         "Accept": "application/json"
       },
-      signal: AbortSignal.timeout(15000)
+      signal: AbortSignal.timeout(8000)
     });
     if (!res.ok) {
       console.warn(`[JSearch] API responded with status ${res.status}`);
@@ -510,32 +510,18 @@ export async function runJobSearch(
     locations = consolidateLocations(locations, profile?.location);
     console.log(`[Search] Consolidated search locations from ${targetLocations.length} to ${locations.length}:`, locations);
 
-    const totalSteps = titles.length * locations.length;
-    let currentStep = 0;
-    const startTime = Date.now();
-    let timedOut = false;
-    
-    for (const title of titles) {
-      if (timedOut) break;
-      for (const loc of locations) {
-        if (Date.now() - startTime > 22000) {
-          console.warn("[Search] Approaching serverless function timeout (22s). Exiting search loop early to preserve found results.");
-          timedOut = true;
-          break;
-        }
+    const totalTitleLocationPairs = titles.length * locations.length;
+    await setAgentStatus({ 
+      status: `Searching ${titles.length} roles across ${locations.length} location(s) in parallel...`,
+      resultsFound: allResults.length 
+    });
+
+    // PARALLEL SEARCH: Run all title×location combos concurrently instead of sequentially.
+    // This is the key fix for Netlify's 26s function timeout — 7 titles × ~3s each = 21s sequential
+    // vs ~3-4s total in parallel.
+    const searchTasks = titles.flatMap(title => 
+      locations.map(async (loc) => {
         const location = loc;
-        currentStep++;
-
-        const remainingSteps = totalSteps - currentStep + 1;
-        const minEta = Math.ceil((remainingSteps * 15) / 60);
-        const maxEta = Math.ceil((remainingSteps * 30) / 60);
-        const etaText = minEta === 1 ? "about 1 min" : `${minEta}-${maxEta} mins`;
-
-        await setAgentStatus({ 
-          status: `Search ${currentStep}/${totalSteps} (${etaText} left): "${title}" in ${location}...`,
-          resultsFound: allResults.length 
-        });
-        
         const jobsPromises = [];
         const runAdzuna = !targetSites || targetSites.length === 0 || targetSites.some(s => {
           const lower = s.toLowerCase();
@@ -550,21 +536,15 @@ export async function runJobSearch(
           return lower.includes("usajobs");
         });
 
-        if (runAdzuna) {
-          jobsPromises.push(fetchAdzunaJobs(title, loc, radius, fetchScope));
-        }
-        if (runJSearch) {
-          jobsPromises.push(fetchJSearchJobs(title, loc, radius, fetchScope));
-        }
-        if (runUSAJobs) {
-          jobsPromises.push(fetchUSAJobs(title, loc, radius));
-        }
+        if (runAdzuna) jobsPromises.push(fetchAdzunaJobs(title, loc, radius, fetchScope));
+        if (runJSearch) jobsPromises.push(fetchJSearchJobs(title, loc, radius, fetchScope));
+        if (runUSAJobs) jobsPromises.push(fetchUSAJobs(title, loc, radius));
 
         const results = await Promise.all(jobsPromises);
         let rawJobs = results.flat();
 
         if (rawJobs.length === 0) {
-          console.log(`[Search] No API results found or credentials missing. Falling back to local browser scraper...`);
+          console.log(`[Search] No API results for "${title}" in ${loc}. Falling back to scraper...`);
           let linkedinJobs: any[] = [];
           if (!targetSites || targetSites.length === 0 || targetSites.some(s => s.toLowerCase().includes("linkedin"))) {
             try {
@@ -572,13 +552,12 @@ export async function runJobSearch(
             } catch (err: any) {
               console.error("[Search] LinkedIn scraping failed:", err.message);
               await setAgentStatus({
-                status: `⚠️ LinkedIn Scraper Offline: Browserless API Key quota exceeded or invalid key (401 Error). Continuing with other boards...`,
+                status: `⚠️ LinkedIn Scraper Offline: Browserless quota exceeded (401). Continuing...`,
                 resultsFound: allResults.length
               });
               linkedinJobs = [];
             }
           }
-          
           const multiJobs = await searchMultiPlatformJobs(title, location, targetSites, targetTitles, alternativeTitles);
           rawJobs = [...linkedinJobs, ...multiJobs];
         }
@@ -586,120 +565,121 @@ export async function runJobSearch(
         if (rawJobs.length === 0) {
           rawJobs = await fetchPublicFallbackJobs(title, location, targetTitles, alternativeTitles);
         }
-        
-        // KEYWORD GUARDRAIL: Whole-word tokenized strictness filter using shared helper
-        const newJobsFound: Job[] = [];
-        for (const raw of rawJobs) {
-          const isTargetMatch = isTitleMatch(raw.title, targetTitles, alternativeTitles || [], matchStrictness);
 
-          if (!isTargetMatch) {
-             console.log(`[Guardrail] Skipping title as it doesn't match Target Roles: ${raw.title}`);
-             continue;
-          }
+        return { title, rawJobs };
+      })
+    );
 
-          // LOCATION GUARDRAIL: Check job location against user's target locations.
-          const jobLocLower = (raw.location || "").toLowerCase().trim();
+    // Wait for ALL searches to complete in parallel
+    const searchResults = await Promise.allSettled(searchTasks);
+    
+    // Now process and filter all results together
+    const FOREIGN_COUNTRY_PATTERNS = [
+      /\bgermany\b/, /\bfrankfurt\b/, /\bberlin\b/, /\bmunich\b/, /\brheine\b/,
+      /\bunited kingdom\b/, /\bengland\b/, /\bscotland\b/, /\bwales\b/, /\blondon\b/,
+      /\bcanada\b/, /\btoronto\b/, /\bvancouver\b/, /\bmontreal\b/,
+      /\baustralia\b/, /\bsydney\b/, /\bmelbourne\b/,
+      /\bindia\b/, /\bbangalore\b/, /\bmumbai\b/,
+      /\bsingapore\b/, /\bjapan\b/, /\btokyo\b/,
+      /\bfrance\b/, /\bparis\b/, /\bspain\b/, /\bnetherlands\b/,
+      /\bireland\b/, /\bdublin\b/, /\bpoland\b/, /\bwarsaw\b/,
+      /\bphilippines\b/, /\bmexico\b/, /\bbrazil\b/, /\bargentina\b/
+    ];
 
-          // Detect if this is a US-only search (most common case)
-          const isUSOnlySearch = targetLocations.length > 0 && targetLocations.every(loc => {
-            const l = loc.toLowerCase();
-            return !l.includes("uk") && !l.includes("united kingdom") && !l.includes("london") &&
-                   !l.includes("canada") && !l.includes("australia");
-          });
+    const isUSOnlySearch = targetLocations.length > 0 && targetLocations.every(loc => {
+      const l = loc.toLowerCase();
+      return !l.includes("uk") && !l.includes("united kingdom") && !l.includes("london") &&
+             !l.includes("canada") && !l.includes("australia");
+    });
 
-          // Known non-US country patterns — reject these when user is searching US locations
-          const FOREIGN_COUNTRY_PATTERNS = [
-            /\bgermany\b/, /\bfrankfurt\b/, /\bberlin\b/, /\bmunich\b/, /\brheine\b/,
-            /\bunited kingdom\b/, /\bengland\b/, /\bscotland\b/, /\bwales\b/, /\blondon\b/,
-            /\bcanada\b/, /\btoronto\b/, /\bvancouver\b/, /\bmontreal\b/,
-            /\baustralia\b/, /\bsydney\b/, /\bmelbourne\b/,
-            /\bindia\b/, /\bbangalore\b/, /\bmumbai\b/,
-            /\bsingapore\b/, /\bjapan\b/, /\btokyo\b/,
-            /\bfrance\b/, /\bparis\b/, /\bspain\b/, /\bnetherlands\b/,
-            /\bireland\b/, /\bdublin\b/, /\bpoland\b/, /\bwarsaw\b/,
-            /\bphilippines\b/, /\bmexico\b/, /\bbrazil\b/, /\bargentina\b/
-          ];
+    let targetState: string | null = null;
+    for (const loc of targetLocations) {
+      const code = getStateCode(loc);
+      if (code) { targetState = code; break; }
+    }
 
-          // If searching US locations and job is explicitly in a foreign country, reject it
-          // even if the job also says "remote" (e.g. "Flexible / Remote, Rheine, Germany")
-          const isExplicitlyForeign = isUSOnlySearch && FOREIGN_COUNTRY_PATTERNS.some(re => re.test(jobLocLower));
-          if (isExplicitlyForeign) {
-            console.log(`[Guardrail] Rejecting foreign-country job for US search: ${raw.location}`);
-            continue;
-          }
+    const newJobsByTitle: Map<string, Job[]> = new Map();
 
-          // Robust state guardrail: check all locations to find state rather than targetLocations[0]
-          let targetState: string | null = null;
-          for (const loc of targetLocations) {
-            const code = getStateCode(loc);
-            if (code) {
-              targetState = code;
-              break;
-            }
-          }
-          const jobState = getStateCode(jobLocLower);
-
-          // "Worldwide" / "Anywhere" jobs: allow through ONLY if they already passed the
-          // foreign-country filter above. Jobs listed as "Remote, Anywhere" with no foreign
-          // country detected are valid remote-open roles and should surface for US searchers.
-          // We do NOT need to re-filter them here — the explicit foreign-country check above
-          // already blocks "Flexible / Remote, Rheine, Germany" type roles.
-
-          const isLocationMatch = targetLocations.length === 0 || (
-            !jobLocLower ||
-            jobLocLower.includes("united states") ||
-            jobLocLower.includes("nationwide") ||
-            jobLocLower.includes("national") ||
-            jobLocLower.includes("remote") ||
-            jobLocLower.includes("anywhere") ||
-            jobLocLower.includes("worldwide") ||
-            (targetState && jobState && targetState === jobState) ||
-            targetLocations.some(target => {
-              const cleanTarget = target.toLowerCase().trim();
-              if (!cleanTarget) return false;
-
-              if (jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower)) return true;
-
-              const isRemoteTarget = cleanTarget.includes("remote");
-              if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere") || jobLocLower.includes("worldwide"))) return true;
-
-              const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length > 3);
-              return targetWords.length > 0 && targetWords.some(word => jobLocLower.includes(word));
-            })
-          );
-
-          if (!isLocationMatch) {
-             console.log(`[Guardrail] Skipping location as it doesn't match Target Locations: ${raw.location}`);
-             continue;
-          }
-
-          const isDuplicate = [...jobStore, ...allResults].find(
-            (j: any) => j.company.toLowerCase() === raw.company.toLowerCase() && 
-                        j.title.toLowerCase() === raw.title.toLowerCase()
-          );
-          
-          if (isDuplicate) continue;
-
-          // NEW MODEL: Don't auto-analyze. Scrape first, analyze on demand.
-          const job: Job = {
-            ...raw,
-            description: raw.description || "Details fetched during search.",
-            score: 0,
-            reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
-            status: 'Discovery',
-            createdAt: new Date().toISOString()
-          };
-          
-          allResults.push(job);
-          newJobsFound.push(job);
-          await setAgentStatus({ resultsFound: allResults.length });
-        }
-        if (newJobsFound.length > 0) {
-          // Tag jobs with the matched title query
-          const jobsWithMeta = newJobsFound.map(j => ({ ...j, matchedRole: title }));
-          await addJobs(jobsWithMeta, profileId);
-        }
+    for (const settled of searchResults) {
+      if (settled.status === 'rejected') {
+        console.warn("[Search] A parallel search task failed:", settled.reason);
+        continue;
       }
+      const { title, rawJobs } = settled.value;
+      const newJobsFound: Job[] = [];
+
+      for (const raw of rawJobs) {
+        // TITLE GUARDRAIL
+        const isTargetMatch = isTitleMatch(raw.title, targetTitles, alternativeTitles || [], matchStrictness);
+        if (!isTargetMatch) {
+          console.log(`[Guardrail] Skipping title as it doesn't match Target Roles: ${raw.title}`);
+          continue;
+        }
+
+        // LOCATION GUARDRAIL
+        const jobLocLower = (raw.location || "").toLowerCase().trim();
+        const isExplicitlyForeign = isUSOnlySearch && FOREIGN_COUNTRY_PATTERNS.some(re => re.test(jobLocLower));
+        if (isExplicitlyForeign) {
+          console.log(`[Guardrail] Rejecting foreign-country job for US search: ${raw.location}`);
+          continue;
+        }
+
+        const jobState = getStateCode(jobLocLower);
+        const isLocationMatch = targetLocations.length === 0 || (
+          !jobLocLower ||
+          jobLocLower.includes("united states") ||
+          jobLocLower.includes("nationwide") ||
+          jobLocLower.includes("national") ||
+          jobLocLower.includes("remote") ||
+          jobLocLower.includes("anywhere") ||
+          jobLocLower.includes("worldwide") ||
+          (targetState && jobState && targetState === jobState) ||
+          targetLocations.some(target => {
+            const cleanTarget = target.toLowerCase().trim();
+            if (!cleanTarget) return false;
+            if (jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower)) return true;
+            const isRemoteTarget = cleanTarget.includes("remote");
+            if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere"))) return true;
+            const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length > 3);
+            return targetWords.length > 0 && targetWords.some(word => jobLocLower.includes(word));
+          })
+        );
+
+        if (!isLocationMatch) {
+          console.log(`[Guardrail] Skipping location as it doesn't match Target Locations: ${raw.location}`);
+          continue;
+        }
+
+        // DUPLICATE CHECK (against existing store and current session results)
+        const isDuplicate = [...jobStore, ...allResults].find(
+          (j: any) => j.company?.toLowerCase() === raw.company?.toLowerCase() && 
+                      j.title?.toLowerCase() === raw.title?.toLowerCase()
+        );
+        if (isDuplicate) continue;
+
+        const job: Job = {
+          ...raw,
+          description: raw.description || "Details fetched during search.",
+          score: 0,
+          reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
+          status: 'Discovery',
+          createdAt: new Date().toISOString()
+        };
+        
+        allResults.push(job);
+        newJobsFound.push(job);
+      }
+
+      if (newJobsFound.length > 0) {
+        newJobsByTitle.set(title, [...(newJobsByTitle.get(title) || []), ...newJobsFound]);
+        await setAgentStatus({ resultsFound: allResults.length });
+      }
+    }
+
+    // Persist all newly found jobs
+    for (const [title, jobs] of newJobsByTitle.entries()) {
+      const jobsWithMeta = jobs.map(j => ({ ...j, matchedRole: title }));
+      await addJobs(jobsWithMeta, profileId);
     }
     
     await setAgentStatus({ isSearching: false, status: `Complete. Found ${allResults.length} new matches.` });
