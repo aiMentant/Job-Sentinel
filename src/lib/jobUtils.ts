@@ -365,6 +365,11 @@ export function consolidateLocations(locations: string[], profileLocation?: stri
     return profileLocation ? [profileLocation] : ["United States"];
   }
 
+  // If we have 3 or fewer locations, keep them exactly as typed to maintain search precision!
+  if (locations.length <= 3) {
+    return Array.from(new Set(locations.map(l => l.trim()).filter(Boolean)));
+  }
+
   // 1. Detect if a national/country-level location is present.
   const hasUS = locations.some(loc => {
     const l = loc.toLowerCase().trim();
