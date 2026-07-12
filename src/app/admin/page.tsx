@@ -287,15 +287,14 @@ export default function AdminPage() {
                         {/* Profile ID */}
                         <td className="py-4 pr-4 font-semibold text-xs text-slate-300">
                           {editingEmail === u.email ? (
-                            <select
+                            <input
+                              type="text"
+                              list="profiles-datalist"
                               value={updatedProfileId}
                               onChange={(e) => setUpdatedProfileId(e.target.value)}
-                              className="bg-[#0c0c0e] border border-white/10 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-indigo-500 w-28 font-semibold text-foreground cursor-pointer"
-                            >
-                              {profiles.map(id => (
-                                <option key={id} value={id}>{id}</option>
-                              ))}
-                            </select>
+                              className="bg-white/5 border border-white/10 focus:border-indigo-500 rounded-lg px-2.5 py-1 text-xs focus:outline-none w-28 font-semibold text-foreground"
+                              placeholder="Profile ID"
+                            />
                           ) : (
                             u.profile_id
                           )}
@@ -384,15 +383,14 @@ export default function AdminPage() {
 
                 <div className="space-y-1.5">
                   <label className="text-[10px] text-text-muted uppercase font-black tracking-widest">Assigned Profile</label>
-                  <select 
+                  <input
+                    type="text"
+                    list="profiles-datalist"
                     value={newProfileId}
                     onChange={(e) => setNewProfileId(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none transition-all text-foreground font-bold cursor-pointer"
-                  >
-                    {profiles.map(id => (
-                      <option key={id} value={id} className="bg-[#0c0c0e]">{id}</option>
-                    ))}
-                  </select>
+                    placeholder="Profile name"
+                    className="w-full bg-white/5 border border-white/10 focus:border-indigo-500 rounded-xl px-3.5 py-2 text-xs focus:outline-none transition-all text-foreground font-bold"
+                  />
                 </div>
               </div>
 
@@ -480,6 +478,11 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+      <datalist id="profiles-datalist">
+        {profiles.map(id => (
+          <option key={id} value={id} />
+        ))}
+      </datalist>
     </div>
   );
 }
