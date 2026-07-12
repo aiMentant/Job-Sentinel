@@ -82,6 +82,20 @@ const detectJobType = (title: string, description: string) => {
   return null;
 };
 
+const AMBIGUOUS_CITIES: Record<string, { us: string; uk: string }> = {
+  'lincoln': { us: 'Lincoln, USA', uk: 'Lincoln, Lincolnshire (UK)' },
+  'boston': { us: 'Boston, MA (USA)', uk: 'Boston, Lincolnshire (UK)' },
+  'london': { us: 'London, ON (Canada)', uk: 'London, UK' },
+  'oxford': { us: 'Oxford, MS (USA)', uk: 'Oxford, Oxfordshire (UK)' },
+  'cambridge': { us: 'Cambridge, MA (USA)', uk: 'Cambridge, Cambridgeshire (UK)' },
+  'birmingham': { us: 'Birmingham, AL (USA)', uk: 'Birmingham, UK' },
+  'manchester': { us: 'Manchester, NH (USA)', uk: 'Manchester, UK' },
+  'reading': { us: 'Reading, PA (USA)', uk: 'Reading, Berkshire (UK)' },
+  'bristol': { us: 'Bristol, TN (USA)', uk: 'Bristol, UK' },
+  'portsmouth': { us: 'Portsmouth, NH (USA)', uk: 'Portsmouth, Hampshire (UK)' },
+  'gloucester': { us: 'Gloucester, MA (USA)', uk: 'Gloucester, Gloucestershire (UK)' }
+};
+
 export default function SearchPage() {
   const { activeProfileId } = useProfile();
   const [rankedRoles, setRankedRoles] = useState<Array<{ title: string; score: number; reason: string }>>([]);
@@ -124,9 +138,8 @@ export default function SearchPage() {
   const [isScanningAllCompanies, setIsScanningAllCompanies] = useState(false);
 
   // ── Location Pill-Toggle Architecture ──────────────────────────────────────
-  // activeSearchLocations: the subset of targetLocations currently selected for search.
-  // All locations are "on" by default. Users can deselect cities to focus a run.
-  const [activeSearchLocations, setActiveSearchLocations] = useState<string[]>([]);
+  // activeSearchLocation: the currently selected single active location/origin for search.
+  const [activeSearchLocation, setActiveSearchLocation] = useState<string>("");
   const [showQuotaGuardrailModal, setShowQuotaGuardrailModal] = useState(false);
   // pendingSearch is used to hold the search until the user confirms the guardrail modal
   const [pendingSearchTitles, setPendingSearchTitles] = useState<string[] | null>(null);
@@ -135,6 +148,11 @@ export default function SearchPage() {
   // Distance badges: map of { location -> miles from base }, loaded lazily
   const [locationDistances, setLocationDistances] = useState<Record<string, number>>({});
   const [isFetchingDistances, setIsFetchingDistances] = useState(false);
+  // Ambiguity checker states
+  const [showAmbiguityModal, setShowAmbiguityModal] = useState(false);
+  const [ambiguousCity, setAmbiguousCity] = useState("");
+  const [ambiguityOptions, setAmbiguityOptions] = useState<{ value: string; label: string; desc: string }[]>([]);
+  const [onAmbiguityResolve, setOnAmbiguityResolve] = useState<((resolved: string) => void) | null>(null);
   // activeTargetSites: subset of targetSites currently enabled for search
   const [activeTargetSites, setActiveTargetSites] = useState<string[]>([]);
 
@@ -243,11 +261,9 @@ export default function SearchPage() {
           setTargetTitles(roles);
           setAlternativeTitles(p.alternativeTitles || []);
           setTargetLocations(locs);
-          // Initialize activeSearchLocations: use saved subset if stored, otherwise all locations active
-          const savedActive = p.activeSearchLocations && p.activeSearchLocations.length > 0
-            ? p.activeSearchLocations.filter((l: string) => locs.includes(l))
-            : locs;
-          setActiveSearchLocations(savedActive.length > 0 ? savedActive : locs);
+          // Initialize activeSearchLocation: use saved active, baseLocation, or first valid targetLocation
+          const initialActive = p.activeSearchLocation || p.baseLocation || locs[0] || p.location || "";
+          setActiveSearchLocation(initialActive);
           // Initialize baseLocation from profile, default to first valid location
           setBaseLocation(p.baseLocation || locs[0] || "");
           const US_DEFAULT_SITES = ["linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com", "usajobs.gov", "snagajob.com"];
@@ -1029,21 +1045,13 @@ export default function SearchPage() {
         titles = targetTitles;
       }
     }
-    // Use activeSearchLocations (pill-selected subset) unless a specific override is passed
-    const locations = (locationsOverride || activeSearchLocations.filter(isValidLocation))
-      .filter(isValidLocation);
+    // Use activeSearchLocation (single selected location) unless a specific override is passed
+    const locations = (locationsOverride || (activeSearchLocation ? [activeSearchLocation] : [])).filter(isValidLocation);
 
     if (titles.length === 0 || locations.length === 0) {
       setMissingRoleInput(titles.join(", "));
       setMissingLocationInput(locations.join("; "));
       setShowMissingParamsModal(true);
-      return;
-    }
-
-    // Quota Guardrail: warn when searching 4+ locations (high API cost)
-    if (!locationsOverride && locations.length >= 4) {
-      setPendingSearchTitles(titles);
-      setShowQuotaGuardrailModal(true);
       return;
     }
 
@@ -1328,8 +1336,8 @@ export default function SearchPage() {
     try {
       // Put baseLocation first so generateDreamCompanies uses it as the commute anchor
       const locationsForDreamSearch = baseLocation
-        ? [baseLocation, ...(activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations).filter(l => l !== baseLocation)]
-        : (activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations);
+        ? [baseLocation, ...(activeSearchLocation ? [activeSearchLocation] : targetLocations).filter(l => l !== baseLocation)]
+        : (activeSearchLocation ? [activeSearchLocation] : targetLocations);
       const list = await generateDreamCompanies(locationsForDreamSearch, radius, targetTitles, activeProfileId);
       if (!list || list.length === 0) {
         throw new Error("No companies discovered. Please verify your Gemini API key is configured.");
@@ -1356,7 +1364,7 @@ export default function SearchPage() {
         
         try {
           const { scanCompanyJobs, addJobs } = await import("@/app/actions/jobActions");
-          const newJobs = await scanCompanyJobs(comp.name, targetTitles, activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations, comp.careerUrl, alternativeTitles);
+          const newJobs = await scanCompanyJobs(comp.name, targetTitles, activeSearchLocation ? [activeSearchLocation] : targetLocations, comp.careerUrl, alternativeTitles);
           if (newJobs.length > 0) {
             await addJobs(newJobs, activeProfileId);
             setResults(prev => {
@@ -1395,7 +1403,7 @@ export default function SearchPage() {
     setStatus(`Scanning ${companyName}...`);
     try {
       const { scanCompanyJobs, addJobs } = await import("@/app/actions/jobActions");
-      const newJobs = await scanCompanyJobs(companyName, targetTitles, activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations, careerUrl, alternativeTitles);
+      const newJobs = await scanCompanyJobs(companyName, targetTitles, activeSearchLocation ? [activeSearchLocation] : targetLocations, careerUrl, alternativeTitles);
       if (newJobs.length > 0) {
         await addJobs(newJobs, activeProfileId);
         setResults(prev => {
@@ -1449,7 +1457,7 @@ export default function SearchPage() {
         setStatus(`Batch scanning [${i + 1}/${currentList.length}]: ${company.name}...`);
         
         try {
-          const newJobs = await scanCompanyJobs(company.name, targetTitles, activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations, company.careerUrl, alternativeTitles);
+          const newJobs = await scanCompanyJobs(company.name, targetTitles, activeSearchLocation ? [activeSearchLocation] : targetLocations, company.careerUrl, alternativeTitles);
           if (newJobs.length > 0) {
             await addJobs(newJobs, activeProfileId);
             setResults(prev => {
@@ -1511,7 +1519,7 @@ export default function SearchPage() {
       const { scanNicheBoardsJobs, addJobs } = await import("@/app/actions/jobActions");
       const newJobs = await scanNicheBoardsJobs(
         targetTitles,
-        activeSearchLocations.length > 0 ? activeSearchLocations : targetLocations,
+        activeSearchLocation ? [activeSearchLocation] : targetLocations,
         nicheBoards,
         alternativeTitles
       );
@@ -2188,7 +2196,7 @@ export default function SearchPage() {
               <div className="space-y-2">
                 <h3 className="font-bold text-xl text-foreground font-outfit">No Opportunities Discovered</h3>
                 <p className="text-sm text-text-muted max-w-lg mx-auto leading-relaxed">
-                  Sorry{profile.firstName ? ` ${profile.firstName}` : ''}, no matches found within <strong className="text-foreground">{radius} miles</strong> of{baseLocation ? <> <span className="text-amber-500 font-bold">{baseLocation}</span> <span className="text-text-muted text-xs">(your base city)</span></> : <> <span className="text-foreground font-semibold">{activeSearchLocations.join(", ") || targetLocations.join(", ") || "your target locations"}</span></>} for: <span className="text-foreground font-semibold">{targetTitles.join(", ") || "your target roles"}</span>.
+                  Sorry{profile.firstName ? ` ${profile.firstName}` : ''}, no matches found within <strong className="text-foreground">{radius} miles</strong> of{baseLocation ? <> <span className="text-amber-500 font-bold">{baseLocation}</span> <span className="text-text-muted text-xs">(your base city)</span></> : <> <span className="text-foreground font-semibold">{activeSearchLocation || targetLocations.join(", ") || "your target locations"}</span></>} for: <span className="text-foreground font-semibold">{targetTitles.join(", ") || "your target roles"}</span>.
                 </p>
               </div>
 
@@ -3010,37 +3018,34 @@ export default function SearchPage() {
               )}
             </div>
 
-            {/* Target Locations — with pill toggles for active search selection */}
+            {/* Target Locations — with single active search origin selection */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs text-text-muted font-bold uppercase tracking-wider">Locations / Postcodes</label>
+                <label className="text-xs text-text-muted font-bold uppercase tracking-wider">Active Search Origin</label>
                 <span className="text-[10px] text-text-muted">
-                  {activeSearchLocations.length}/{targetLocations.length} active
+                  {targetLocations.length}/4 limit
                 </span>
               </div>
-              {/* Interactive Pill Toggles — click to include/exclude from next search */}
+              
+              {/* Interactive Pills — click to select active search origin */}
               <div className="flex flex-wrap gap-2 mb-2">
                 {targetLocations.map((loc, i) => {
-                  const isActive = activeSearchLocations.includes(loc);
+                  const isActive = activeSearchLocation === loc;
                   const isBase = baseLocation === loc;
                   return (
                     <span
                       key={i}
                       className={`px-2 py-1 rounded text-[11px] flex items-center gap-1.5 font-semibold border transition-all cursor-pointer select-none ${
-                        isBase
-                          ? 'bg-amber-500/15 border-amber-500/50 text-amber-700 dark:text-amber-400 shadow-sm shadow-amber-500/20'
-                          : isActive
-                            ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 shadow-sm shadow-emerald-500/10'
-                            : 'bg-card border-card-border/40 text-text-muted opacity-50 line-through'
+                        isActive
+                          ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 shadow-sm shadow-emerald-500/10'
+                          : 'bg-card border-card-border/40 text-text-muted opacity-80'
                       }`}
-                      onClick={() => {
-                        setActiveSearchLocations(prev =>
-                          isActive
-                            ? prev.filter(l => l !== loc)
-                            : [...prev, loc]
-                        );
+                      onClick={async () => {
+                        setActiveSearchLocation(loc);
+                        const { patchUserProfile } = await import("@/app/actions/jobActions");
+                        await patchUserProfile({ activeSearchLocation: loc }, activeProfileId);
                       }}
-                      title={isActive ? `Click to exclude "${loc}" from next search` : `Click to include "${loc}" in next search`}
+                      title={isActive ? `Active search origin: "${loc}"` : `Set "${loc}" as active search origin`}
                     >
                       {/* Base City badge / toggle */}
                       <button
@@ -3048,17 +3053,13 @@ export default function SearchPage() {
                           e.stopPropagation();
                           const newBase = isBase ? "" : loc;
                           setBaseLocation(newBase);
-                          // If setting as base, make sure it's active
-                          if (!isBase && !activeSearchLocations.includes(loc)) {
-                            setActiveSearchLocations(prev => [...prev, loc]);
-                          }
                           const { patchUserProfile } = await import("@/app/actions/jobActions");
                           await patchUserProfile({ baseLocation: newBase }, activeProfileId);
                         }}
                         className={`flex-shrink-0 transition-colors cursor-pointer ${
                           isBase
                             ? 'text-amber-500 hover:text-amber-700'
-                            : 'text-card-border/60 hover:text-amber-400'
+                            : 'text-card-border/60 hover:text-amber-450'
                         }`}
                         title={isBase ? 'Remove as base city' : `Set "${loc}" as base city`}
                         aria-label={isBase ? 'Remove base city' : `Set ${loc} as base city`}
@@ -3066,10 +3067,7 @@ export default function SearchPage() {
                         <Home className="w-3 h-3" />
                       </button>
                       {isBase && (
-                        <span className="text-[9px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1 rounded">BASE</span>
-                      )}
-                      {!isBase && (
-                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isActive ? 'bg-emerald-500' : 'bg-gray-500'}`} />
+                         <span className="text-[9px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1 rounded">BASE</span>
                       )}
                       {loc}
                       {!isBase && baseLocation && (
@@ -3095,11 +3093,25 @@ export default function SearchPage() {
                           )
                       )}
                       <button
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.stopPropagation();
-                          setActiveSearchLocations(prev => prev.filter(l => l !== loc));
                           if (isBase) setBaseLocation("");
-                          removeArrayItem('targetLocations', i);
+                          
+                          // Remove item from targetLocations
+                          const updatedLocations = targetLocations.filter((_, idx) => idx !== i);
+                          setTargetLocations(updatedLocations);
+                          const { patchUserProfile } = await import("@/app/actions/jobActions");
+                          
+                          let newActive = activeSearchLocation;
+                          if (activeSearchLocation === loc) {
+                            newActive = baseLocation !== loc ? baseLocation : (updatedLocations[0] || "");
+                            setActiveSearchLocation(newActive);
+                          }
+                          await patchUserProfile({ 
+                            targetLocations: updatedLocations,
+                            baseLocation: isBase ? "" : baseLocation,
+                            activeSearchLocation: newActive
+                          }, activeProfileId);
                         }}
                         className="hover:text-red-400 cursor-pointer ml-0.5"
                         aria-label={`Delete location: ${loc}`}
@@ -3110,30 +3122,10 @@ export default function SearchPage() {
                   );
                 })}
               </div>
-              {/* Quick-select helpers */}
-              {targetLocations.length > 1 && (
-                <div className="flex gap-1.5 mb-2">
-                  <button
-                    onClick={() => setActiveSearchLocations([...targetLocations])}
-                    className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer"
-                  >
-                    Select All
-                  </button>
-                  <span className="text-text-muted text-[10px]">·</span>
-                  <button
-                    onClick={() => {
-                      const focusCity = baseLocation || activeSearchLocations[0];
-                      if (focusCity) setActiveSearchLocations([focusCity]);
-                    }}
-                    className="text-[10px] text-text-muted hover:underline cursor-pointer"
-                  >
-                    {baseLocation ? `Focus on Base (${baseLocation.split(',')[0]})` : 'Focus on First'}
-                  </button>
-                </div>
-              )}
+              
               {/* Base city info strip */}
               {baseLocation && (
-                <div className="flex items-center gap-1.5 mb-2 px-2 py-1 bg-amber-500/8 border border-amber-500/20 rounded-lg text-[10px] text-amber-700 dark:text-amber-400">
+                <div className="flex items-center gap-1.5 mb-2 px-2 py-1 bg-amber-500/8 border border-amber-500/20 rounded-lg text-[10px] text-amber-700 dark:text-amber-400 animate-in fade-in">
                   <Home className="w-3 h-3 flex-shrink-0" />
                   <span>
                     <strong>{baseLocation}</strong> is your base city —
@@ -3144,35 +3136,82 @@ export default function SearchPage() {
                   </span>
                 </div>
               )}
+              
               <input 
                 type="text" 
-                placeholder="Add location & press Enter..." 
+                placeholder={targetLocations.length >= 4 ? "Location limit reached (max 4)" : "Add location & press Enter..."} 
+                disabled={targetLocations.length >= 4}
                 aria-label="Add target location"
-                className="input-field text-xs py-1.5 w-full bg-card border-card-border focus:border-foreground/30 text-foreground"
-                onKeyDown={(e) => { 
-                  if (e.key === 'Enter') { 
-                    if (e.currentTarget.value.trim()) {
-                      const newLoc = e.currentTarget.value.trim();
-                      addArrayItem('targetLocations', newLoc);
-                      // Auto-activate new locations
-                      setActiveSearchLocations(prev => [...prev, newLoc]);
-                      // If no base is set yet, auto-set as base
-                      if (!baseLocation) {
-                        setBaseLocation(newLoc);
-                        import("@/app/actions/jobActions").then(({ patchUserProfile }) => {
-                          patchUserProfile({ baseLocation: newLoc }, activeProfileId);
-                        });
-                      }
-                      e.currentTarget.value = ''; 
-                    } else {
-                      handleSearch();
-                    }
-                  } 
+                className="input-field text-xs py-1.5 w-full bg-card border-card-border focus:border-foreground/30 text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
+                onKeyDown={async (e) => { 
+                   if (e.key === 'Enter') { 
+                     const rawVal = e.currentTarget.value.trim();
+                     if (rawVal) {
+                       const lowerVal = rawVal.toLowerCase();
+                       
+                       const addResolvedLocation = async (resolvedLoc: string) => {
+                         const updatedLocations = [...targetLocations, resolvedLoc];
+                         setTargetLocations(updatedLocations);
+                         
+                         let newActive = activeSearchLocation;
+                         if (!activeSearchLocation) {
+                           newActive = resolvedLoc;
+                           setActiveSearchLocation(resolvedLoc);
+                         }
+                         
+                         let newBase = baseLocation;
+                         if (!baseLocation) {
+                           newBase = resolvedLoc;
+                           setBaseLocation(resolvedLoc);
+                         }
+                         
+                         const { patchUserProfile } = await import("@/app/actions/jobActions");
+                         await patchUserProfile({ 
+                           targetLocations: updatedLocations,
+                           activeSearchLocation: newActive,
+                           baseLocation: newBase
+                         }, activeProfileId);
+                       };
+
+                       if (AMBIGUOUS_CITIES[lowerVal]) {
+                         const cityObj = AMBIGUOUS_CITIES[lowerVal];
+                         const isUKProfile = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(profile?.location || "");
+                         
+                         const options = isUKProfile 
+                           ? [
+                               { value: cityObj.uk, label: cityObj.uk, desc: 'Recommended based on your UK profile location' },
+                               { value: cityObj.us, label: cityObj.us, desc: 'US location alternative' }
+                             ]
+                           : [
+                               { value: cityObj.us, label: cityObj.us, desc: 'Recommended based on your US profile location' },
+                               { value: cityObj.uk, label: cityObj.uk, desc: 'UK location alternative' }
+                             ];
+                         
+                         options.push({ value: rawVal, label: rawVal, desc: 'Keep exact text as typed' });
+                         
+                         setAmbiguousCity(rawVal);
+                         setAmbiguityOptions(options);
+                         setOnAmbiguityResolve(() => addResolvedLocation);
+                         setShowAmbiguityModal(true);
+                         e.currentTarget.value = '';
+                       } else {
+                         await addResolvedLocation(rawVal);
+                         e.currentTarget.value = '';
+                       }
+                     } else {
+                       handleSearch();
+                     }
+                   } 
                 }}
               />
-              {activeSearchLocations.length === 0 && targetLocations.length > 0 && (
+              {targetLocations.length >= 4 && (
+                <p className="text-[10px] text-amber-500/80 mt-1">
+                  Capped at 4 target locations to keep searches fast and focused.
+                </p>
+              )}
+              {!activeSearchLocation && targetLocations.length > 0 && (
                 <p className="text-[10px] text-amber-500 mt-1.5">
-                  ⚠️ No locations active — all pills are deselected. Click a pill to activate it.
+                  ⚠️ No location active — select a pill above to define the search origin.
                 </p>
               )}
             </div>
@@ -3823,114 +3862,6 @@ export default function SearchPage() {
         document.body
       )}
 
-      {/* ── Quota Guardrail Modal ────────────────────────────────────────── */}
-      {mounted && showQuotaGuardrailModal && createPortal(
-        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md animate-in fade-in duration-300 flex items-center justify-center p-5">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="quota-guardrail-title"
-            className="glass-card w-full max-w-lg border border-amber-500/30 bg-card rounded-2xl overflow-hidden shadow-2xl shadow-amber-900/20 animate-in zoom-in-95 duration-200"
-          >
-            {/* Header */}
-            <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/5 border-b border-amber-500/20 px-6 py-5 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-6 h-6 text-amber-500" />
-              </div>
-              <div>
-                <h3 id="quota-guardrail-title" className="font-bold text-base text-foreground">
-                  High API Usage Warning
-                </h3>
-                <p className="text-xs text-text-muted mt-0.5">
-                  Searching {activeSearchLocations.length} locations will consume significant API quota.
-                </p>
-              </div>
-            </div>
-
-            {/* Body */}
-            <div className="px-6 py-5 space-y-4">
-              <p className="text-sm text-text-muted leading-relaxed">
-                Your search will run <span className="font-bold text-foreground">{(pendingSearchTitles?.length || 1)} role{(pendingSearchTitles?.length || 1) > 1 ? 's' : ''}</span> across <span className="font-bold text-amber-500">{activeSearchLocations.length} locations</span>. This may take several minutes and exhaust your monthly API budget faster.
-              </p>
-
-              {/* Active locations display */}
-              <div className="bg-card-hover/60 rounded-xl p-3 border border-card-border">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-text-muted mb-2">Locations in this search:</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {activeSearchLocations.map((loc, i) => (
-                    <span
-                      key={i}
-                      className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/30 rounded text-[11px] text-amber-600 dark:text-amber-400 font-semibold flex items-center gap-1"
-                    >
-                      <button
-                        onClick={() => setActiveSearchLocations(prev => prev.filter(l => l !== loc))}
-                        className="text-amber-500/60 hover:text-red-400 cursor-pointer text-[10px] leading-none"
-                        title={`Remove ${loc} from this search`}
-                      >
-                        ×
-                      </button>
-                      {loc}
-                    </span>
-                  ))}
-                </div>
-                <p className="text-[10px] text-text-muted mt-2">
-                  💡 Tip: Click × on a location above to remove it, then proceed.
-                </p>
-              </div>
-
-              {/* Recommendation */}
-              <div className="bg-indigo-500/5 border border-indigo-500/20 rounded-xl p-3">
-                <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold mb-1">
-                  ✦ Recommended: Focus on 1–3 locations per run
-                </p>
-                <p className="text-[11px] text-text-muted">
-                  Search your primary city first, then re-run for others. Results accumulate — you won't lose previous finds.
-                </p>
-                {activeSearchLocations.length > 1 && (
-                  <button
-                    onClick={() => {
-                      setActiveSearchLocations([activeSearchLocations[0]]);
-                    }}
-                    className="mt-2 text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold cursor-pointer"
-                  >
-                    Focus on "{activeSearchLocations[0]}" only →
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Footer actions */}
-            <div className="px-6 pb-6 flex gap-3">
-              <button
-                onClick={() => {
-                  setShowQuotaGuardrailModal(false);
-                  setPendingSearchTitles(null);
-                }}
-                className="flex-1 py-3 bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-sm transition-all cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={async () => {
-                  const titles = pendingSearchTitles;
-                  const locs = activeSearchLocations.filter(isValidLocation);
-                  setShowQuotaGuardrailModal(false);
-                  setPendingSearchTitles(null);
-                  if (titles && locs.length > 0) {
-                    // Pass locations as override to bypass guardrail on re-entry
-                    await (handleSearch as any)(titles, locs);
-                  }
-                }}
-                disabled={activeSearchLocations.length === 0}
-                className="flex-1 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-black text-sm transition-all shadow-lg shadow-amber-600/20 disabled:opacity-50 cursor-pointer"
-              >
-                Proceed with {activeSearchLocations.length} Location{activeSearchLocations.length !== 1 ? 's' : ''}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
 
       {/* Search Progress Modal */}
 
@@ -4211,6 +4142,66 @@ export default function SearchPage() {
               {results.filter(j => newJobIds.has(j.id)).length} New
             </div>
           </button>
+        </div>,
+        document.body
+      )}
+      {/* ── Ambiguous Location Confirmation Modal ──────────────────────── */}
+      {mounted && showAmbiguityModal && createPortal(
+        <div className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-md animate-in fade-in duration-300 flex items-center justify-center p-5">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ambiguity-modal-title"
+            className="glass-card w-full max-w-md border border-zinc-800 bg-zinc-900/95 dark:bg-zinc-955/95 text-white rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200 p-6 space-y-6"
+          >
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
+                <MapPin className="w-5 h-5 text-amber-500" />
+              </div>
+              <div>
+                <h3 id="ambiguity-modal-title" className="font-bold text-base text-white">
+                  Ambiguous Location Detected
+                </h3>
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  We found multiple match options for "{ambiguousCity}".
+                </p>
+              </div>
+            </div>
+
+            {/* Options list */}
+            <div className="space-y-2.5">
+              {ambiguityOptions.map((opt, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => {
+                    if (onAmbiguityResolve) {
+                      onAmbiguityResolve(opt.value);
+                    }
+                    setShowAmbiguityModal(false);
+                  }}
+                  className="w-full text-left p-3.5 rounded-xl border border-zinc-850 bg-zinc-900/50 hover:bg-zinc-800/80 hover:border-zinc-700 transition-all cursor-pointer flex flex-col gap-1 group"
+                >
+                  <span className="text-xs font-black text-white group-hover:text-indigo-400 transition-colors">
+                    {opt.label}
+                  </span>
+                  <span className="text-[10px] text-zinc-450 font-medium">
+                    {opt.desc}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Footer / Cancel */}
+            <div className="flex justify-end pt-2 border-t border-zinc-800/65">
+              <button
+                onClick={() => setShowAmbiguityModal(false)}
+                className="px-4 py-2 bg-zinc-850 hover:bg-zinc-750 text-zinc-300 rounded-xl font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>,
         document.body
       )}

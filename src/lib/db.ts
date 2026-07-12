@@ -129,6 +129,7 @@ export type UserProfile = {
   baseLocation?: string;
   /** The subset of targetLocations currently selected for the next search run */
   activeSearchLocations?: string[];
+  activeSearchLocation?: string;
   searchRadius?: number;
   matchStrictness?: 'exact' | 'strong' | 'flexible';
   booleanSearchString?: string;
