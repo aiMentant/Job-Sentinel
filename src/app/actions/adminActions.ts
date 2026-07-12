@@ -1,7 +1,7 @@
 "use server";
 
 import path from "path";
-import { isSupabaseEnabled } from "@/lib/storage";
+import { isSupabaseEnabled, getProfile, saveProfile } from "@/lib/storage";
 import { supabase } from "@/lib/supabaseClient";
 import { cookies } from "next/headers";
 
@@ -61,7 +61,31 @@ export async function listAllUsers() {
   }
 }
 
+async function ensureProfileExists(profileId: string | undefined, creatorEmail: string) {
+  if (!profileId) return;
+  const safeId = profileId.trim();
+  if (!safeId || safeId === "default") return;
+  try {
+    const existing = await getProfile(safeId);
+    if (!existing || Object.keys(existing).length === 0) {
+      await saveProfile({
+        fullName: safeId.charAt(0).toUpperCase() + safeId.slice(1),
+        targetTitles: ["Software Engineer"],
+        skills: [],
+        creatorEmail: creatorEmail
+      }, safeId);
+      console.log(`Auto-created default profile entry for operator assigned ID: ${safeId}`);
+    }
+  } catch (e) {
+    console.warn(`Failed to auto-create profile ${safeId}:`, e);
+  }
+}
+
 export async function saveUser(user: { email: string; password?: string; role?: string; profile_id?: string }) {
+  if (user.profile_id) {
+    await ensureProfileExists(user.profile_id, user.email);
+  }
+
   if (isSupabaseEnabled()) {
     try {
       const { error } = (await withTimeout(
