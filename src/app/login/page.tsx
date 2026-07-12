@@ -12,9 +12,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [disclaimerChecked, setDisclaimerChecked] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!disclaimerChecked) {
+      setError("You must acknowledge the AI disclaimer before logging in.");
+      setIsLoading(false);
+      return;
+    }
     setError("");
     setIsLoading(true);
 
@@ -97,9 +103,39 @@ export default function LoginPage() {
             </div>
           </div>
 
+          {/* AI Disclaimer & Checkbox */}
+          <div className="space-y-4 pt-2">
+            <div className="p-4 bg-white/[0.02] border border-white/10 rounded-2xl text-[11px] text-slate-300 leading-relaxed space-y-2">
+              <p className="font-bold text-indigo-400 flex items-center gap-1.5 uppercase tracking-wider text-[10px]">
+                ⚖️ AI Disclaimer & Accountability
+              </p>
+              <p>
+                Job Sentinel uses advanced Artificial Intelligence to tailor your applications. Please keep in mind:
+              </p>
+              <ul className="list-disc pl-4 space-y-1 text-slate-400">
+                <li>AI is fallible. It can occasionally hallucinate or output inaccurate facts.</li>
+                <li>This tool is built to speed up your work. You are the ultimate gatekeeper.</li>
+                <li>You are solely responsible for checking, validating, and correcting all tailored resumes, cover letters, and communications before you send them to employers. We accept no liability for submitted content.</li>
+              </ul>
+            </div>
+            
+            <label className="flex items-start gap-2.5 text-xs text-slate-300 select-none cursor-pointer group">
+              <input
+                type="checkbox"
+                required
+                checked={disclaimerChecked}
+                onChange={(e) => setDisclaimerChecked(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded border-white/10 bg-white/5 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+              />
+              <span className="leading-tight group-hover:text-white transition-colors">
+                I understand AI is fallible and confirm I will review all generated materials before applying.
+              </span>
+            </label>
+          </div>
+
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || !disclaimerChecked}
             className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer"
           >
             {isLoading ? (

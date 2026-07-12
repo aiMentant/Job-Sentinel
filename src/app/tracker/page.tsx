@@ -1479,6 +1479,14 @@ export default function TrackerPage() {
                 placeholder="Job description auto-fills here. Edit or paste a fresh copy to re-personalize the cover letter..."
               />
             </div>
+ 
+            {/* Friendly Legal Advisory Check */}
+            <div className="px-8 py-4 bg-amber-500/[0.03] border-t border-card-border text-[11px] text-amber-600 dark:text-amber-400 leading-relaxed flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>
+                <strong>Application Accuracy Check</strong>: While Job Sentinel AI tailors content, it can occasionally hallucinate or output inaccuracies. Please read through and verify the tailored resume bullet points and cover letter before saving or applying. You are responsible for the validity of submissions.
+              </span>
+            </div>
 
             <div className="p-6 border-t border-card-border bg-black/5 dark:bg-white/5 flex justify-between items-center">
               <button 

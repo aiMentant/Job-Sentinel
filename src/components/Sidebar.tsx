@@ -222,6 +222,12 @@ export default function Sidebar() {
       </button>
 
       {!isCollapsed && (
+        <div className="px-2 mb-3 text-[10px] text-text-muted/85 leading-normal text-center max-w-[200px] mx-auto select-none border-t border-card-border/30 pt-3">
+          ⚠️ <span className="font-semibold text-foreground/80">AI Disclaimer</span>: Tailored documents may contain errors. Please review all details prior to applying.
+        </div>
+      )}
+
+      {!isCollapsed && (
         <div className="mt-auto bg-background border border-card-border rounded-2xl p-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="flex items-center gap-3 mb-3">
             {activeProfile?.profilePictureUrl ? (
