@@ -9,7 +9,7 @@ import { getAgentStatus, setAgentStatus } from "./agentStatus";
 import { getActiveProfileId } from "./profileSwitch";
 import { logActivity, logServerActivity } from "./adminActions";
 import { heuristicMatchScore, getJaccardSimilarity, computeGhostScore, isTitleMatch, consolidateLocations } from "@/lib/jobUtils";
-import { geocodeLocation, haversineDistanceMiles } from "@/lib/locationProximity";
+import { geocodeLocation, haversineDistanceMiles, cleanLocationForGeocode, isUKPostcodeOutcode } from "@/lib/locationProximity";
 
 export async function fetchJobs(profileIdOverride?: string) {
   try {
@@ -262,7 +262,13 @@ export async function fetchPublicFallbackJobs(query: string, location: string, t
   return allFallbackJobs;
 }
 
-async function fetchAdzunaJobs(title: string, location: string, radius: number, fetchScope: string = "all"): Promise<Job[]> {
+async function fetchAdzunaJobs(
+  title: string,
+  location: string,
+  radius: number,
+  fetchScope: string = "all",
+  employmentType: string = "all"
+): Promise<Job[]> {
   const appId = process.env.ADZUNA_APP_ID;
   const appKey = process.env.ADZUNA_APP_KEY;
   if (!appId || !appKey) {
@@ -271,11 +277,12 @@ async function fetchAdzunaJobs(title: string, location: string, radius: number, 
   }
 
   try {
-    const isUK = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln/i.test(location);
+    const isUK = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(location);
     const country = isUK ? "gb" : "us";
-    const radiusKm = Math.ceil(radius * 1.60934);
     
-    // Add max_days_old parameter based on fetchScope (supports dynamic Xd string)
+    // Adzuna API distance is in kilometers
+    const radiusKm = Math.round(radius * 1.60934);
+
     let scopeParam = "";
     let days = 0;
     if (fetchScope.endsWith("d")) {
@@ -293,7 +300,18 @@ async function fetchAdzunaJobs(title: string, location: string, radius: number, 
       scopeParam = `&max_days_old=${cappedDays}`;
     }
 
-    const url = `https://api.adzuna.com/v1/api/jobs/${country}/search/1?app_id=${appId}&app_key=${appKey}&results_per_page=15&what=${encodeURIComponent(title)}&where=${encodeURIComponent(location)}&distance=${radiusKm}${scopeParam}`;
+    let employmentParam = "";
+    if (employmentType && employmentType !== "all") {
+      if (employmentType.toLowerCase() === "part-time") {
+        employmentParam = "&part_time=1";
+      } else if (employmentType.toLowerCase() === "full-time") {
+        employmentParam = "&full_time=1";
+      } else if (employmentType.toLowerCase() === "contract") {
+        employmentParam = "&contract=1";
+      }
+    }
+
+    const url = `https://api.adzuna.com/v1/api/jobs/${country}/search/1?app_id=${appId}&app_key=${appKey}&results_per_page=15&what=${encodeURIComponent(title)}&where=${encodeURIComponent(location)}&distance=${radiusKm}${scopeParam}${employmentParam}`;
     console.log(`[Adzuna] Querying: ${url}`);
     
     const res = await fetch(url, { headers: { "Accept": "application/json" }, signal: AbortSignal.timeout(15000) });
@@ -334,7 +352,8 @@ export async function fetchJSearchJobs(
   fetchScope: string = "all",
   targetSites?: string[],
   matchStrictness: 'exact' | 'strong' | 'flexible' = 'exact',
-  alternativeTitles: string[] = []
+  alternativeTitles: string[] = [],
+  employmentType: string = "all"
 ): Promise<Job[]> {
   const apiKey = process.env.RAPIDAPI_KEY || process.env.JSEARCH_API_KEY;
   if (!apiKey) {
@@ -350,7 +369,7 @@ export async function fetchJSearchJobs(
     if (isCustomQuery) {
       titlePart = title;
     } else {
-      const titlesToQuery = [title, ...alternativeTitles]
+      const titlesToQuery = [title]
         .map(t => t.trim())
         .filter(Boolean);
 
@@ -428,7 +447,21 @@ export async function fetchJSearchJobs(
     const countryParam = `&country=${country}`;
     const remoteParam = isRemote ? "&remote_jobs_only=true" : "";
 
-    const url = `https://jsearch.p.rapidapi.com/search-v2?query=${encodeURIComponent(query)}&num_pages=2&page=1${dateQueryParam}${radiusParam}${countryParam}${remoteParam}`;
+    let employmentTypesParam = "";
+    if (employmentType && employmentType !== "all") {
+      const typeMap: Record<string, string> = {
+        "full-time": "FULLTIME",
+        "part-time": "PARTTIME",
+        "contract": "CONTRACTOR",
+        "intern": "INTERN"
+      };
+      const jsearchVal = typeMap[employmentType.toLowerCase()];
+      if (jsearchVal) {
+        employmentTypesParam = `&employment_types=${jsearchVal}`;
+      }
+    }
+
+    const url = `https://jsearch.p.rapidapi.com/search-v2?query=${encodeURIComponent(query)}&num_pages=2&page=1${dateQueryParam}${radiusParam}${countryParam}${remoteParam}${employmentTypesParam}`;
     console.log(`[JSearch] Querying JSearch for: ${query} (Radius: ${radius})`);
     
     const res = await fetch(url, {
@@ -517,6 +550,89 @@ async function fetchUSAJobs(title: string, location: string, radius: number): Pr
   }
 }
 
+async function fetchReedJobs(
+  title: string,
+  location: string,
+  radius: number,
+  employmentType: string = "all"
+): Promise<Job[]> {
+  const apiKey = process.env.REED_API_KEY;
+  if (!apiKey) {
+    console.log("[Reed] Missing REED_API_KEY. Skipping Reed board scan.");
+    return [];
+  }
+
+  try {
+    const isUK = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(location) || isUKPostcodeOutcode(location);
+    if (!isUK) return [];
+
+    let queryParams = `keywords=${encodeURIComponent(title)}&locationName=${encodeURIComponent(location)}&distanceFromLocation=${radius}`;
+    
+    if (employmentType && employmentType !== "all") {
+      if (employmentType.toLowerCase() === "part-time") {
+        queryParams += "&partTime=true";
+      } else if (employmentType.toLowerCase() === "contract") {
+        queryParams += "&contract=true";
+      } else if (employmentType.toLowerCase() === "full-time") {
+        queryParams += "&fullTime=true";
+      }
+    }
+
+    const url = `https://www.reed.co.uk/api/1.0/search?${queryParams}`;
+    console.log(`[Reed] Querying: ${url}`);
+
+    const basicAuth = Buffer.from(`${apiKey}:`).toString("base64");
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Authorization": `Basic ${basicAuth}`,
+        "Accept": "application/json"
+      },
+      signal: AbortSignal.timeout(10000)
+    });
+
+    if (!res.ok) {
+      console.warn(`[Reed] API responded with status ${res.status}`);
+      return [];
+    }
+
+    const data = await res.json();
+    const results = data.results || [];
+
+    return results.map((j: any) => {
+      let parsedDate = new Date().toISOString();
+      if (j.date) {
+        const parts = j.date.split("/");
+        if (parts.length === 3) {
+          const d = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+          if (!isNaN(d.getTime())) {
+            parsedDate = d.toISOString();
+          }
+        }
+      }
+
+      return {
+        id: `reed-${j.jobId}`,
+        title: j.jobTitle || title,
+        company: j.employerName || "Enterprise Partner",
+        location: j.locationName || location,
+        description: j.jobDescription || "Job listing on Reed.co.uk.",
+        score: 0,
+        reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
+        status: 'Discovery' as const,
+        url: j.jobUrl,
+        source: 'Reed.co.uk',
+        createdAt: parsedDate
+      };
+    });
+  } catch (err) {
+    console.error("[Reed] Fetch failed:", err);
+    return [];
+  }
+}
+
+
 export async function runJobSearch(
   targetTitles: string[],
   targetLocations: string[],
@@ -526,7 +642,8 @@ export async function runJobSearch(
   profileIdOverride?: string,
   matchStrictness: 'exact' | 'strong' | 'flexible' = 'exact',
   alternativeTitles: string[] = [],
-  fetchScope: string = 'all'
+  fetchScope: string = 'all',
+  employmentType: string = 'all'
 ) {
   const profileId = profileIdOverride || await getActiveProfileId();
   const profile = await getProfile(profileId);
@@ -560,7 +677,11 @@ export async function runJobSearch(
         "montana": "mt", "delaware": "de", "south dakota": "sd", "north dakota": "nd", "alaska": "ak",
         "vermont": "vt", "wyoming": "wy"
       };
-      return stateMap[val] || val;
+      const code = stateMap[val] || val;
+      const validUSStates = new Set([
+        "al","ak","az","ar","ca","co","ct","de","fl","ga","hi","id","il","in","ia","ks","ky","la","me","md","ma","mi","mn","ms","mo","mt","ne","nv","nh","nj","nm","ny","nc","nd","oh","ok","or","pa","ri","sc","sd","tn","tx","ut","vt","va","wa","wv","wi","wy"
+      ]);
+      return validUSStates.has(code) ? code : null;
     };
 
     let titles = targetTitles;
@@ -607,9 +728,15 @@ export async function runJobSearch(
           return lower.includes("usajobs");
         });
 
-        if (runAdzuna) jobsPromises.push(fetchAdzunaJobs(title, loc, radius, fetchScope));
-        if (runJSearch) jobsPromises.push(fetchJSearchJobs(title, loc, radius, fetchScope, targetSites, matchStrictness, alternativeTitles));
+        const runReed = !targetSites || targetSites.length === 0 || targetSites.some(s => {
+          const lower = s.toLowerCase();
+          return lower.includes("reed");
+        });
+
+        if (runAdzuna) jobsPromises.push(fetchAdzunaJobs(title, loc, radius, fetchScope, employmentType));
+        if (runJSearch) jobsPromises.push(fetchJSearchJobs(title, loc, radius, fetchScope, targetSites, matchStrictness, alternativeTitles, employmentType));
         if (runUSAJobs) jobsPromises.push(fetchUSAJobs(title, loc, radius));
+        if (runReed) jobsPromises.push(fetchReedJobs(title, loc, radius, employmentType));
 
         const results = await Promise.all(jobsPromises);
         let rawJobs = results.flat();
@@ -677,7 +804,8 @@ export async function runJobSearch(
     // Pre-geocode target search locations to avoid hitting Nominatim rate limits inside the loop
     const targetCoordsList: Array<{ loc: string; coords: { lat: number; lon: number } }> = [];
     for (const loc of targetLocations) {
-      const coords = await geocodeLocation(loc);
+      const cleanLoc = cleanLocationForGeocode(loc);
+      const coords = await geocodeLocation(cleanLoc);
       if (coords) {
         targetCoordsList.push({ loc, coords });
       }
@@ -695,7 +823,23 @@ export async function runJobSearch(
 
       for (const raw of rawJobs) {
         // TITLE GUARDRAIL
-        const isTargetMatch = isTitleMatch(raw.title, targetTitles, alternativeTitles || [], matchStrictness);
+        const matchesPrimary = isTitleMatch(raw.title, targetTitles, [], matchStrictness);
+        let matchesAlternative = false;
+        let matchedRole = title; // fallback to the outer loop's search title
+
+        if (matchesPrimary) {
+          // Find which specific target title it matched
+          matchedRole = targetTitles.find(t => isTitleMatch(raw.title, [t], [], matchStrictness)) || title;
+        } else if (alternativeTitles && alternativeTitles.length > 0) {
+          matchesAlternative = isTitleMatch(raw.title, [], alternativeTitles, matchStrictness);
+          if (matchesAlternative) {
+            // Find which specific alternative title it matched
+            const matchedAlt = alternativeTitles.find(t => isTitleMatch(raw.title, [], [t], matchStrictness)) || alternativeTitles[0];
+            matchedRole = `${title} (Alternative: ${matchedAlt})`;
+          }
+        }
+
+        const isTargetMatch = matchesPrimary || matchesAlternative;
         if (!isTargetMatch) {
           console.log(`[Guardrail] Skipping title as it doesn't match Target Roles: ${raw.title}`);
           continue;
@@ -747,14 +891,12 @@ export async function runJobSearch(
 
         let isLocationMatch = false;
         
-        // Try geocoding + haversine distance filtering first
         if (targetLocations.length > 0) {
           let withinRadius = false;
-          let geocodeSuccess = false;
 
-          const jobCoords = await geocodeLocation(raw.location);
+          const cleanJobLoc = cleanLocationForGeocode(raw.location);
+          const jobCoords = await geocodeLocation(cleanJobLoc);
           if (jobCoords) {
-            geocodeSuccess = true;
             for (const { coords } of targetCoordsList) {
               const dist = haversineDistanceMiles(coords, jobCoords);
               if (dist <= radius) {
@@ -764,16 +906,21 @@ export async function runJobSearch(
             }
           }
 
-          if (geocodeSuccess) {
-            isLocationMatch = withinRadius || isRemoteJob;
-          } else {
-            // Fallback: substring check if geocoding fails
-            isLocationMatch = isRemoteJob || targetLocations.some(target => {
-              const cleanTarget = target.toLowerCase().trim().replace(/,\s*\w{2}$/, ""); // remove state suffix
-              if (!cleanTarget) return false;
-              return jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower);
-            });
-          }
+          // Regex word boundary substring check as a reinforcing fallback
+          const cleanLocLower = raw.location.toLowerCase();
+          const stringMatch = targetLocations.some(target => {
+            let cleanTarget = target.toLowerCase().trim().replace(/,\s*(uk|us|usa|gb|united kingdom)$/i, "").replace(/,\s*\w{2}$/, "");
+            cleanTarget = cleanLocationForGeocode(cleanTarget);
+            if (!cleanTarget || cleanTarget === 'remote') return false;
+            // York vs New York exception
+            if (cleanTarget === 'york' && cleanLocLower.includes('new york')) return false;
+            
+            const escapedTarget = cleanTarget.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const targetRegex = new RegExp(`\\b${escapedTarget}\\b`, 'i');
+            return targetRegex.test(cleanLocLower);
+          });
+
+          isLocationMatch = withinRadius || stringMatch || isRemoteJob;
         } else {
           isLocationMatch = true;
         }
@@ -796,6 +943,7 @@ export async function runJobSearch(
           score: 0,
           reason: "Pending AI analysis. Click 'Analyze Match' to use Gemini.",
           status: 'Discovery',
+          matchedRole,
           createdAt: new Date().toISOString()
         };
         
@@ -811,9 +959,9 @@ export async function runJobSearch(
 
     // Persist all newly found jobs
     for (const [title, jobs] of newJobsByTitle.entries()) {
-      const jobsWithMeta = jobs.map(j => ({ ...j, matchedRole: title }));
-      await addJobs(jobsWithMeta, profileId);
-    }
+       const jobsWithMeta = jobs.map(j => ({ ...j, matchedRole: j.matchedRole || title }));
+       await addJobs(jobsWithMeta, profileId);
+     }
     
     await setAgentStatus({ isSearching: false, status: `Complete. Found ${allResults.length} new matches.` });
     await logActivity(email, "Job Search Completed", { 
@@ -1197,7 +1345,17 @@ export async function analyzeSingleJob(jobId: string, profileIdOverride?: string
     Experience: ${(profile.experience || []).map((e: any) => `${e.role} at ${e.company}: ${e.description}`).join("\n")}
   `;
 
-  const analysis = await analyzeJobMatch(resumeContext, `Role: ${job.title} at ${job.company}. Location: ${job.location}. Description: ${description}`);
+  const persona = {
+    targetSeniority: profile.positioningSummary || profile.targetTitles?.join(", ") || "",
+    targetSectors: profile.skills || [],
+    workAuthorisation: profile.workAuthorisation || "",
+  };
+
+  const analysis = await analyzeJobMatch(
+    resumeContext,
+    `Role: ${job.title} at ${job.company}. Location: ${job.location}. Description: ${description}`,
+    persona
+  );
   
   const isGhost = !!analysis.isGhost;
   
@@ -1546,6 +1704,52 @@ export async function scanCompanyJobs(companyName: string, targetTitles: string[
           }
         }
       }
+
+      // Ashby Direct API Scan
+      if (lowerUrl.includes("ashbyhq.com")) {
+        console.log(`[ATS-Direct] Scanning Ashby board for ${companyName}`);
+        let companyToken = "";
+        try {
+          const match = careerUrl.match(/ashbyhq\.com\/([^/?#]+)/);
+          if (match && match[1]) {
+            companyToken = match[1];
+          } else {
+            const urlObj = new URL(careerUrl.startsWith("http") ? careerUrl : `https://${careerUrl}`);
+            const parts = urlObj.pathname.split("/").filter(Boolean);
+            companyToken = parts[0] || "";
+          }
+        } catch (e) {}
+
+        if (companyToken && companyToken !== "embed") {
+          const res = await fetch(`https://api.ashbyhq.com/depot/v1/job-board?company=${companyToken}`, { signal: AbortSignal.timeout(6000) });
+          if (res.ok) {
+            const data = await res.json();
+            const jobsList = data.jobs || [];
+            console.log(`[ATS-Direct] Ashby returned ${jobsList.length} total jobs.`);
+            
+            const matches: Job[] = [];
+            for (const j of jobsList) {
+              const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles, alternativeTitles) : 75;
+              if (score > 40) {
+                matches.push({
+                  id: String(j.id),
+                  title: j.title,
+                  company: companyName,
+                  location: j.location || targetLocations[0] || "Remote",
+                  description: `Open role at ${companyName}. Department: ${j.department || 'N/A'}.`,
+                  score: score,
+                  reason: `Direct ATS match (${score}% confidence) found on Ashby.`,
+                  status: 'Discovery',
+                  url: j.jobUrl,
+                  source: 'Ashby',
+                  createdAt: new Date().toISOString()
+                });
+              }
+            }
+            if (matches.length > 0) return matches;
+          }
+        }
+      }
     } catch (atsError) {
       console.warn("[ATS-Direct] Direct API scrape failed. Falling back to JSearch.", atsError);
     }
@@ -1823,15 +2027,15 @@ export async function getLocationDistances(
   locations: string[]
 ): Promise<Record<string, number>> {
   try {
-    const { geocodeLocation, haversineDistanceMiles } = await import("@/lib/locationProximity");
-    const baseCoords = await geocodeLocation(baseLocation);
+    const { geocodeLocation, haversineDistanceMiles, cleanLocationForGeocode } = await import("@/lib/locationProximity");
+    const baseCoords = await geocodeLocation(cleanLocationForGeocode(baseLocation));
     if (!baseCoords) return {};
 
     const result: Record<string, number> = {};
     for (const loc of locations) {
       if (loc === baseLocation) continue;
       try {
-        const coords = await geocodeLocation(loc);
+        const coords = await geocodeLocation(cleanLocationForGeocode(loc));
         if (coords) {
           result[loc] = Math.round(haversineDistanceMiles(baseCoords, coords));
         }
@@ -1847,6 +2051,53 @@ export async function getLocationDistances(
     return {};
   }
 }
-
-
-
+export async function discoverATSUrl(companyName: string): Promise<{ type: 'greenhouse' | 'lever' | null; url: string | null }> {
+  try {
+    if (!companyName || companyName.trim().length === 0) {
+      return { type: null, url: null };
+    }
+    
+    const baseSlug = companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const candidates = [
+      baseSlug,
+      companyName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""),
+      companyName.toLowerCase().replace(/\s+/g, "")
+    ];
+    
+    const uniqueSlugs = Array.from(new Set(candidates)).filter(Boolean);
+    
+    for (const slug of uniqueSlugs) {
+      // 1. Check Greenhouse
+      try {
+        console.log(`[ATS Discover] Checking Greenhouse for: ${slug}`);
+        const ghUrl = `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`;
+        const res = await fetch(ghUrl, { signal: AbortSignal.timeout(3000) });
+        if (res.status === 200) {
+          return { type: 'greenhouse', url: `https://boards.greenhouse.io/${slug}` };
+        }
+      } catch (e) {
+        // ignore
+      }
+      
+      // 2. Check Lever
+      try {
+        console.log(`[ATS Discover] Checking Lever for: ${slug}`);
+        const levUrl = `https://api.lever.co/v0/postings/${slug}?mode=json`;
+        const res = await fetch(levUrl, { signal: AbortSignal.timeout(3000) });
+        if (res.status === 200) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            return { type: 'lever', url: `https://jobs.lever.co/${slug}` };
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    
+    return { type: null, url: null };
+  } catch (err) {
+    console.error("[ATS Discover] Failed:", err);
+    return { type: null, url: null };
+  }
+}

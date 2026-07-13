@@ -28,7 +28,7 @@ import { useProfile } from "@/components/ProfileContext";
 export default function SettingsPage() {
   const { activeProfileId } = useProfile();
   const [apiKey, setApiKey] = useState("");
-  const [preferredModel, setPreferredModel] = useState("gemini-2.0-flash");
+  const [preferredModel, setPreferredModel] = useState("gemini-2.5-flash");
   const [stealthMode, setStealthMode] = useState(true);
   const [linkedinCookie, setLinkedinCookie] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -40,7 +40,7 @@ export default function SettingsPage() {
   // Validation state
   const [isValidating, setIsValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<{ success: boolean | null; message: string }>({ success: null, message: "" });
-
+  
   useEffect(() => {
     let mounted = true;
     async function loadSettings() {
@@ -50,12 +50,12 @@ export default function SettingsPage() {
         if (!mounted) return;
         if (profile) {
           setApiKey(profile.geminiApiKey || "");
-          setPreferredModel(profile.preferredModel || "gemini-2.0-flash");
+          setPreferredModel(profile.preferredModel || "gemini-2.5-flash");
           setStealthMode(profile.linkedinStealth ?? true);
           setLinkedinCookie(profile.linkedinCookie || "");
         } else {
           setApiKey("");
-          setPreferredModel("gemini-2.0-flash");
+          setPreferredModel("gemini-2.5-flash");
           setStealthMode(true);
           setLinkedinCookie("");
         }
@@ -207,7 +207,7 @@ export default function SettingsPage() {
                   onChange={(e) => setPreferredModel(e.target.value)}
                   className="input-field w-full text-sm appearance-none bg-slate-900 border-white/5"
                 >
-                  <option value="gemini-2.0-flash">Gemini 2.0 Flash (Fastest / Recommended)</option>
+                  <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fastest / Recommended)</option>
                   <option value="gemini-1.5-flash">Gemini 1.5 Flash (Standard)</option>
                   <option value="gemini-1.5-pro">Gemini 1.5 Pro (High Precision)</option>
                 </select>

@@ -83,14 +83,40 @@ export async function generateWithAI(prompt: string, options: { retries?: number
   }
 }
 
-export async function analyzeJobMatch(resume: string, jobDescription: string): Promise<{ score: number; reason: string; isGhost?: boolean }> {
+export async function analyzeJobMatch(
+  resume: string,
+  jobDescription: string,
+  persona?: {
+    targetSeniority?: string;
+    yearsExperience?: number;
+    targetSectors?: string[];
+    workAuthorisation?: string;
+  }
+): Promise<{ score: number; reason: string; isGhost?: boolean }> {
+  let personaPrompt = "";
+  if (persona) {
+    const sectors = Array.isArray(persona.targetSectors) ? persona.targetSectors.join(", ") : "";
+    personaPrompt = `
+    CANDIDATE TARGET CAREER PERSONA:
+    - Target Seniority level: ${persona.targetSeniority || "Not specified"}
+    - Target Industries/Sectors: ${sectors || "Not specified"}
+    - Work Authorisation/Legal constraints: ${persona.workAuthorisation || "Not specified"}
+    - Total Years of Work Experience: ${persona.yearsExperience !== undefined ? persona.yearsExperience : "Not specified"}
+    
+    TASK ADDITION: Adjust the match score based on how well the job aligns with the candidate's target career level, industries, and legal constraints.
+    - Heavily penalize the score (e.g. reduce by 30-40 points or cap at a low score) if the job's seniority level is mismatched (e.g., candidate wants executive roles but the job is an associate/junior/mid role, or vice-versa).
+    - Mismatches in target sectors or work authorization (e.g., candidate requires sponsorship but job explicitly does not sponsor) must also severely downgrade the match score.
+    `;
+  }
+
   const prompt = `
     You are an expert recruitment assistant.
     RESUME: ${(resume || "").slice(0, 5000)}
     JOB: ${(jobDescription || "").slice(0, 5000)}
+    ${personaPrompt}
     TASK: Analyze the match between the resume and the job listing.
     Determine:
-    1. A match score (0-100) based on how well the candidate's skills and experience fit the job.
+    1. A match score (0-100) based on how well the candidate's skills, experience, and career targets fit the job.
     2. A brief 2-sentence explanation of the match.
     3. Whether this listing is a "ghost job" or "harvesting/talent pool post" (e.g. evergreen postings, generic talent pipelines, or extremely vague descriptions).
     

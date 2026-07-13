@@ -622,7 +622,8 @@ export default function SearchPage() {
     // Filter by selected tab role (support legacy matches via title keyword check)
     if (selectedTabRole && selectedTabRole !== "all") {
       const roleLower = selectedTabRole.toLowerCase().trim();
-      const matchesMeta = j.matchedRole && j.matchedRole.toLowerCase().trim() === roleLower;
+      const cleanMatchedRole = j.matchedRole ? j.matchedRole.split(" (Alternative:")[0].toLowerCase().trim() : "";
+      const matchesMeta = cleanMatchedRole === roleLower;
       const matchesTitle = (j.title || "").toLowerCase().includes(roleLower);
       if (!matchesMeta && !matchesTitle) return false;
     }
@@ -964,6 +965,7 @@ export default function SearchPage() {
       targetTitles,
       targetLocations,
       targetSites,
+      alternativeTitles,
       searchRadius: radius
     }, activeProfileId);
     if (res && res.success) {
@@ -988,9 +990,11 @@ export default function SearchPage() {
       // MERGE logic: Keep current, add new unique ones
       const uniqueTitles = Array.from(new Set([...targetTitles, ...(data.targetTitles || [])]));
       const uniqueLocations = Array.from(new Set([...targetLocations, ...(data.targetLocations || [])]));
+      const uniqueAlternativeTitles = Array.from(new Set([...alternativeTitles, ...(data.alternativeTitles || [])]));
 
       setTargetTitles(uniqueTitles);
       setTargetLocations(uniqueLocations);
+      setAlternativeTitles(uniqueAlternativeTitles);
       setStatus("Search parameters updated from AI. Click 'Save Defaults' to persist.");
     } catch (e: any) {
       console.error(e);
@@ -1206,7 +1210,8 @@ export default function SearchPage() {
               activeProfileId,
               profile.matchStrictness || 'exact',
               alternativeTitles,
-              searchScopeParam
+              searchScopeParam,
+              selectedJobType
             );
 
             // Auto-Expansion Fallback if 0 results found across ALL titles so far
@@ -1234,7 +1239,8 @@ export default function SearchPage() {
                 activeProfileId,
                 profile.matchStrictness || 'exact',
                 alternativeTitles,
-                searchScopeParam
+                searchScopeParam,
+                selectedJobType
               );
             }
 
@@ -1815,8 +1821,8 @@ export default function SearchPage() {
               {sortedTabs.map((role, idx) => {
                 const count = results.filter(j => {
                   const roleLower = role.toLowerCase().trim();
-                  return (j.matchedRole && j.matchedRole.toLowerCase().trim() === roleLower) || 
-                         (j.title || "").toLowerCase().includes(roleLower);
+                  const cleanMatchedRole = j.matchedRole ? j.matchedRole.split(" (Alternative:")[0].toLowerCase().trim() : "";
+                  return cleanMatchedRole === roleLower || (j.title || "").toLowerCase().includes(roleLower);
                 }).length;
                 
                 const rank = rankedRoles.find(r => r.title.toLowerCase().trim() === role.toLowerCase().trim());
@@ -2512,8 +2518,19 @@ export default function SearchPage() {
                             )}
                           </div>
                         </div>
-                        <h4 className="font-bold text-lg text-foreground">
+                        <h4 className="font-bold text-lg text-foreground flex flex-wrap items-center gap-2">
                           {highlightKeywords(job.title, [...(profile.skills || []), ...targetTitles])}
+                          {(() => {
+                            if (job.matchedRole && job.matchedRole.includes(" (Alternative: ")) {
+                              const altRole = job.matchedRole.split(" (Alternative: ")[1].replace(")", "");
+                              return (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-500/10 border border-amber-500/20 text-amber-500 shadow-sm shadow-amber-500/5 cursor-default hover:bg-amber-500/20 transition-all" title={`This job matched your alternative title fallback: "${altRole}"`}>
+                                  Alt Target: {altRole}
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
                         </h4>
                         <div className="flex items-center gap-3 text-sm mt-1">
                           <span className="font-bold text-foreground">{job.company}</span>
@@ -3944,7 +3961,9 @@ export default function SearchPage() {
                         activeTargetSites.length > 0 ? activeTargetSites : targetSites,
                         activeProfileId,
                         profile.matchStrictness || 'exact',
-                        alternativeTitles
+                        alternativeTitles,
+                        'all',
+                        selectedJobType
                       );
                     }
                     await addJobs(newJobs, activeProfileId); 

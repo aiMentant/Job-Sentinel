@@ -11,6 +11,89 @@ export type RankedLocation = { location: string; distanceMiles: number; coords?:
 // ─── In-memory geocoding cache (clears on server restart) ────────────────────
 const memCache = new Map<string, GeoCoords | null>();
 
+// Centralized rate-limiting queue for Nominatim to prevent 429 errors
+let geocodeQueue: Promise<any> = Promise.resolve();
+
+// Static local dictionary for core target locations in Florida and the UK
+// Resolves lookups instantly, offline, and without network rate-limiting.
+const LOCAL_GEO_DB: Record<string, { lat: number; lon: number }> = {
+  "london": { lat: 51.5074, lon: -0.1278 },
+  "london uk": { lat: 51.5074, lon: -0.1278 },
+  "london area": { lat: 51.5074, lon: -0.1278 },
+  "greater london": { lat: 51.5074, lon: -0.1278 },
+  "greater london uk": { lat: 51.5074, lon: -0.1278 },
+  "heathfield": { lat: 50.9696, lon: 0.2526 },
+  "heathfield uk": { lat: 50.9696, lon: 0.2526 },
+  "nottingham": { lat: 52.9548, lon: -1.1581 },
+  "nottingham uk": { lat: 52.9548, lon: -1.1581 },
+  "lincoln": { lat: 53.2294, lon: -0.5400 },
+  "lincoln uk": { lat: 53.2294, lon: -0.5400 },
+  "oxford": { lat: 51.7520, lon: -1.2577 },
+  "oxford uk": { lat: 51.7520, lon: -1.2577 },
+  "cambridge": { lat: 52.2053, lon: 0.1218 },
+  "cambridge uk": { lat: 52.2053, lon: 0.1218 },
+  "guildford": { lat: 51.2362, lon: -0.5704 },
+  "guildford uk": { lat: 51.2362, lon: -0.5704 },
+  "woodhall spa": { lat: 53.1534, lon: -0.2173 },
+  "woodhall spa uk": { lat: 53.1534, lon: -0.2173 },
+  "orlando": { lat: 28.5383, lon: -81.3792 },
+  "orlando fl": { lat: 28.5383, lon: -81.3792 },
+  "orlando florida": { lat: 28.5383, lon: -81.3792 },
+  "orlando north east airport area": { lat: 28.5383, lon: -81.3792 },
+  "edgewater": { lat: 28.9889, lon: -80.9023 },
+  "edgewater fl": { lat: 28.9889, lon: -80.9023 },
+  "edgewater florida": { lat: 28.9889, lon: -80.9023 },
+  "sanford": { lat: 28.8008, lon: -81.2731 },
+  "sanford fl": { lat: 28.8008, lon: -81.2731 },
+  "sanford florida": { lat: 28.8008, lon: -81.2731 },
+  "deltona": { lat: 28.9005, lon: -81.2637 },
+  "deltona fl": { lat: 28.9005, lon: -81.2637 },
+  "deltona florida": { lat: 28.9005, lon: -81.2637 },
+  "deland": { lat: 29.0283, lon: -81.3031 },
+  "deland fl": { lat: 29.0283, lon: -81.3031 },
+  "deland florida": { lat: 29.0283, lon: -81.3031 },
+  "daytona beach": { lat: 29.2108, lon: -81.0228 },
+  "daytona beach fl": { lat: 29.2108, lon: -81.0228 },
+  "daytona beach florida": { lat: 29.2108, lon: -81.0228 },
+  "south daytona": { lat: 29.1658, lon: -81.0045 },
+  "south daytona fl": { lat: 29.1658, lon: -81.0045 },
+  "south daytona florida": { lat: 29.1658, lon: -81.0045 },
+  "port orange": { lat: 29.1387, lon: -80.9968 },
+  "port orange fl": { lat: 29.1387, lon: -80.9968 },
+  "port orange florida": { lat: 29.1387, lon: -80.9968 },
+  "new smyrna beach": { lat: 29.0258, lon: -80.9271 },
+  "new smyrna beach fl": { lat: 29.0258, lon: -80.9271 },
+  "new smyrna beach florida": { lat: 29.0258, lon: -80.9271 },
+  "ln1": { lat: 53.235, lon: -0.54 },
+  "ln1 uk": { lat: 53.235, lon: -0.54 },
+  "ln5": { lat: 53.208, lon: -0.544 },
+  "ln5 uk": { lat: 53.208, lon: -0.544 },
+  "ng1": { lat: 52.955, lon: -1.147 },
+  "ng1 uk": { lat: 52.955, lon: -1.147 },
+  "ng7": { lat: 52.952, lon: -1.173 },
+  "ng7 uk": { lat: 52.952, lon: -1.173 },
+  "ec1a": { lat: 51.520, lon: -0.101 },
+  "ec1a uk": { lat: 51.520, lon: -0.101 },
+  "sw1a": { lat: 51.501, lon: -0.124 },
+  "sw1a uk": { lat: 51.501, lon: -0.124 }
+};
+
+export function cleanLocationForGeocode(location: string): string {
+  return location.replace(/\s*\(.*?\)\s*/g, " ").replace(/\s+/g, " ").trim();
+}
+
+export function isUKPostcodeOutcode(location: string): boolean {
+  return /^[a-z]{1,2}[0-9][a-z0-9]?$/i.test(location.trim());
+}
+
+function normalizeLocationQuery(location: string): string {
+  return location
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
  * Haversine formula — returns distance in miles between two lat/lon points.
  */
@@ -28,35 +111,62 @@ export function haversineDistanceMiles(a: GeoCoords, b: GeoCoords): number {
 }
 
 /**
- * Geocode a location string using Nominatim (OpenStreetMap).
+ * Geocode a location string using local cache, or OSM Nominatim (as a last resort fallback).
  * Results are cached in memory. Returns null on failure or timeout.
  */
 export async function geocodeLocation(location: string): Promise<GeoCoords | null> {
-  const key = location.toLowerCase().trim();
-  if (memCache.has(key)) return memCache.get(key)!;
-
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
-    const res = await fetch(url, {
-      headers: { "User-Agent": "JobSentinel/1.0 (job-sentinel-app)" },
-      signal: AbortSignal.timeout(4000),
-    });
-    if (!res.ok) {
-      memCache.set(key, null);
-      return null;
+  let cleanInput = location.trim();
+  if (isUKPostcodeOutcode(cleanInput)) {
+    if (!cleanInput.toLowerCase().endsWith(" uk")) {
+      cleanInput = `${cleanInput} UK`;
     }
-    const data = await res.json();
-    if (!data || data.length === 0) {
-      memCache.set(key, null);
-      return null;
-    }
-    const coords: GeoCoords = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-    memCache.set(key, coords);
-    return coords;
-  } catch {
-    memCache.set(key, null);
-    return null;
   }
+  const cacheKey = cleanInput.toLowerCase();
+  
+  // Step 0: Check in-memory session cache first
+  if (memCache.has(cacheKey)) return memCache.get(cacheKey)!;
+
+  // Step 1: Tier 1 - Local geocoding dictionary lookup
+  const normalizedKey = normalizeLocationQuery(cleanInput);
+  if (LOCAL_GEO_DB[normalizedKey]) {
+    const coords = LOCAL_GEO_DB[normalizedKey];
+    memCache.set(cacheKey, coords);
+    return coords;
+  }
+
+  // Step 2: Tier 2 - OSM Nominatim (last resort fallback) run via queue
+  const result = await (geocodeQueue = geocodeQueue.then(async () => {
+    // Re-check cache in case it was resolved while in queue
+    if (memCache.has(cacheKey)) return memCache.get(cacheKey)!;
+    
+    // Add 1000ms delay to respect Nominatim's 1 req/sec rate limit policy
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cleanInput)}&format=json&limit=1`;
+      const res = await fetch(url, {
+        headers: { "User-Agent": "JobSentinel/1.0 (job-sentinel-app)" },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!res.ok) {
+        memCache.set(cacheKey, null);
+        return null;
+      }
+      const data = await res.json();
+      if (!data || data.length === 0) {
+        memCache.set(cacheKey, null);
+        return null;
+      }
+      const coords: GeoCoords = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+      memCache.set(cacheKey, coords);
+      return coords;
+    } catch {
+      memCache.set(cacheKey, null);
+      return null;
+    }
+  }));
+
+  return result;
 }
 
 /**
@@ -76,27 +186,23 @@ export async function rankLocationsByProximity(
   const results: RankedLocation[] = [];
   const unresolvable: RankedLocation[] = [];
 
-  await Promise.allSettled(
-    locations.map(async (loc) => {
-      if (!baseCoords) {
-        // Can't sort without a base — preserve original order
-        unresolvable.push({ location: loc, distanceMiles: Infinity });
-        return;
-      }
-      // Small delay to respect Nominatim's 1 req/sec rate limit
-      await new Promise((r) => setTimeout(r, 200));
-      const coords = await geocodeLocation(loc);
-      if (coords) {
-        results.push({
-          location: loc,
-          distanceMiles: haversineDistanceMiles(baseCoords, coords),
-          coords,
-        });
-      } else {
-        unresolvable.push({ location: loc, distanceMiles: Infinity });
-      }
-    })
-  );
+  // Run sequentially to respect geocodeLocation's queue and memory cache
+  for (const loc of locations) {
+    if (!baseCoords) {
+      unresolvable.push({ location: loc, distanceMiles: Infinity });
+      continue;
+    }
+    const coords = await geocodeLocation(loc);
+    if (coords) {
+      results.push({
+        location: loc,
+        distanceMiles: haversineDistanceMiles(baseCoords, coords),
+        coords,
+      });
+    } else {
+      unresolvable.push({ location: loc, distanceMiles: Infinity });
+    }
+  }
 
   results.sort((a, b) => a.distanceMiles - b.distanceMiles);
   return [...results, ...unresolvable];

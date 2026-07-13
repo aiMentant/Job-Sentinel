@@ -88,7 +88,11 @@ async function runSimulation() {
       fetchedProfile.targetTitles || ["Product Designer"],
       fetchedProfile.targetLocations || ["London"],
       25,
-      mockRawText
+      mockRawText,
+      undefined,
+      "robert-test-slug",
+      fetchedProfile.matchStrictness || 'exact',
+      fetchedProfile.alternativeTitles || []
     );
     
     console.log(`✅ SUCCESS: Job Search completed. Found ${results.length} matched jobs.`);

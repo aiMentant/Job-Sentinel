@@ -507,7 +507,27 @@ export async function generateDreamCompanies(locations: string[], radius: number
   `;
 
   try {
-    return await generateWithAI(prompt, { jsonMode: true, timeoutMs: 45000 });
+    const list = await generateWithAI(prompt, { jsonMode: true, timeoutMs: 45000 });
+    if (Array.isArray(list)) {
+      const { discoverATSUrl } = await import("@/app/actions/jobActions");
+      const enrichedList = await Promise.all(
+        list.map(async (c: any) => {
+          if (!c.careerUrl) {
+            try {
+              const discovered = await discoverATSUrl(c.name);
+              if (discovered && discovered.url) {
+                c.careerUrl = discovered.url;
+              }
+            } catch (err) {
+              console.warn(`[ATS AutoDiscover] Failed for ${c.name}:`, err);
+            }
+          }
+          return c;
+        })
+      );
+      return enrichedList;
+    }
+    return list || [];
   } catch (e) {
     console.error("Gemini failed to generate dream companies:", e);
     return [];

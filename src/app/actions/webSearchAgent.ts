@@ -163,6 +163,48 @@ export async function runWebDiscovery(
             }
           }
         }
+
+        // Ashby direct board API scan
+        if (lowerUrl.includes("ashbyhq.com")) {
+          let companyToken = "";
+          const match = company.careerUrl.match(/ashbyhq\.com\/([^/?#]+)/);
+          if (match && match[1]) {
+            companyToken = match[1];
+          } else {
+            const urlObj = new URL(company.careerUrl.startsWith("http") ? company.careerUrl : `https://${company.careerUrl}`);
+            const parts = urlObj.pathname.split("/").filter(Boolean);
+            companyToken = parts[0] || "";
+          }
+
+          if (companyToken && companyToken !== "embed") {
+            console.log(`[Deep Search] Scanning Ashby directly: ${company.name} (${companyToken})`);
+            const res = await fetch(`https://api.ashbyhq.com/depot/v1/job-board?company=${companyToken}`, { signal: AbortSignal.timeout(6000) });
+            if (res.ok) {
+              const data = await res.json();
+              const jobsList = data.jobs || [];
+              for (const j of jobsList) {
+                const isMatch = isTitleMatch(j.title, targetTitles, alternativeTitles, strictness);
+                const score = targetTitles.length > 0 ? heuristicMatchScore(j.title, targetTitles, alternativeTitles) : 75;
+                if (isMatch && !seenUrls.has(j.jobUrl)) {
+                  seenUrls.add(j.jobUrl);
+                  results.push({
+                    id: `ats-${j.id}`,
+                    title: j.title,
+                    company: company.name,
+                    location: j.location || targetLocations[0] || "Local Presence",
+                    description: `Direct ATS role at ${company.name}. Department: ${j.department || 'N/A'}.`,
+                    score: score,
+                    reason: `Direct Ashby ATS scan (Match fit: ${score}%)`,
+                    status: 'Discovery',
+                    url: j.jobUrl,
+                    source: 'Ashby',
+                    createdAt: new Date().toISOString()
+                  });
+                }
+              }
+            }
+          }
+        }
       } catch (err) {
         console.warn(`[Deep Search] Failed to scan direct board for ${company.name}:`, err);
       }
