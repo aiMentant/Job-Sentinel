@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, Suspense, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { 
   Briefcase, 
@@ -84,11 +84,14 @@ function InterviewHubContent() {
     }
   }, [targetJobId, jobs]);
 
+  const prepAttemptedIds = useRef<Set<string>>(new Set());
+
   useEffect(() => {
-    if (selectedJob && !selectedJob.interviewPrepData && !isGenerating) {
+    if (selectedJob && !selectedJob.interviewPrepData && !prepAttemptedIds.current.has(selectedJob.id)) {
+      prepAttemptedIds.current.add(selectedJob.id);
       handleGeneratePrep(selectedJob);
     }
-  }, [selectedJob, isGenerating]);
+  }, [selectedJob]);
 
   const loadJobs = async () => {
     setLoading(true);

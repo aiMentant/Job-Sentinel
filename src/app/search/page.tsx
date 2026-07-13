@@ -154,7 +154,7 @@ export default function SearchPage() {
   const [ambiguityOptions, setAmbiguityOptions] = useState<{ value: string; label: string; desc: string }[]>([]);
   const [onAmbiguityResolve, setOnAmbiguityResolve] = useState<((resolved: string) => void) | null>(null);
   // activeTargetSites: subset of targetSites currently enabled for search
-  const [activeTargetSites, setActiveTargetSites] = useState<string[]>([]);
+  const [activeTargetSites, setActiveTargetSites] = useState<string[]>(["linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com", "usajobs.gov", "snagajob.com"]);
 
   const [selectedJobType, setSelectedJobType] = useState<string>("all");
   const [scanningTitles, setScanningTitles] = useState<{ title: string; status: 'pending' | 'scanning' | 'done' | 'failed' }[]>([]);
@@ -182,10 +182,7 @@ export default function SearchPage() {
   const [apiFetchScope, setApiFetchScope] = useState<string>("auto");
   const [hideApiWarning, setHideApiWarning] = useState<boolean>(false);
   const [showFilterGrid, setShowFilterGrid] = useState(false);
-  const [searchHistory, setSearchHistory] = useState<Array<{ date: string; query: string; count: number; mode: 'standard' | 'deep' }>>([
-    { date: new Date(Date.now() - 1000 * 60 * 30).toISOString(), query: "Senior UX Designer", count: 8, mode: "standard" },
-    { date: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), query: "Product Designer", count: 4, mode: "deep" }
-  ]);
+  const [searchHistory, setSearchHistory] = useState<Array<{ date: string; query: string; count: number; mode: 'standard' | 'deep' }>>([]);
   const [savedConfigs, setSavedConfigs] = useState<Array<{ name: string; targetTitles: string[]; targetLocations: string[]; radius: number; targetSites: string[]; isLocked?: boolean }>>([]);
   const [showPresetHelp, setShowPresetHelp] = useState(false);
   const [hoveredGhostJobId, setHoveredGhostJobId] = useState<string | null>(null);
@@ -3944,13 +3941,13 @@ export default function SearchPage() {
                         locs, 
                         radius, 
                         profile.resumeText || "",
-                        targetSites,
+                        activeTargetSites.length > 0 ? activeTargetSites : targetSites,
                         activeProfileId,
                         profile.matchStrictness || 'exact',
                         alternativeTitles
                       );
                     }
-                    await addJobs(newJobs); 
+                    await addJobs(newJobs, activeProfileId); 
                     setResults(prev => {
                       const existingUrls = new Set(prev.map(j => j.url));
                       const uniqueNew = newJobs.filter(j => !existingUrls.has(j.url));

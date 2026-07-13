@@ -9,6 +9,7 @@ import { getAgentStatus, setAgentStatus } from "./agentStatus";
 import { getActiveProfileId } from "./profileSwitch";
 import { logActivity, logServerActivity } from "./adminActions";
 import { heuristicMatchScore, getJaccardSimilarity, computeGhostScore, isTitleMatch, consolidateLocations } from "@/lib/jobUtils";
+import { geocodeLocation, haversineDistanceMiles } from "@/lib/locationProximity";
 
 export async function fetchJobs(profileIdOverride?: string) {
   try {
@@ -326,7 +327,15 @@ async function fetchAdzunaJobs(title: string, location: string, radius: number, 
   }
 }
 
-export async function fetchJSearchJobs(title: string, location: string, radius?: number, fetchScope: string = "all"): Promise<Job[]> {
+export async function fetchJSearchJobs(
+  title: string,
+  location: string,
+  radius?: number,
+  fetchScope: string = "all",
+  targetSites?: string[],
+  matchStrictness: 'exact' | 'strong' | 'flexible' = 'exact',
+  alternativeTitles: string[] = []
+): Promise<Job[]> {
   const apiKey = process.env.RAPIDAPI_KEY || process.env.JSEARCH_API_KEY;
   if (!apiKey) {
     console.log("[JSearch] Missing RAPIDAPI_KEY or JSEARCH_API_KEY. Skipping.");
@@ -335,7 +344,63 @@ export async function fetchJSearchJobs(title: string, location: string, radius?:
 
   try {
     const isRemote = /remote|anywhere|worldwide/i.test(location);
-    const query = isRemote ? `${title} Remote` : `${title} in ${location}`;
+    const isCustomQuery = title.includes("(") || title.includes(")") || title.includes("\"") || title.includes(" OR ") || title.includes(" AND ") || title.includes(" site:");
+
+    let titlePart = "";
+    if (isCustomQuery) {
+      titlePart = title;
+    } else {
+      const titlesToQuery = [title, ...alternativeTitles]
+        .map(t => t.trim())
+        .filter(Boolean);
+
+      if (titlesToQuery.length > 0) {
+        if (matchStrictness === 'exact') {
+          const quotedTitles = titlesToQuery.map(t => `"${t}"`);
+          titlePart = quotedTitles.length > 1 ? `(${quotedTitles.join(" OR ")})` : quotedTitles[0];
+        } else if (matchStrictness === 'strong') {
+          const processed = titlesToQuery.map(t => t.includes(" ") ? `"${t}"` : t);
+          titlePart = processed.length > 1 ? `(${processed.join(" OR ")})` : processed[0];
+        } else {
+          titlePart = titlesToQuery.length > 1 ? `(${titlesToQuery.join(" OR ")})` : titlesToQuery[0];
+        }
+      } else {
+        titlePart = matchStrictness === 'exact' ? `"${title}"` : title;
+      }
+    }
+
+    let locationPart = "";
+    if (!isRemote && location && !isCustomQuery) {
+      locationPart = `in "${location.trim()}"`;
+    } else if (!isRemote && location) {
+      locationPart = `in ${location.trim()}`;
+    }
+
+    let query = "";
+    if (isCustomQuery) {
+      query = isRemote ? `${title} Remote` : `${title} ${locationPart}`.trim();
+    } else {
+      query = isRemote ? `${titlePart} Remote` : `${titlePart} ${locationPart}`.trim();
+    }
+
+    // Add "via <site>" support to query if targetSites has specific sites to maximize API return
+    if (targetSites && targetSites.length > 0) {
+      const siteKeywords: string[] = [];
+      targetSites.forEach(site => {
+        const lower = site.toLowerCase();
+        if (lower.includes("linkedin.com") || lower.includes("linkedin")) siteKeywords.push("linkedin");
+        else if (lower.includes("indeed.com") || lower.includes("indeed")) siteKeywords.push("indeed");
+        else if (lower.includes("glassdoor.com") || lower.includes("glassdoor")) siteKeywords.push("glassdoor");
+        else if (lower.includes("ziprecruiter.com") || lower.includes("ziprecruiter")) siteKeywords.push("ziprecruiter");
+      });
+      
+      if (siteKeywords.length === 1) {
+        query = `${query} via ${siteKeywords[0]}`;
+      } else if (siteKeywords.length > 1) {
+        const viaStr = siteKeywords.map(s => `via ${s}`).join(" OR ");
+        query = `${query} (${viaStr})`;
+      }
+    }
     
     // Add date_posted parameter based on fetchScope (supports dynamic Xd string)
     let dateParam = "anytime";
@@ -357,8 +422,14 @@ export async function fetchJSearchJobs(title: string, location: string, radius?:
     }
 
     const dateQueryParam = dateParam && dateParam !== "anytime" && dateParam !== "any" ? `&date_posted=${dateParam}` : "";
-    const url = `https://jsearch.p.rapidapi.com/search-v2?query=${encodeURIComponent(query)}&num_pages=2&page=1${dateQueryParam}`;
-    console.log(`[JSearch] Querying JSearch for: ${query}`);
+    const radiusParam = radius ? `&radius=${radius}` : "";
+    const isUK = /uk|united kingdom|gb|england|wales|scotland|ireland|nottingham|lincoln|london/i.test(location);
+    const country = isUK ? "gb" : "us";
+    const countryParam = `&country=${country}`;
+    const remoteParam = isRemote ? "&remote_jobs_only=true" : "";
+
+    const url = `https://jsearch.p.rapidapi.com/search-v2?query=${encodeURIComponent(query)}&num_pages=2&page=1${dateQueryParam}${radiusParam}${countryParam}${remoteParam}`;
+    console.log(`[JSearch] Querying JSearch for: ${query} (Radius: ${radius})`);
     
     const res = await fetch(url, {
       method: "GET",
@@ -537,7 +608,7 @@ export async function runJobSearch(
         });
 
         if (runAdzuna) jobsPromises.push(fetchAdzunaJobs(title, loc, radius, fetchScope));
-        if (runJSearch) jobsPromises.push(fetchJSearchJobs(title, loc, radius, fetchScope));
+        if (runJSearch) jobsPromises.push(fetchJSearchJobs(title, loc, radius, fetchScope, targetSites, matchStrictness, alternativeTitles));
         if (runUSAJobs) jobsPromises.push(fetchUSAJobs(title, loc, radius));
 
         const results = await Promise.all(jobsPromises);
@@ -562,7 +633,12 @@ export async function runJobSearch(
           rawJobs = [...linkedinJobs, ...multiJobs];
         }
 
-        if (rawJobs.length === 0) {
+        const canRunFallback = !targetSites || targetSites.length === 0 || targetSites.some(s => {
+          const lower = s.toLowerCase();
+          return lower.includes("remotive") || lower.includes("themuse") || lower.includes("muse");
+        });
+
+        if (rawJobs.length === 0 && canRunFallback) {
           rawJobs = await fetchPublicFallbackJobs(title, location, targetTitles, alternativeTitles);
         }
 
@@ -598,6 +674,15 @@ export async function runJobSearch(
       if (code) { targetState = code; break; }
     }
 
+    // Pre-geocode target search locations to avoid hitting Nominatim rate limits inside the loop
+    const targetCoordsList: Array<{ loc: string; coords: { lat: number; lon: number } }> = [];
+    for (const loc of targetLocations) {
+      const coords = await geocodeLocation(loc);
+      if (coords) {
+        targetCoordsList.push({ loc, coords });
+      }
+    }
+
     const newJobsByTitle: Map<string, Job[]> = new Map();
 
     for (const settled of searchResults) {
@@ -616,37 +701,85 @@ export async function runJobSearch(
           continue;
         }
 
-        // LOCATION GUARDRAIL
+        // LOCATION & SOURCE GUARDRAIL
         const jobLocLower = (raw.location || "").toLowerCase().trim();
+        
+        // Reject jobs with empty location (usually scrapers or API errors returning bad listings)
+        if (!jobLocLower) {
+          console.log(`[Guardrail] Skipping job due to empty location: ${raw.title}`);
+          continue;
+        }
+
         const isExplicitlyForeign = isUSOnlySearch && FOREIGN_COUNTRY_PATTERNS.some(re => re.test(jobLocLower));
         if (isExplicitlyForeign) {
           console.log(`[Guardrail] Rejecting foreign-country job for US search: ${raw.location}`);
           continue;
         }
 
+        // 1. Source/Site Filtering: Ensure the job's source matches user's selected targetSites
+        if (targetSites && targetSites.length > 0) {
+          const rawSourceLower = (raw.source || "").toLowerCase();
+          const matchesSites = targetSites.some(site => {
+            const cleanSite = site.toLowerCase().replace(".com", "").replace(".gov", "").replace(".org", "").trim();
+            return rawSourceLower.includes(cleanSite);
+          });
+          if (!matchesSites) {
+            console.log(`[Guardrail] Skipping source as it doesn't match Target Sites: ${raw.source} (Target: ${targetSites.join(", ")})`);
+            continue;
+          }
+        }
+
+        // 2. Geographic Filtering (Proximity & State checks)
         const jobState = getStateCode(jobLocLower);
-        const isLocationMatch = targetLocations.length === 0 || (
-          !jobLocLower ||
-          jobLocLower.includes("united states") ||
-          jobLocLower.includes("nationwide") ||
-          jobLocLower.includes("national") ||
-          jobLocLower.includes("remote") ||
-          jobLocLower.includes("anywhere") ||
-          jobLocLower.includes("worldwide") ||
-          (targetState && jobState && targetState === jobState) ||
-          targetLocations.some(target => {
-            const cleanTarget = target.toLowerCase().trim();
-            if (!cleanTarget) return false;
-            if (jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower)) return true;
-            const isRemoteTarget = cleanTarget.includes("remote");
-            if (isRemoteTarget && (jobLocLower.includes("remote") || jobLocLower.includes("anywhere"))) return true;
-            const targetWords = cleanTarget.split(/[\s,;]+/).filter(w => w.length > 3);
-            return targetWords.length > 0 && targetWords.some(word => jobLocLower.includes(word));
-          })
-        );
+        const isRemoteJob = jobLocLower.includes("remote") || 
+                            jobLocLower.includes("anywhere") || 
+                            jobLocLower.includes("worldwide") ||
+                            jobLocLower === "united states" ||
+                            jobLocLower === "us" ||
+                            jobLocLower === "usa";
+
+        // Reject if job specifies a physical state that does not match the target state
+        // unless it's a completely remote job with no specific city name in that other state.
+        if (targetState && jobState && targetState !== jobState) {
+          console.log(`[Guardrail] Rejecting job in different state: ${raw.location} (Target state: ${targetState})`);
+          continue;
+        }
+
+        let isLocationMatch = false;
+        
+        // Try geocoding + haversine distance filtering first
+        if (targetLocations.length > 0) {
+          let withinRadius = false;
+          let geocodeSuccess = false;
+
+          const jobCoords = await geocodeLocation(raw.location);
+          if (jobCoords) {
+            geocodeSuccess = true;
+            for (const { coords } of targetCoordsList) {
+              const dist = haversineDistanceMiles(coords, jobCoords);
+              if (dist <= radius) {
+                withinRadius = true;
+                break;
+              }
+            }
+          }
+
+          if (geocodeSuccess) {
+            isLocationMatch = withinRadius || isRemoteJob;
+          } else {
+            // Fallback: substring check if geocoding fails
+            isLocationMatch = isRemoteJob || targetLocations.some(target => {
+              const cleanTarget = target.toLowerCase().trim().replace(/,\s*\w{2}$/, ""); // remove state suffix
+              if (!cleanTarget) return false;
+              return jobLocLower.includes(cleanTarget) || cleanTarget.includes(jobLocLower);
+            });
+          }
+        } else {
+          isLocationMatch = true;
+        }
 
         if (!isLocationMatch) {
-          console.log(`[Guardrail] Skipping location as it doesn't match Target Locations: ${raw.location}`);
+          console.log(`[Guardrail] Skipping location as it doesn't match Target Locations / Proximity: ${raw.location}`);
           continue;
         }
 
@@ -987,9 +1120,13 @@ export async function analyzeSingleJob(jobId: string, profileIdOverride?: string
   const profileId = profileIdOverride || await getActiveProfileId();
   const profile = await getProfile(profileId);
   const jobs = await getJobs(profileId);
-  const job = jobs.find((j: any) => j.id === jobId);
+  const jobMeta = jobs.find((j: any) => j.id === jobId);
 
-  if (!job || !profile) throw new Error("Job or profile not found");
+  if (!jobMeta || !profile) throw new Error("Job or profile not found");
+  
+  const { getJobDetails } = await import("@/lib/storage");
+  const jobDetails = await getJobDetails(jobId, profileId) || {};
+  const job = { ...jobMeta, ...jobDetails };
 
   // Tier 1 Heuristic check: Skip scraping & AI matching for high-risk ghost listings to save tokens!
   const ghostScore = computeGhostScore(job);

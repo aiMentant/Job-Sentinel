@@ -129,7 +129,12 @@ export async function runBulkSubmissions(jobs: Job[]) {
           }
 
           await setAgentStatus({ status: `Processing form for ${job.company}...`, progress: 50 });
-          await fillJobApplication(page, job, profile);
+          
+          const { getJobDetails } = await import("@/lib/storage");
+          const jobDetails = await getJobDetails(job.id, await getActiveProfileId());
+          const fullJob = { ...job, ...jobDetails };
+          
+          await fillJobApplication(page, fullJob, profile);
           
           // FINAL HUMAN REVIEW (Guardrail)
           await waitForHuman(page, "Form filled. Please REVIEW the data, UPLOAD your resume, and click SUBMIT on the site. Then click 'Resume' here.");

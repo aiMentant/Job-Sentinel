@@ -174,16 +174,21 @@ export default function TrackerPage() {
   }, [activeProfileId]);
   
   useEffect(() => {
+    let mounted = true;
     async function poll() {
       const { fetchJobs, fetchUserProfile } = await import("@/app/actions/jobActions");
       const { getAgentStatus } = await import("@/app/actions/agentStatus");
-      const [j, p, s] = await Promise.all([fetchJobs(), fetchUserProfile(), getAgentStatus()]);
+      const [j, p, s] = await Promise.all([fetchJobs(activeProfileId), fetchUserProfile(activeProfileId), getAgentStatus()]);
+      if (!mounted) return;
       if (j) setJobs(j);
       if (p) setProfile(p);
       if (s) setAgent(s as any);
     }
     const interval = setInterval(poll, 5000);
-    return () => clearInterval(interval);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
   }, [activeProfileId]);
 
   useEffect(() => {
@@ -220,7 +225,7 @@ export default function TrackerPage() {
 
   async function loadJobs() {
     setLoading(true);
-    const data = await fetchJobs();
+    const data = await fetchJobs(activeProfileId);
     setJobs(data);
     setLoading(false);
   }

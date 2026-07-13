@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   LayoutDashboard, 
   Search, 
@@ -62,11 +62,14 @@ export default function Sidebar() {
   }, [pathname]);
 
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const hasCheckedSetup = useRef<string | null>(null);
 
   useEffect(() => {
     if (!activeProfileId || pathname === "/login") return;
-
+    if (hasCheckedSetup.current === activeProfileId) return;
+    
     const checkSetup = async () => {
+      hasCheckedSetup.current = activeProfileId;
       try {
         // Guard immediately — don't re-run if already acknowledged for this profile
         const alreadyShown = localStorage.getItem(`job_sentinel_setup_shown_${activeProfileId}`);
@@ -93,9 +96,7 @@ export default function Sidebar() {
       checkSetup();
     }, 800);
     return () => clearTimeout(timer);
-  // Only re-run when the active profile changes, NOT on every page navigation
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProfileId]);
+  }, [activeProfileId, pathname]);
 
   const activeProfile = profiles.find(p => p.id === activeProfileId);
 
@@ -103,7 +104,7 @@ export default function Sidebar() {
   if (pathname === "/login") return null;
 
   return (
-    <div className={`${isCollapsed ? "w-20" : "w-64"} border-r border-card-border bg-card/65 backdrop-blur-xl h-screen sticky top-0 flex flex-col transition-all duration-300 ease-in-out p-4 group/sidebar`}>
+    <div className={`${isCollapsed ? "w-20" : "w-[85vw] max-w-[256px] md:w-64 fixed md:sticky shadow-2xl md:shadow-none z-[60]"} border-r border-card-border bg-card/65 backdrop-blur-xl h-[100dvh] top-0 flex flex-col transition-all duration-300 ease-in-out p-4 group/sidebar`}>
       {/* Collapse Toggle Button */}
       <button 
         onClick={() => setIsCollapsed(!isCollapsed)}
@@ -248,7 +249,7 @@ export default function Sidebar() {
             )}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold truncate text-foreground">
-                {activeProfile?.fullName || activeProfileId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+                {activeProfile?.fullName || (activeProfileId || 'default').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
               </p>
               <p className="text-[10px] text-text-muted truncate capitalize">{activeProfileId === 'default' ? 'Lea W - Admin' : activeProfileId} Profile</p>
             </div>

@@ -147,6 +147,7 @@ export type UserProfile = {
   geminiApiKey?: string;
   preferredModel?: string;
   lastSearchTime?: string;
+  targetSites?: string[];
 };
 
 

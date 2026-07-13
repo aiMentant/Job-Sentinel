@@ -46,12 +46,18 @@ export default function Dashboard() {
 
 
   useEffect(() => {
+    let mounted = true;
     async function load() {
       setIsLoadingJobs(true);
-      const p = await fetchUserProfile();
-      if (p) setProfile(p);
+      const p = await fetchUserProfile(activeProfileId);
+      if (!mounted) return;
+      if (p) {
+        setProfile(p);
+        if (p.searchRadius) setRadius(p.searchRadius);
+      }
       
-      const allJobs = await fetchJobs();
+      const allJobs = await fetchJobs(activeProfileId);
+      if (!mounted) return;
       setJobs(allJobs);
       // Get top 3 new jobs with score > 70 or just highest scores
       const filtered = allJobs
@@ -63,6 +69,7 @@ export default function Dashboard() {
 
     }
     load();
+    return () => { mounted = false; };
   }, [activeProfileId]);
 
   const handleActionJob = async (jobId: string, status: string) => {
@@ -72,7 +79,7 @@ export default function Dashboard() {
   };
 
   const refreshTopJobs = async () => {
-    const allJobs = await fetchJobs();
+    const allJobs = await fetchJobs(activeProfileId);
     setJobs(allJobs);
     const filtered = allJobs
       .filter((j: any) => j.status === 'Discovery')
@@ -100,9 +107,11 @@ export default function Dashboard() {
         validTitles,
         validLocations,
         radius,
-        profile.resumeText || ""
+        profile.resumeText || "",
+        profile.targetSites || ["linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com", "usajobs.gov", "snagajob.com"],
+        activeProfileId
       );
-      await addJobs(newJobs);
+      await addJobs(newJobs, activeProfileId);
       await refreshTopJobs();
       setSearchStatus(`Found ${newJobs.length} new matches.`);
       setTimeout(() => setSearchStatus(""), 5000);

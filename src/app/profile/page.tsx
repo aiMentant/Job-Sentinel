@@ -155,7 +155,7 @@ function ProfilePageContent() {
     async function loadData() {
       setIsDataLoading(true);
       try {
-        const savedProfile = await fetchUserProfile();
+        const savedProfile = await fetchUserProfile(activeProfileId);
         if (!isMounted) return;
         if (savedProfile) {
           setProfileHelper(savedProfile);
@@ -395,7 +395,7 @@ function ProfilePageContent() {
                   router.push("/profile");
                   return;
                 }
-                const savedProfile = await fetchUserProfile();
+                const savedProfile = await fetchUserProfile(activeProfileId);
                 if (savedProfile) {
                   setProfile(savedProfile);
                   setResumeText(savedProfile.resumeText || "");

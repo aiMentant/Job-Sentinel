@@ -54,7 +54,7 @@ export default function ApplicationsPage() {
   }, [activeProfileId]);
 
   const loadJobs = async () => {
-    const data = await fetchJobs();
+    const data = await fetchJobs(activeProfileId);
     // Only show "Actioned" jobs in the Submission Log
     const actionedStatuses = ['Applied', 'Recruiter Screen', 'Technical Round', 'Portfolio Presentation', '2nd Interview', 'Final Round', 'Offer', 'Rejected', 'Cancelled'];
     const filtered = data.filter((j: any) => actionedStatuses.includes(j.status));

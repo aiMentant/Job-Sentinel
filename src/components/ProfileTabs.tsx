@@ -22,25 +22,31 @@ export default function ProfileTabs() {
   } | null>(null);
 
   useEffect(() => {
+    let mounted = true;
     async function checkStatus() {
       try {
         const status = await getDbStatus();
-        setDbStatus(status);
+        if (mounted) setDbStatus(status);
       } catch (e: any) {
-        setDbStatus({ 
-          connected: false, 
-          hasUrl: false, 
-          hasKey: false, 
-          clientInitialized: false, 
-          urlPreview: "error", 
-          keyLength: 0, 
-          startsWithHttp: false,
-          error: e.message || String(e)
-        } as any);
+        if (mounted) {
+          setDbStatus({ 
+            connected: false, 
+            hasUrl: false, 
+            hasKey: false, 
+            clientInitialized: false, 
+            urlPreview: "error", 
+            keyLength: 0, 
+            startsWithHttp: false,
+            error: e.message || String(e)
+          } as any);
+        }
       }
     }
     checkStatus();
+    return () => { mounted = false; };
+  }, []);
 
+  useEffect(() => {
     const getCookie = (name: string): string | null => {
       if (typeof document === 'undefined') return null;
       const value = `; ${document.cookie}`;
@@ -50,7 +56,7 @@ export default function ProfileTabs() {
     };
     const role = getCookie("auth_role");
     setIsAdmin(role === "admin");
-  }, [profiles, pathname]);
+  }, [pathname]);
 
   // Don't show tabs on login screen
   if (pathname === "/login") return null;
@@ -135,7 +141,12 @@ export default function ProfileTabs() {
       </div>
 
       <div className="flex items-center gap-3 pl-4 border-l border-card-border shrink-0 ml-4 pb-3">
-        {dbStatus?.connected ? (
+        {dbStatus === null ? (
+          <div className="px-3 py-1 bg-foreground/5 border border-card-border text-text-muted rounded-md text-[9px] font-black uppercase tracking-widest flex items-center gap-1 animate-pulse">
+            <span className="w-2.5 h-2.5 rounded-full bg-text-muted/50" />
+            Checking DB...
+          </div>
+        ) : dbStatus.connected ? (
           <div className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center gap-1 animate-pulse" title={tooltipText}>
             <Sparkles className="w-2.5 h-2.5" />
             Cloud Database Connected

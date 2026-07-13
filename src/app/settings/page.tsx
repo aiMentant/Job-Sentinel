@@ -42,10 +42,12 @@ export default function SettingsPage() {
   const [validationResult, setValidationResult] = useState<{ success: boolean | null; message: string }>({ success: null, message: "" });
 
   useEffect(() => {
+    let mounted = true;
     async function loadSettings() {
       setIsLoading(true);
       try {
-        const profile = await fetchUserProfile();
+        const profile = await fetchUserProfile(activeProfileId);
+        if (!mounted) return;
         if (profile) {
           setApiKey(profile.geminiApiKey || "");
           setPreferredModel(profile.preferredModel || "gemini-2.0-flash");
@@ -65,6 +67,7 @@ export default function SettingsPage() {
       }
     }
     loadSettings();
+    return () => { mounted = false; };
   }, [activeProfileId]);
 
   const handleSaveSettings = async () => {
